@@ -29,6 +29,75 @@ Resources:
           Properties:
             Path: /v1/health
             Method: GET
+
+  RestaurantsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+
+  RestaurantConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+
+  MenusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: menu_version
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+        - AttributeName: menu_version
+          KeyType: RANGE
+    
+  RestaurantsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src_restaurants/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Environment:
+        Variables:
+          RESTAURANTS_TABLE: !Ref RestaurantsTable
+          MENUS_TABLE: !Ref MenusTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MenusTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantConfigTable
+      Events:
+        ListRestaurants:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants
+            Method: GET
+        GetMenu:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/menu
+            Method: GET
+
+
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
     Properties:
@@ -49,4 +118,17 @@ Outputs:
   HealthFunctionArn:
     Description: "Health Lambda ARN"
     Value: !GetAtt HealthFunction.Arn
+
+  RestaurantsTableName:
+    Description: "DynamoDB table for restaurants"
+    Value: !Ref RestaurantsTable
+
+  RestaurantConfigTableName:
+    Description: "DynamoDB table for restaurant config"
+    Value: !Ref RestaurantConfigTable
+
+  MenusTableName:
+    Description: "DynamoDB table for menus"
+    Value: !Ref MenusTable
+
 
