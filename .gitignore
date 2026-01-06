@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# SAM / AWS
+.aws-sam/
+samconfig.toml
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
