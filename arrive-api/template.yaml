@@ -97,6 +97,58 @@ Resources:
             Path: /v1/restaurants/{restaurant_id}/menu
             Method: GET
 
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_RestaurantStatus
+          KeySchema:
+            - AttributeName: restaurant_id
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  OrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src_orders/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        CreateOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders
+            Method: POST
+        UpdateVicinity:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/vicinity
+            Method: POST
+        ListRestaurantOrders:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/orders
+            Method: GET
 
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group
@@ -130,5 +182,10 @@ Outputs:
   MenusTableName:
     Description: "DynamoDB table for menus"
     Value: !Ref MenusTable
+  
+  OrdersTableName:
+    Description: "DynamoDB table for orders"
+    Value: !Ref OrdersTable
+
 
 
