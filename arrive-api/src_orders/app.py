@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from datetime import datetime, timezone
 
 ddb = boto3.resource("dynamodb")
 ORDERS_TABLE = os.environ["ORDERS_TABLE"]
@@ -13,7 +14,13 @@ ORDERS_TABLE = os.environ["ORDERS_TABLE"]
 STATUS_PENDING = "PENDING_NOT_SENT"
 STATUS_SENT = "SENT_TO_RESTAURANT"
 STATUS_EXPIRED = "EXPIRED"  # not used yet, but reserved
+STATUS_WAITING = "WAITING_FOR_CAPACITY"
 
+RESTAURANT_CONFIG_TABLE = os.environ["RESTAURANT_CONFIG_TABLE"]
+CAPACITY_TABLE = os.environ["CAPACITY_TABLE"]
+
+def _iso_utc(ts: int) -> str:
+    return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
 
 def _json_default(o):
     if isinstance(o, Decimal):
@@ -29,6 +36,42 @@ def _resp(status: int, body: dict):
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body, default=_json_default),
     }
+
+def _now() -> int:
+    return int(time.time())
+
+def _window_start(now: int, window_seconds: int) -> int:
+    return now - (now % window_seconds)
+
+def _get_capacity_config(restaurant_id: str) -> tuple[int, int]:
+    cfg_table = ddb.Table(RESTAURANT_CONFIG_TABLE)
+    item = cfg_table.get_item(Key={"restaurant_id": restaurant_id}).get("Item") or {}
+    window_seconds = int(item.get("capacity_window_seconds", 600))
+    max_units = int(item.get("max_prep_units_per_window", 20))
+    return window_seconds, max_units
+
+def _try_reserve_capacity(restaurant_id: str, window_start: int, add_units: int, max_units: int) -> bool:
+    """
+    Atomically reserve capacity for a restaurant window.
+    Condition ensures used_units + add_units <= max_units.
+    """
+    cap_table = ddb.Table(CAPACITY_TABLE)
+    ttl = window_start + 6 * 3600  # keep 6 hours then auto-expire
+
+    try:
+        cap_table.update_item(
+            Key={"restaurant_id": restaurant_id, "window_start": window_start},
+            UpdateExpression="SET ttl = :ttl ADD used_units :add",
+            ConditionExpression="attribute_not_exists(used_units) OR used_units <= :limit",
+            ExpressionAttributeValues={
+                ":add": add_units,
+                ":limit": max_units - add_units,
+                ":ttl": ttl,
+            },
+        )
+        return True
+    except Exception:
+        return False
 
 
 def lambda_handler(event, context):
@@ -131,12 +174,13 @@ def create_order(payload: dict):
         "expires_at": expires_at,
     })
 
-
 def update_vicinity(order_id: str, payload: dict):
     """
     Body:
       { "vicinity": true }
-    If vicinity true and status PENDING_NOT_SENT and not expired => transition to SENT_TO_RESTAURANT.
+    If vicinity true and status PENDING_NOT_SENT and not expired => either:
+      - reserve capacity and transition to SENT_TO_RESTAURANT
+      - or transition to WAITING_FOR_CAPACITY with suggested_start_at
     """
     vicinity = payload.get("vicinity")
     if vicinity is not True and vicinity is not False:
@@ -150,7 +194,7 @@ def update_vicinity(order_id: str, payload: dict):
     if not order:
         return _resp(404, {"error": {"code": "NOT_FOUND", "message": "order not found"}})
 
-    now = int(time.time())
+    now = _now()
     if now > int(order.get("expires_at", 0)):
         # Mark expired (best-effort)
         table.update_item(
@@ -162,31 +206,75 @@ def update_vicinity(order_id: str, payload: dict):
         return _resp(409, {"error": {"code": "EXPIRED", "message": "order expired"}})
 
     current_status = order.get("status")
+
+    # Fire (capacity-gated)
     if vicinity is True and current_status == STATUS_PENDING:
-        # Transition: PENDING -> SENT (idempotent-safe with condition)
-        try:
-            table.update_item(
-                Key={"order_id": order_id},
-                ConditionExpression="#s = :pending",
-                UpdateExpression="SET #s = :sent, vicinity = :v, sent_at = :t",
-                ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={
-                    ":pending": STATUS_PENDING,
-                    ":sent": STATUS_SENT,
-                    ":v": True,
-                    ":t": now,
-                },
-                ReturnValues="ALL_NEW",
-            )
-        except Exception:
-            # If condition fails, treat as already sent or changed
+        restaurant_id = order["restaurant_id"]
+        prep_units_total = int(order.get("prep_units_total", 1))
+
+        window_seconds, max_units = _get_capacity_config(restaurant_id)
+        ws = _window_start(now, window_seconds)
+
+        reserved = _try_reserve_capacity(restaurant_id, ws, prep_units_total, max_units)
+
+        if reserved:
+            # Transition: PENDING -> SENT
+            try:
+                table.update_item(
+                    Key={"order_id": order_id},
+                    ConditionExpression="#s = :pending",
+                    UpdateExpression="SET #s = :sent, vicinity = :v, sent_at = :t, capacity_window_start = :ws",
+                    ExpressionAttributeNames={"#s": "status"},
+                    ExpressionAttributeValues={
+                        ":pending": STATUS_PENDING,
+                        ":sent": STATUS_SENT,
+                        ":v": True,
+                        ":t": now,
+                        ":ws": ws,
+                    },
+                )
+            except Exception:
+                latest = table.get_item(Key={"order_id": order_id}).get("Item", {})
+                return _resp(200, {
+                    "order_id": order_id,
+                    "status": latest.get("status"),
+                    "vicinity": latest.get("vicinity"),
+                })
+
             latest = table.get_item(Key={"order_id": order_id}).get("Item", {})
-            return _resp(200, {"order_id": order_id, "status": latest.get("status"), "vicinity": latest.get("vicinity")})
+            return _resp(200, {
+                "order_id": order_id,
+                "status": latest.get("status"),
+                "vicinity": latest.get("vicinity"),
+            })
 
-        latest = table.get_item(Key={"order_id": order_id}).get("Item", {})
-        return _resp(200, {"order_id": order_id, "status": latest.get("status"), "vicinity": latest.get("vicinity")})
+        # No capacity: move to WAITING_FOR_CAPACITY
+        suggested_start_at = ws + window_seconds  # next window (v0)
+        table.update_item(
+            Key={"order_id": order_id},
+            UpdateExpression="SET #s = :w, vicinity = :v, waiting_since = :t, suggested_start_at = :ssa",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":w": STATUS_WAITING,
+                ":v": True,
+                ":t": now,
+                ":ssa": suggested_start_at,
+            },
+        )
+        retry_after_seconds = max(0, int(suggested_start_at) - now)
 
-    # For prototype: allow clearing vicinity but do not revert SENT
+        return _resp(200, {
+            "order_id": order_id,
+            "status": STATUS_WAITING,
+            "vicinity": True,
+            "suggested_start_at": suggested_start_at,
+            "suggested_start_at_iso": _iso_utc(suggested_start_at),
+            "retry_after_seconds": retry_after_seconds,
+            "message": "Restaurant is at capacity. Start later to avoid waiting."
+        })
+
+
+    # Allow clearing vicinity but do not revert SENT
     if vicinity is False:
         table.update_item(
             Key={"order_id": order_id},
@@ -197,7 +285,6 @@ def update_vicinity(order_id: str, payload: dict):
         return _resp(200, {"order_id": order_id, "status": latest.get("status"), "vicinity": latest.get("vicinity")})
 
     return _resp(200, {"order_id": order_id, "status": current_status, "vicinity": order.get("vicinity", False)})
-
 
 def list_restaurant_orders(restaurant_id: str, status: str):
     table = ddb.Table(ORDERS_TABLE)

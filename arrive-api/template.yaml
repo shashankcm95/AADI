@@ -66,6 +66,24 @@ Resources:
           KeyType: HASH
         - AttributeName: menu_version
           KeyType: RANGE
+
+  CapacityTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: window_start
+          AttributeType: N
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+        - AttributeName: window_start
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
     
   RestaurantsFunction:
     Type: AWS::Serverless::Function
@@ -130,9 +148,16 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+          CAPACITY_TABLE: !Ref CapacityTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantConfigTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CapacityTable
+
       Events:
         CreateOrder:
           Type: HttpApi
@@ -186,6 +211,11 @@ Outputs:
   OrdersTableName:
     Description: "DynamoDB table for orders"
     Value: !Ref OrdersTable
+
+  CapacityTableName:
+    Description: "DynamoDB table for capacity windows"
+    Value: !Ref CapacityTable
+
 
 
 
