@@ -1,0 +1,21 @@
+{
+  "restaurant_id": {"S": "rst_001"},
+  "menu_version": {"S": "mv_001"},
+  "menu": {"M": {
+    "sections": {"L": [
+      {"M": {
+        "title": {"S": "Sandwiches"},
+        "items": {"L": [
+          {"M": {"id": {"S":"it_001"}, "name":{"S":"Turkey Sandwich"}, "price_cents":{"N":"1099"}, "prep_units":{"N":"2"}}},
+          {"M": {"id": {"S":"it_002"}, "name":{"S":"Veggie Sandwich"}, "price_cents":{"N":"999"}, "prep_units":{"N":"2"}}}
+        ]}
+      }},
+      {"M": {
+        "title": {"S": "Sides"},
+        "items": {"L": [
+          {"M": {"id": {"S":"it_101"}, "name":{"S":"Chips"}, "price_cents":{"N":"199"}, "prep_units":{"N":"1"}}}
+        ]}
+      }}
+    ]}
+  }}
+}
