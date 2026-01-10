@@ -61,16 +61,23 @@ def _try_reserve_capacity(restaurant_id: str, window_start: int, add_units: int,
     try:
         cap_table.update_item(
             Key={"restaurant_id": restaurant_id, "window_start": window_start},
-            UpdateExpression="SET ttl = :ttl ADD used_units :add",
-            ConditionExpression="attribute_not_exists(used_units) OR used_units <= :limit",
+            UpdateExpression="SET #ttl = :ttl ADD used_units :add",
+            ExpressionAttributeNames={
+                "#ttl": "ttl",
+            },
+            ConditionExpression="(attribute_not_exists(used_units) AND :add <= :max) OR (used_units <= :limit)",
             ExpressionAttributeValues={
                 ":add": add_units,
+                ":max": max_units,
                 ":limit": max_units - add_units,
                 ":ttl": ttl,
             },
         )
+
         return True
-    except Exception:
+    except Exception as e:
+        # Keep this lightweight; DynamoDB failures should not crash the request.
+        print(f"CAPACITY_RESERVE_ERROR: {type(e).__name__}: {e}")
         return False
 
 
@@ -99,7 +106,7 @@ def lambda_handler(event, context):
             except json.JSONDecodeError:
                 return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
             return update_vicinity(order_id, payload)
-
+        
     # Route: GET /v1/restaurants/{restaurant_id}/orders?status=...
     if method == "GET" and path.startswith("/v1/restaurants/") and path.endswith("/orders"):
         parts = path.split("/")
@@ -223,7 +230,10 @@ def update_vicinity(order_id: str, payload: dict):
                 table.update_item(
                     Key={"order_id": order_id},
                     ConditionExpression="#s = :pending",
-                    UpdateExpression="SET #s = :sent, vicinity = :v, sent_at = :t, capacity_window_start = :ws",
+                    UpdateExpression=(
+                        "SET #s = :sent, vicinity = :v, sent_at = :t, "
+                        "capacity_window_start = :ws, received_by_restaurant = :r, received_at = :t"
+                    ),
                     ExpressionAttributeNames={"#s": "status"},
                     ExpressionAttributeValues={
                         ":pending": STATUS_PENDING,
@@ -231,6 +241,7 @@ def update_vicinity(order_id: str, payload: dict):
                         ":v": True,
                         ":t": now,
                         ":ws": ws,
+                        ":r": True,
                     },
                 )
             except Exception:
