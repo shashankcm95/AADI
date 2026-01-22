@@ -244,4 +244,8 @@ $RECYCLE.BIN/
 # Seed data / local scripts
 arrive-api/scripts/seed/*.json
 
-# End of https://www.gitignore.io/api/osx,linux,python,windows,pycharm,visualstudiocode
+# SAM build artifacts
+**/.aws-sam/
+
+# End of https://www.gitignore.io/api/osx,linux,python,windows,pycharm,visualstudiocode 
+

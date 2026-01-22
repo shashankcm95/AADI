@@ -6,6 +6,7 @@ __pycache__/
 # SAM / AWS
 .aws-sam/
 samconfig.toml
+**/.aws-sam/
 
 # OS
 .DS_Store
