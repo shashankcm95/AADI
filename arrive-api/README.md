@@ -1,130 +1,108 @@
-# arrive-api
+# Arrive API
 
-This project contains source code and supporting files for a serverless application that you can deploy with the SAM CLI. It includes the following files and folders.
+Arrive is a **capacity-gated dispatch system** that safely transitions customer intent into provider work, based on eligibility signals and real-time capacity.
 
-- hello_world - Code for the application's Lambda function.
-- events - Invocation events that you can use to invoke the function.
-- tests - Unit tests for the application code. 
-- template.yaml - A template that defines the application's AWS resources.
+The system is designed around a **utility-agnostic core**, with dine-in restaurants as the first concrete implementation.
 
-The application uses several AWS resources, including Lambda functions and an API Gateway API. These resources are defined in the `template.yaml` file in this project. You can update the template to add AWS resources through the same deployment process that updates your application code.
+---
 
-If you prefer to use an integrated development environment (IDE) to build and test your application, you can use the AWS Toolkit.  
-The AWS Toolkit is an open source plug-in for popular IDEs that uses the SAM CLI to build and deploy serverless applications on AWS. The AWS Toolkit also adds a simplified step-through debugging experience for Lambda function code. See the following links to get started.
+## What This Repo Is
 
-* [CLion](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [GoLand](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [IntelliJ](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [WebStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [Rider](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PhpStorm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [PyCharm](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [RubyMine](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [DataGrip](https://docs.aws.amazon.com/toolkit-for-jetbrains/latest/userguide/welcome.html)
-* [VS Code](https://docs.aws.amazon.com/toolkit-for-vscode/latest/userguide/welcome.html)
-* [Visual Studio](https://docs.aws.amazon.com/toolkit-for-visual-studio/latest/user-guide/welcome.html)
+This repository contains:
+- A serverless API (AWS Lambda + API Gateway)
+- A deterministic state machine for work dispatch
+- A capacity accounting system that prevents overbooking
+- A clean seam for future utilities beyond restaurants
 
-## Deploy the sample application
+Current utility:
+- **Dine-in restaurant order dispatch**
 
-The Serverless Application Model Command Line Interface (SAM CLI) is an extension of the AWS CLI that adds functionality for building and testing Lambda applications. It uses Docker to run your functions in an Amazon Linux environment that matches Lambda. It can also emulate your application's build environment and API.
+Future utilities (by design):
+- Appointments
+- Retail pickup
+- Service queues
+- Any capacity-bound workflow
 
-To use the SAM CLI, you need the following tools.
+---
 
-* SAM CLI - [Install the SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html)
-* [Python 3 installed](https://www.python.org/downloads/)
-* Docker - [Install Docker community edition](https://hub.docker.com/search/?type=edition&offering=community)
+## Core Idea (One Paragraph)
 
-To build and deploy your application for the first time, run the following in your shell:
+A work item (order) is created in a neutral pending state.  
+When an eligibility signal becomes true (e.g., customer is nearby), the system attempts to **atomically reserve capacity** for the current time window.  
 
-```bash
-sam build --use-container
-sam deploy --guided
-```
+If capacity is available, the work item is dispatched immediately.  
+If not, the system returns **wait guidance** instead of failing or overbooking.
 
-The first command will build the source of your application. The second command will package and deploy your application to AWS, with a series of prompts:
+---
 
-* **Stack Name**: The name of the stack to deploy to CloudFormation. This should be unique to your account and region, and a good starting point would be something matching your project name.
-* **AWS Region**: The AWS region you want to deploy your app to.
-* **Confirm changes before deploy**: If set to yes, any change sets will be shown to you before execution for manual review. If set to no, the AWS SAM CLI will automatically deploy application changes.
-* **Allow SAM CLI IAM role creation**: Many AWS SAM templates, including this example, create AWS IAM roles required for the AWS Lambda function(s) included to access AWS services. By default, these are scoped down to minimum required permissions. To deploy an AWS CloudFormation stack which creates or modifies IAM roles, the `CAPABILITY_IAM` value for `capabilities` must be provided. If permission isn't provided through this prompt, to deploy this example you must explicitly pass `--capabilities CAPABILITY_IAM` to the `sam deploy` command.
-* **Save arguments to samconfig.toml**: If set to yes, your choices will be saved to a configuration file inside the project, so that in the future you can just re-run `sam deploy` without parameters to deploy changes to your application.
+## System Status
 
-You can find your API Gateway Endpoint URL in the output values displayed after deployment.
+**Milestone:** `milestone-capacity-v1`
 
-## Use the SAM CLI to build and test locally
+✔ Capacity-gated dispatch  
+✔ Atomic reservations  
+✔ Auto-ack on dispatch  
+✔ Stable core APIs  
+✔ Deterministic state transitions  
 
-Build your application with the `sam build --use-container` command.
+This milestone represents a **stable foundation** for future growth.
 
-```bash
-arrive-api$ sam build --use-container
-```
+---
 
-The SAM CLI installs dependencies defined in `hello_world/requirements.txt`, creates a deployment package, and saves it in the `.aws-sam/build` folder.
+## Documentation Index
 
-Test a single function by invoking it directly with a test event. An event is a JSON document that represents the input that the function receives from the event source. Test events are included in the `events` folder in this project.
+All authoritative documentation lives in `/docs`.
 
-Run functions locally and invoke them with the `sam local invoke` command.
+| Doc | Purpose |
+|---|---|
+| [`core-engine-contract.md`](docs/core-engine-contract.md) | Utility-agnostic engine contract |
+| `01-overview.md` | System overview & mental model |
+| `02-architecture.md` | High-level architecture |
+| `03-data-model.md` | DynamoDB tables & indexes |
+| `04-api-reference.md` | API endpoints & payloads |
+| `05-state-machine.md` | Order lifecycle |
+| `06-capacity-model.md` | Windowing & reservation logic |
+| `09-operational-notes.md` | Deployment & ops notes |
+| `10-future-considerations.md` | Planned evolution |
 
-```bash
-arrive-api$ sam local invoke HelloWorldFunction --event events/event.json
-```
+---
 
-The SAM CLI can also emulate your application's API. Use the `sam local start-api` to run the API locally on port 3000.
+## Running Locally
 
 ```bash
-arrive-api$ sam local start-api
-arrive-api$ curl http://localhost:3000/
-```
+sam build
+sam local start-api
 
-The SAM CLI reads the application template to determine the API's routes and the functions that they invoke. The `Events` property on each function's definition includes the route and method for each path.
+\# Environment variables:
 
-```yaml
-      Events:
-        HelloWorld:
-          Type: Api
-          Properties:
-            Path: /hello
-            Method: get
-```
+ORDERS_TABLE
+RESTAURANT_CONFIG_TABLE
+CAPACITY_TABLE
 
-## Add a resource to your application
-The application template uses AWS Serverless Application Model (AWS SAM) to define application resources. AWS SAM is an extension of AWS CloudFormation with a simpler syntax for configuring common serverless application resources such as functions, triggers, and APIs. For resources not included in [the SAM specification](https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md), you can use standard [AWS CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-template-resource-type-ref.html) resource types.
+(See docs/09-operational-notes.md for full setup.)
 
-## Fetch, tail, and filter Lambda function logs
+\## Design Principles
+Safety over throughput
+No implicit dispatch
+Capacity is a hard invariant
+Core logic remains utility-agnostic
+APIs are explicit and idempotent
 
-To simplify troubleshooting, SAM CLI has a command called `sam logs`. `sam logs` lets you fetch logs generated by your deployed Lambda function from the command line. In addition to printing the logs on the terminal, this command has several nifty features to help you quickly find the bug.
+\##Repo Structure (High Level)
+arrive-api/
+├── app.py            # Lambda entrypoint
+├── template.yaml     # SAM template
+├── docs/             # All documentation
+├── events/           # Test payloads
+└── README.md
+Contributing
+This repo intentionally favors:
 
-`NOTE`: This command works for all AWS Lambda functions; not just the ones you deploy using SAM.
+Explicit state transitions
 
-```bash
-arrive-api$ sam logs -n HelloWorldFunction --stack-name "arrive-api" --tail
-```
+Clear invariants
 
-You can find more information and examples about filtering Lambda function logs in the [SAM CLI Documentation](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-logging.html).
+Small, verifiable changes
 
-## Tests
-
-Tests are defined in the `tests` folder in this project. Use PIP to install the test dependencies and run tests.
-
-```bash
-arrive-api$ pip install -r tests/requirements.txt --user
-# unit test
-arrive-api$ python -m pytest tests/unit -v
-# integration test, requiring deploying the stack first.
-# Create the env variable AWS_SAM_STACK_NAME with the name of the stack we are testing
-arrive-api$ AWS_SAM_STACK_NAME="arrive-api" python -m pytest tests/integration -v
-```
-
-## Cleanup
-
-To delete the sample application that you created, use the AWS CLI. Assuming you used your project name for the stack name, you can run the following:
-
-```bash
-sam delete --stack-name "arrive-api"
-```
-
-## Resources
-
-See the [AWS SAM developer guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/what-is-sam.html) for an introduction to SAM specification, the SAM CLI, and serverless application concepts.
-
-Next, you can use AWS Serverless Application Repository to deploy ready to use Apps that go beyond hello world samples and learn how authors developed their applications: [AWS Serverless Application Repository main page](https://aws.amazon.com/serverless/serverlessrepo/)
+If a change breaks any invariant described in core-engine-contract.md,
+it should be considered a breaking change.
