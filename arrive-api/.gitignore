@@ -247,5 +247,7 @@ scripts/seed/*.json
 # SAM build artifacts
 **/.aws-sam/
 
+env.local.json
+
 # End of https://www.gitignore.io/api/osx,linux,python,windows,pycharm,visualstudiocode 
 

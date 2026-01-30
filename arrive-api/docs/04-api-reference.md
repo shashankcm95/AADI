@@ -158,6 +158,41 @@ Success Response — 200 OK
   ]
 }
 
+### POST /v1/restaurants/{restaurant_id}/orders/{order_id}/ack
+
+Restaurant-side optional acknowledgement that an order was **received/seen**.
+
+This endpoint is **optional**. By default, the system performs a "soft receipt" on dispatch
+(`receipt_mode=SOFT`, `received_at=sent_at`). Calling this endpoint upgrades the receipt
+to `HARD` and sets `received_at` to the time the restaurant acknowledged.
+
+**Request Body**
+```json
+{
+  "mode": "HARD"
+}
+
+200 OK (first time)
+
+{
+  "order_id": "ord_...",
+  "receipt_mode": "HARD",
+  "received_at": 1769747501
+}
+
+
+200 OK (idempotent repeat)
+
+{
+  "order_id": "ord_...",
+  "receipt_mode": "HARD"
+}
+
+
+404 NOT_FOUND if order doesn't exist or restaurant mismatch
+
+409 INVALID_STATE if order is not in SENT_TO_RESTAURANT
+
 Sorting Rules
 
 Sorted by sent_at

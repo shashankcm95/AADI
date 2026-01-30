@@ -236,3 +236,21 @@ Status codes
 Error semantics
 
 Idempotency guarantees
+
+When an order is dispatched (`PENDING_NOT_SENT → SENT_TO_RESTAURANT`), the system sets:
+
+- `received_by_restaurant = true`
+- `received_at = sent_at`
+- `receipt_mode = SOFT`
+
+This is a **soft receipt** intended to avoid operational overhead for restaurants.
+
+If the restaurant uses an explicit acknowledgement flow, it can call:
+
+`POST /v1/restaurants/{restaurant_id}/orders/{order_id}/ack`
+
+On the first successful call:
+- `receipt_mode` is upgraded to `HARD`
+- `received_at` is overwritten with the acknowledgement timestamp
+
+Subsequent calls are idempotent and do not change timestamps.
