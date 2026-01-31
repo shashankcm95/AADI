@@ -51,7 +51,10 @@ def _resp(status: int, body: dict):
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body, default=_json_default),
     }
-
+def _log(event: str, **fields):
+    payload = {"event": event, "ts": _now()}
+    payload.update(fields)
+    print(json.dumps(payload, default=_json_default))
 
 # -------------------------
 # Capacity
@@ -172,6 +175,15 @@ def create_order(payload: dict):
         "vicinity": False,
     })
 
+    _log(
+    "ORDER_CREATED",
+        order_id=order_id,
+        restaurant_id=restaurant_id,
+        prep_units_total=units,
+        total_cents=total,
+        expires_at=now + 1800,
+    )
+
     return _resp(201, {
         "order_id": order_id,
         "status": STATUS_PENDING,
@@ -191,6 +203,14 @@ def update_vicinity(order_id: str, payload: dict):
     if not order:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
 
+    _log(
+        "VICINITY_UPDATE",
+        order_id=order_id,
+        restaurant_id=order.get("restaurant_id"),
+        status=order.get("status"),
+        vicinity=vicinity,
+    )
+
     now = _now()
     if now > order["expires_at"]:
         table.update_item(
@@ -199,11 +219,23 @@ def update_vicinity(order_id: str, payload: dict):
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={":e": STATUS_EXPIRED},
         )
+        _log("ORDER_EXPIRED", order_id=order_id, restaurant_id=order.get("restaurant_id"))
         return _resp(409, {"error": {"code": "EXPIRED"}})
 
     if vicinity is True and order["status"] in (STATUS_PENDING, STATUS_WAITING):
         ws_sec, max_units = _get_capacity_config(order["restaurant_id"])
         ws = _window_start(now, ws_sec)
+
+        _log(
+            "CAPACITY_CHECK",
+            order_id=order_id,
+            restaurant_id=order.get("restaurant_id"),
+            window_start=ws,
+            window_seconds=ws_sec,
+            add_units=order.get("prep_units_total"),
+            max_units=max_units,
+        )
+
 
         if _try_reserve_capacity(order["restaurant_id"], ws, order["prep_units_total"], max_units):
             table.update_item(
@@ -227,6 +259,18 @@ def update_vicinity(order_id: str, payload: dict):
                     ":soft": RECEIPT_SOFT,
                 },
             )
+
+            _log(
+                "ORDER_DISPATCHED",
+                order_id=order_id,
+                restaurant_id=order.get("restaurant_id"),
+                from_status=order.get("status"),
+                to_status=STATUS_SENT,
+                sent_at=now,
+                window_start=ws,
+                receipt_mode=RECEIPT_SOFT,
+            )
+
             return _resp(200, {"order_id": order_id, "status": STATUS_SENT})
 
         table.update_item(
@@ -240,6 +284,16 @@ def update_vicinity(order_id: str, payload: dict):
                 ":ssa": ws + ws_sec,
             },
         )
+
+        _log(
+            "CAPACITY_BLOCKED",
+            order_id=order_id,
+            restaurant_id=order.get("restaurant_id"),
+            from_status=order.get("status"),
+            to_status=STATUS_WAITING,
+            suggested_start_at=ws + ws_sec,
+        )
+
 
         # Capacity full
         return _resp(200, {
@@ -260,6 +314,15 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
     table = ddb.Table(ORDERS_TABLE)
     order = table.get_item(Key={"order_id": order_id}).get("Item")
 
+    _log(
+        "RESTAURANT_ACK_REQUEST",
+        order_id=order_id,
+        restaurant_id=restaurant_id,
+        status=order.get("status"),
+        current_receipt_mode=order.get("receipt_mode"),
+    )
+
+
     if not order or order["restaurant_id"] != restaurant_id:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
 
@@ -267,6 +330,7 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
         return _resp(409, {"error": {"code": "INVALID_STATE"}})
 
     if order.get("receipt_mode") == RECEIPT_HARD:
+        _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
         return _resp(200, {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
 
     now = _now()
@@ -283,6 +347,14 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
             ":t": now,
         },
     )
+
+    _log(
+        "RESTAURANT_ACK_UPGRADED",
+        order_id=order_id,
+        restaurant_id=restaurant_id,
+        receipt_mode=RECEIPT_HARD,
+        received_at=now,
+    )   
 
     return _resp(200, {
         "order_id": order_id,
