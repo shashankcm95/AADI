@@ -201,22 +201,24 @@ def update_vicinity(order_id: str, payload: dict):
         )
         return _resp(409, {"error": {"code": "EXPIRED"}})
 
-    if vicinity is True and order["status"] == STATUS_PENDING:
+    if vicinity is True and order["status"] in (STATUS_PENDING, STATUS_WAITING):
         ws_sec, max_units = _get_capacity_config(order["restaurant_id"])
         ws = _window_start(now, ws_sec)
 
         if _try_reserve_capacity(order["restaurant_id"], ws, order["prep_units_total"], max_units):
             table.update_item(
                 Key={"order_id": order_id},
-                ConditionExpression="#s=:p",
+                ConditionExpression="#s IN (:p, :w)",
                 UpdateExpression=(
                     "SET #s=:sent, vicinity=:v, sent_at=:t, "
                     "capacity_window_start=:ws, "
-                    "received_by_restaurant=:r, received_at=:t, receipt_mode=:soft"
+                    "received_by_restaurant=:r, received_at=:t, receipt_mode=:soft "
+                    "REMOVE waiting_since, suggested_start_at"
                 ),
                 ExpressionAttributeNames={"#s": "status"},
                 ExpressionAttributeValues={
                     ":p": STATUS_PENDING,
+                    ":w": STATUS_WAITING,
                     ":sent": STATUS_SENT,
                     ":v": True,
                     ":t": now,
@@ -226,6 +228,18 @@ def update_vicinity(order_id: str, payload: dict):
                 },
             )
             return _resp(200, {"order_id": order_id, "status": STATUS_SENT})
+
+        table.update_item(
+            Key={"order_id": order_id},
+            UpdateExpression="SET #s=:w, vicinity=:v, waiting_since=:t, suggested_start_at=:ssa",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":w": STATUS_WAITING,
+                ":v": True,
+                ":t": now,
+                ":ssa": ws + ws_sec,
+            },
+        )
 
         # Capacity full
         return _resp(200, {
