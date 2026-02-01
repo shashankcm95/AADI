@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from core.models import (
+from .models import (
     STATUS_PENDING, STATUS_SENT, STATUS_WAITING,
     RECEIPT_SOFT, RECEIPT_HARD,
 )
-from core.errors import ExpiredError, InvalidStateError, NotFoundError
+from .errors import ExpiredError, InvalidStateError, NotFoundError
 
 
 @dataclass(frozen=True)
