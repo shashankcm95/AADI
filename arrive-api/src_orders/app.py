@@ -6,9 +6,19 @@ from decimal import Decimal
 from datetime import datetime, timezone
 
 from core.models import (
-    STATUS_PENDING, STATUS_SENT, STATUS_WAITING, STATUS_EXPIRED,
-    RECEIPT_SOFT, RECEIPT_HARD,
+    STATUS_PENDING,
+    STATUS_SENT,
+    STATUS_WAITING,
+    STATUS_EXPIRED,
+    RECEIPT_SOFT,
+    RECEIPT_HARD,
 )
+from core.engine import decide_vicinity_update, decide_ack_upgrade
+
+from adapters.orders_repo_ddb import OrdersRepoDdb
+from adapters.config_repo_ddb import ConfigRepoDdb
+from adapters.capacity_repo_ddb import CapacityRepoDdb
+
 
 # -------------------------
 # Globals / Config
@@ -17,10 +27,6 @@ from core.models import (
 ORDERS_TABLE = os.environ["ORDERS_TABLE"]
 RESTAURANT_CONFIG_TABLE = os.environ["RESTAURANT_CONFIG_TABLE"]
 CAPACITY_TABLE = os.environ["CAPACITY_TABLE"]
-
-from adapters.orders_repo_ddb import OrdersRepoDdb
-from adapters.config_repo_ddb import ConfigRepoDdb
-from adapters.capacity_repo_ddb import CapacityRepoDdb
 
 orders_repo = OrdersRepoDdb(ORDERS_TABLE)
 config_repo = ConfigRepoDdb(RESTAURANT_CONFIG_TABLE)
@@ -34,16 +40,20 @@ capacity_repo = CapacityRepoDdb(CAPACITY_TABLE)
 def _now() -> int:
     return int(time.time())
 
+
 def _iso_utc(ts: int) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
 
+
 def _window_start(now: int, window_seconds: int) -> int:
     return now - (now % window_seconds)
+
 
 def _json_default(o):
     if isinstance(o, Decimal):
         return int(o) if o % 1 == 0 else float(o)
     return str(o)
+
 
 def _resp(status: int, body: dict):
     return {
@@ -51,54 +61,19 @@ def _resp(status: int, body: dict):
         "headers": {"Content-Type": "application/json"},
         "body": json.dumps(body, default=_json_default),
     }
+
+
 def _log(event: str, **fields):
     payload = {"event": event, "ts": _now()}
     payload.update(fields)
     print(json.dumps(payload, default=_json_default))
 
-# -------------------------
-# Capacity
-# -------------------------
 
-# def _get_capacity_config(restaurant_id: str) -> tuple[int, int]:
-#     cfg = ddb.Table(RESTAURANT_CONFIG_TABLE)
-#     item = cfg.get_item(Key={"restaurant_id": restaurant_id}).get("Item") or {}
-#     return (
-#         int(item.get("capacity_window_seconds", 600)),
-#         int(item.get("max_prep_units_per_window", 20)),
-#     )
-
-# def _try_reserve_capacity(
-#     restaurant_id: str,
-#     window_start: int,
-#     add_units: int,
-#     max_units: int,
-# ) -> bool:
-#     cap = ddb.Table(CAPACITY_TABLE)
-#     ttl = window_start + 6 * 3600
-
-#     try:
-#         cap.update_item(
-#             Key={"restaurant_id": restaurant_id, "window_start": window_start},
-#             UpdateExpression="SET #ttl = :ttl ADD used_units :add",
-#             ExpressionAttributeNames={"#ttl": "ttl"},
-#             ConditionExpression=(
-#                 "(attribute_not_exists(used_units) AND :add <= :max) "
-#                 "OR (used_units <= :limit)"
-#             ),
-#             ExpressionAttributeValues={
-#                 ":add": add_units,
-#                 ":max": max_units,
-#                 ":limit": max_units - add_units,
-#                 ":ttl": ttl,
-#             },
-#         )
-#         return True
-#     except Exception as e:
-#         print(f"CAPACITY_RESERVE_ERROR: {type(e).__name__}: {e}")
-#         return False
-
-
+def _parse_json(body: str) -> dict:
+    try:
+        return json.loads(body or "{}")
+    except json.JSONDecodeError:
+        return {}
 
 
 # -------------------------
@@ -112,10 +87,10 @@ def lambda_handler(event, context):
     body = event.get("body") or "{}"
 
     if method == "POST" and path == "/v1/orders":
-        return create_order(json.loads(body))
+        return create_order(_parse_json(body))
 
     if method == "POST" and path.startswith("/v1/orders/") and path.endswith("/vicinity"):
-        return update_vicinity(path.split("/")[3], json.loads(body))
+        return update_vicinity(path.split("/")[3], _parse_json(body))
 
     if (
         method == "POST"
@@ -124,7 +99,7 @@ def lambda_handler(event, context):
         and path.endswith("/ack")
     ):
         parts = path.split("/")
-        return restaurant_ack_order(parts[3], parts[5], json.loads(body or "{}"))
+        return restaurant_ack_order(parts[3], parts[5], _parse_json(body))
 
     if method == "GET" and path.startswith("/v1/restaurants/") and path.endswith("/orders"):
         return list_restaurant_orders(path.split("/")[3], qs.get("status") or STATUS_SENT)
@@ -140,7 +115,7 @@ def create_order(payload: dict):
     restaurant_id = payload.get("restaurant_id")
     items = payload.get("items")
 
-    if not restaurant_id or not items:
+    if not restaurant_id or not isinstance(items, list) or len(items) == 0:
         return _resp(400, {"error": {"code": "VALIDATION"}})
 
     now = _now()
@@ -151,31 +126,40 @@ def create_order(payload: dict):
     norm_items = []
 
     for it in items:
+        if not isinstance(it, dict) or "id" not in it:
+            return _resp(400, {"error": {"code": "VALIDATION"}})
+
         qty = int(it.get("qty", 1))
         price = int(it.get("price_cents", 0))
         prep = int(it.get("prep_units", 1))
+
         total += price * qty
         units += prep * qty
-        norm_items.append({
-            "id": it["id"],
-            "qty": qty,
-            "name": it.get("name"),
-            "price_cents": price,
-            "prep_units": prep,
-        })
 
-    orders_repo.put_order({
-        "order_id": order_id,
-        "restaurant_id": restaurant_id,
-        "status": STATUS_PENDING,
-        "created_at": now,
-        "expires_at": now + 1800,
-        "customer_name": payload.get("customer_name", "Guest"),
-        "items": norm_items,
-        "total_cents": total,
-        "prep_units_total": units,
-        "vicinity": False,
-    })
+        norm_items.append(
+            {
+                "id": it["id"],
+                "qty": qty,
+                "name": it.get("name"),
+                "price_cents": price,
+                "prep_units": prep,
+            }
+        )
+
+    orders_repo.put_order(
+        {
+            "order_id": order_id,
+            "restaurant_id": restaurant_id,
+            "status": STATUS_PENDING,
+            "created_at": now,
+            "expires_at": now + 1800,
+            "customer_name": payload.get("customer_name", "Guest"),
+            "items": norm_items,
+            "total_cents": total,
+            "prep_units_total": units,
+            "vicinity": False,
+        }
+    )
 
     _log(
         "ORDER_CREATED",
@@ -186,19 +170,25 @@ def create_order(payload: dict):
         expires_at=now + 1800,
     )
 
-    return _resp(201, {
-        "order_id": order_id,
-        "status": STATUS_PENDING,
-        "expires_at": now + 1800,
-    })
+    return _resp(
+        201,
+        {
+            "order_id": order_id,
+            "status": STATUS_PENDING,
+            "expires_at": now + 1800,
+        },
+    )
 
 
 # -------------------------
-# Vicinity → Send
+# Vicinity → Send (capacity-gated)
 # -------------------------
 
 def update_vicinity(order_id: str, payload: dict):
     vicinity = payload.get("vicinity")
+    if vicinity is not True and vicinity is not False:
+        return _resp(400, {"error": {"code": "VALIDATION", "message": "vicinity must be boolean"}})
+
     order = orders_repo.get_order(order_id)
     if not order:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
@@ -212,7 +202,9 @@ def update_vicinity(order_id: str, payload: dict):
     )
 
     now = _now()
-    if now > order["expires_at"]:
+
+    # Expiry handling stays in adapter-layer for now (behavior unchanged)
+    if now > int(order.get("expires_at", 0)):
         orders_repo.update_order(
             Key={"order_id": order_id},
             UpdateExpression="SET #s=:e",
@@ -222,10 +214,12 @@ def update_vicinity(order_id: str, payload: dict):
         _log("ORDER_EXPIRED", order_id=order_id, restaurant_id=order.get("restaurant_id"))
         return _resp(409, {"error": {"code": "EXPIRED"}})
 
-    if vicinity is True and order["status"] in (STATUS_PENDING, STATUS_WAITING):
-        ws_sec, max_units = config_repo.get_capacity_config(order["restaurant_id"])
-        ws = _window_start(now, ws_sec)
+    # Only attempt capacity reservation when it could lead to dispatch
+    ws_sec, max_units = config_repo.get_capacity_config(order["restaurant_id"])
+    ws = _window_start(now, ws_sec)
 
+    reserved = False
+    if vicinity is True and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
         _log(
             "CAPACITY_CHECK",
             order_id=order_id,
@@ -235,75 +229,111 @@ def update_vicinity(order_id: str, payload: dict):
             add_units=order.get("prep_units_total"),
             max_units=max_units,
         )
-
-        reserved = capacity_repo.try_reserve_capacity(order["restaurant_id"], ws, order["prep_units_total"], max_units)
-        if reserved:
-            orders_repo.update_order(
-                Key={"order_id": order_id},
-                ConditionExpression="#s IN (:p, :w)",
-                UpdateExpression=(
-                    "SET #s=:sent, vicinity=:v, sent_at=:t, "
-                    "capacity_window_start=:ws, "
-                    "received_by_restaurant=:r, received_at=:t, receipt_mode=:soft "
-                    "REMOVE waiting_since, suggested_start_at"
-                ),
-                ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={
-                    ":p": STATUS_PENDING,
-                    ":w": STATUS_WAITING,
-                    ":sent": STATUS_SENT,
-                    ":v": True,
-                    ":t": now,
-                    ":ws": ws,
-                    ":r": True,
-                    ":soft": RECEIPT_SOFT,
-                },
-            )
-
-            _log(
-                "ORDER_DISPATCHED",
-                order_id=order_id,
-                restaurant_id=order.get("restaurant_id"),
-                from_status=order.get("status"),
-                to_status=STATUS_SENT,
-                sent_at=now,
-                window_start=ws,
-                receipt_mode=RECEIPT_SOFT,
-            )
-
-            return _resp(200, {"order_id": order_id, "status": STATUS_SENT})
-
-        orders_repo.update_order(
-            Key={"order_id": order_id},
-            UpdateExpression="SET #s=:w, vicinity=:v, waiting_since=:t, suggested_start_at=:ssa",
-            ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={
-                ":w": STATUS_WAITING,
-                ":v": True,
-                ":t": now,
-                ":ssa": ws + ws_sec,
-            },
+        reserved = capacity_repo.try_reserve_capacity(
+            order["restaurant_id"],
+            ws,
+            int(order.get("prep_units_total", 0)),
+            max_units,
         )
 
+    plan = decide_vicinity_update(
+        order=order,
+        vicinity=vicinity,
+        now=now,
+        window_seconds=ws_sec,
+        max_units=max_units,
+        window_start=ws,
+        reserved_capacity=reserved,
+    )
+
+    # Apply plan updates (if any)
+    if plan.set_fields or plan.remove_fields:
+        update_expr_parts = []
+        expr_names = {"#s": "status"} if "status" in (plan.set_fields or {}) else {}
+        expr_values = {}
+
+        # SET ...
+        if plan.set_fields:
+            set_chunks = []
+            for k, v in plan.set_fields.items():
+                if k == "status":
+                    set_chunks.append("#s = :status")
+                    expr_values[":status"] = v
+                else:
+                    placeholder = f":{k}"
+                    set_chunks.append(f"{k} = {placeholder}")
+                    expr_values[placeholder] = v
+            update_expr_parts.append("SET " + ", ".join(set_chunks))
+
+        # REMOVE ...
+        if plan.remove_fields:
+            update_expr_parts.append("REMOVE " + ", ".join(plan.remove_fields))
+
+        kwargs = {
+            "Key": {"order_id": order_id},
+            "UpdateExpression": " ".join(update_expr_parts),
+            "ExpressionAttributeValues": expr_values,
+        }
+        if expr_names:
+            kwargs["ExpressionAttributeNames"] = expr_names
+
+        # Optional condition (idempotency / state safety)
+        if plan.condition_allowed_statuses:
+            cond_vals = {}
+            cond_list = []
+            for i, s in enumerate(plan.condition_allowed_statuses):
+                ph = f":c{i}"
+                cond_vals[ph] = s
+                cond_list.append(ph)
+            kwargs["ConditionExpression"] = f"#s IN ({', '.join(cond_list)})"
+            kwargs["ExpressionAttributeNames"] = {**kwargs.get("ExpressionAttributeNames", {}), "#s": "status"}
+            kwargs["ExpressionAttributeValues"] = {**kwargs["ExpressionAttributeValues"], **cond_vals}
+
+        try:
+            orders_repo.update_order(**kwargs)
+        except Exception:
+            # keep behavior: best-effort; caller gets current status
+            latest = orders_repo.get_order(order_id) or order
+            return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+
+    # Emit lifecycle logs in the same places as before
+    if plan.response and plan.response.get("status") == STATUS_SENT and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
+        _log(
+            "ORDER_DISPATCHED",
+            order_id=order_id,
+            restaurant_id=order.get("restaurant_id"),
+            from_status=order.get("status"),
+            to_status=STATUS_SENT,
+            sent_at=now,
+            window_start=ws,
+            receipt_mode=RECEIPT_SOFT,
+        )
+
+    if plan.response and plan.response.get("status") == STATUS_WAITING and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
+        suggested = plan.response.get("suggested_start_at") or (ws + ws_sec)
         _log(
             "CAPACITY_BLOCKED",
             order_id=order_id,
             restaurant_id=order.get("restaurant_id"),
             from_status=order.get("status"),
             to_status=STATUS_WAITING,
-            suggested_start_at=ws + ws_sec,
+            suggested_start_at=suggested,
         )
 
+    # Ensure ISO is included for WAITING (keep response consistent)
+    if plan.response and plan.response.get("status") == STATUS_WAITING:
+        ssa = plan.response.get("suggested_start_at")
+        return _resp(
+            200,
+            {
+                "order_id": order_id,
+                "status": STATUS_WAITING,
+                "suggested_start_at": ssa,
+                "suggested_start_at_iso": _iso_utc(ssa),
+            },
+        )
 
-        # Capacity full
-        return _resp(200, {
-            "order_id": order_id,
-            "status": STATUS_WAITING,
-            "suggested_start_at": ws + ws_sec,
-            "suggested_start_at_iso": _iso_utc(ws + ws_sec),
-        })
-
-    return _resp(200, {"order_id": order_id, "status": order["status"]})
+    return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
 
 
 # -------------------------
@@ -312,7 +342,7 @@ def update_vicinity(order_id: str, payload: dict):
 
 def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
     order = orders_repo.get_order(order_id)
-    if not order or order["restaurant_id"] != restaurant_id:
+    if not order or order.get("restaurant_id") != restaurant_id:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
 
     _log(
@@ -323,41 +353,55 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
         current_receipt_mode=order.get("receipt_mode"),
     )
 
-    if order["status"] != STATUS_SENT:
-        return _resp(409, {"error": {"code": "INVALID_STATE"}})
-
-    if order.get("receipt_mode") == RECEIPT_HARD:
-        _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
-        return _resp(200, {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
-
     now = _now()
 
-    orders_repo.update_order(
-        Key={"order_id": order_id},
-        ConditionExpression="#s=:sent AND receipt_mode=:soft",
-        UpdateExpression="SET receipt_mode=:hard, received_at=:t",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={
-            ":sent": STATUS_SENT,
-            ":soft": RECEIPT_SOFT,
-            ":hard": RECEIPT_HARD,
-            ":t": now,
-        },
-    )
+    # Pure decision logic
+    plan = decide_ack_upgrade(order=order, restaurant_id=restaurant_id, now=now)
 
-    _log(
-        "RESTAURANT_ACK_UPGRADED",
-        order_id=order_id,
-        restaurant_id=restaurant_id,
-        receipt_mode=RECEIPT_HARD,
-        received_at=now,
-    )   
+    # Apply plan if any state change
+    if plan.set_fields:
+        expr_names = {"#s": "status"} if "status" in plan.set_fields else {"#s": "status"}
+        expr_values = {}
+        set_chunks = []
 
-    return _resp(200, {
-        "order_id": order_id,
-        "receipt_mode": RECEIPT_HARD,
-        "received_at": now,
-    })
+        for k, v in plan.set_fields.items():
+            ph = f":{k}"
+            set_chunks.append(f"{k} = {ph}")
+            expr_values[ph] = v
+
+        kwargs = {
+            "Key": {"order_id": order_id},
+            "UpdateExpression": "SET " + ", ".join(set_chunks),
+            "ExpressionAttributeValues": expr_values,
+        }
+
+        # Condition: ensure still SENT
+        kwargs["ConditionExpression"] = "#s = :sent"
+        kwargs["ExpressionAttributeNames"] = {"#s": "status"}
+        kwargs["ExpressionAttributeValues"][":sent"] = STATUS_SENT
+
+        try:
+            orders_repo.update_order(**kwargs)
+            _log(
+                "RESTAURANT_ACK_UPGRADED",
+                order_id=order_id,
+                restaurant_id=restaurant_id,
+                receipt_mode=RECEIPT_HARD,
+                received_at=now,
+            )
+        except Exception:
+            # idempotent / race
+            latest = orders_repo.get_order(order_id) or order
+            if latest.get("receipt_mode") == RECEIPT_HARD:
+                _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
+                return _resp(200, {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
+            return _resp(409, {"error": {"code": "INVALID_STATE"}})
+
+    else:
+        # Already HARD
+        _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
+
+    return _resp(200, plan.response or {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
 
 
 # -------------------------
