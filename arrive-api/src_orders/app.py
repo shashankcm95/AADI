@@ -19,6 +19,8 @@ from adapters.orders_repo_ddb import OrdersRepoDdb
 from adapters.config_repo_ddb import ConfigRepoDdb
 from adapters.capacity_repo_ddb import CapacityRepoDdb
 from core.dynamo_apply import build_update_item_kwargs
+from core.http_errors import map_core_error
+from core.errors import ExpiredError, InvalidStateError, NotFoundError
 
 # -------------------------
 # Globals / Config
@@ -69,11 +71,11 @@ def _log(event: str, **fields):
     print(json.dumps(payload, default=_json_default))
 
 
-def _parse_json(body: str) -> dict:
+def _parse_json(body: str):
     try:
-        return json.loads(body or "{}")
+        return json.loads(body or "{}"), None
     except json.JSONDecodeError:
-        return {}
+        return None, "BAD_JSON"
 
 
 # -------------------------
@@ -81,17 +83,35 @@ def _parse_json(body: str) -> dict:
 # -------------------------
 
 def lambda_handler(event, context):
-    path = event.get("rawPath") or event.get("path") or ""
-    method = (event.get("requestContext", {}).get("http", {}) or {}).get("method", "")
+    raw_path = event.get("rawPath") or event.get("path") or ""
+    path = raw_path.rstrip("/") or "/"
+
+    method = (
+        event.get("requestContext", {})
+            .get("http", {})
+            .get("method")
+        or event.get("httpMethod")
+        or ""
+    ).upper()
+
     qs = event.get("queryStringParameters") or {}
     body = event.get("body") or "{}"
 
+    # POST /v1/orders
     if method == "POST" and path == "/v1/orders":
-        return create_order(_parse_json(body))
+        payload, err = _parse_json(body)
+        if err:
+            return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
+        return create_order(payload)
 
+    # POST /v1/orders/{order_id}/vicinity
     if method == "POST" and path.startswith("/v1/orders/") and path.endswith("/vicinity"):
-        return update_vicinity(path.split("/")[3], _parse_json(body))
+        payload, err = _parse_json(body)
+        if err:
+            return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
+        return update_vicinity(path.split("/")[3], payload)
 
+    # POST /v1/restaurants/{restaurant_id}/orders/{order_id}/ack
     if (
         method == "POST"
         and path.startswith("/v1/restaurants/")
@@ -99,8 +119,12 @@ def lambda_handler(event, context):
         and path.endswith("/ack")
     ):
         parts = path.split("/")
-        return restaurant_ack_order(parts[3], parts[5], _parse_json(body))
+        payload, err = _parse_json(body)
+        if err:
+            return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
+        return restaurant_ack_order(parts[3], parts[5], payload)
 
+    # GET /v1/restaurants/{restaurant_id}/orders?status=...
     if method == "GET" and path.startswith("/v1/restaurants/") and path.endswith("/orders"):
         return list_restaurant_orders(path.split("/")[3], qs.get("status") or STATUS_SENT)
 
@@ -214,12 +238,14 @@ def update_vicinity(order_id: str, payload: dict):
         _log("ORDER_EXPIRED", order_id=order_id, restaurant_id=order.get("restaurant_id"))
         return _resp(409, {"error": {"code": "EXPIRED"}})
 
-    # Only attempt capacity reservation when it could lead to dispatch
-    ws_sec, max_units = config_repo.get_capacity_config(order["restaurant_id"])
+    ws_sec, max_units = 600, 20
     ws = _window_start(now, ws_sec)
 
     reserved = False
     if vicinity is True and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
+        # Only attempt capacity reservation when it could lead to dispatch
+        ws_sec, max_units = config_repo.get_capacity_config(order["restaurant_id"])
+        ws = _window_start(now, ws_sec)
         _log(
             "CAPACITY_CHECK",
             order_id=order_id,
@@ -235,16 +261,19 @@ def update_vicinity(order_id: str, payload: dict):
             int(order.get("prep_units_total", 0)),
             max_units,
         )
-
-    plan = decide_vicinity_update(
-        order=order,
-        vicinity=vicinity,
-        now=now,
-        window_seconds=ws_sec,
-        max_units=max_units,
-        window_start=ws,
-        reserved_capacity=reserved,
-    )
+    try:
+        plan = decide_vicinity_update(
+            order=order,
+            vicinity=vicinity,
+            now=now,
+            window_seconds=ws_sec,
+            max_units=max_units,
+            window_start=ws,
+            reserved_capacity=reserved,
+    ) 
+    except (ExpiredError, InvalidStateError, NotFoundError) as e:
+        spec = map_core_error(e)
+        return _resp(spec.status_code, spec.body)
 
     kwargs = build_update_item_kwargs(order_id, plan)
     if kwargs:
@@ -313,8 +342,12 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
 
     now = _now()
 
-    # Pure decision logic
-    plan = decide_ack_upgrade(order=order, restaurant_id=restaurant_id, now=now)
+    try:
+        # Pure decision logic
+        plan = decide_ack_upgrade(order=order, restaurant_id=restaurant_id, now=now)
+    except (ExpiredError, InvalidStateError, NotFoundError) as e:
+        spec = map_core_error(e)
+        return _resp(spec.status_code, spec.body)
 
     # Apply plan if any state change
     kwargs = build_update_item_kwargs(order_id, plan)
