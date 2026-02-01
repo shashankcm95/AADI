@@ -179,6 +179,12 @@ Resources:
           Properties:
             Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/ack
             Method: POST
+        GetOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}
+            Method: GET
+
 
   ApplicationResourceGroup:
     Type: AWS::ResourceGroups::Group

@@ -23,16 +23,31 @@ from core.http_errors import map_core_error
 from core.errors import ExpiredError, InvalidStateError, NotFoundError
 
 # -------------------------
-# Globals / Config
+# Cached dependency getter 
 # -------------------------
 
-ORDERS_TABLE = os.environ["ORDERS_TABLE"]
-RESTAURANT_CONFIG_TABLE = os.environ["RESTAURANT_CONFIG_TABLE"]
-CAPACITY_TABLE = os.environ["CAPACITY_TABLE"]
+from functools import lru_cache
 
-orders_repo = OrdersRepoDdb(ORDERS_TABLE)
-config_repo = ConfigRepoDdb(RESTAURANT_CONFIG_TABLE)
-capacity_repo = CapacityRepoDdb(CAPACITY_TABLE)
+@lru_cache(maxsize=1)
+def _deps():
+    orders_table = os.getenv("ORDERS_TABLE")
+    cfg_table = os.getenv("RESTAURANT_CONFIG_TABLE")
+    cap_table = os.getenv("CAPACITY_TABLE")
+
+    missing = [k for k, v in {
+        "ORDERS_TABLE": orders_table,
+        "RESTAURANT_CONFIG_TABLE": cfg_table,
+        "CAPACITY_TABLE": cap_table,
+    }.items() if not v]
+
+    if missing:
+        raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+
+    return (
+        OrdersRepoDdb(orders_table),
+        ConfigRepoDdb(cfg_table),
+        CapacityRepoDdb(cap_table),
+    )
 
 
 # -------------------------
@@ -128,14 +143,19 @@ def lambda_handler(event, context):
     if method == "GET" and path.startswith("/v1/restaurants/") and path.endswith("/orders"):
         return list_restaurant_orders(path.split("/")[3], qs.get("status") or STATUS_SENT)
 
-    return _resp(404, {"error": {"code": "NOT_FOUND", "message": "Route not found"}})
+    # Route: GET /v1/orders/{order_id}
+    if method == "GET" and path.startswith("/v1/orders/") and len(path.split("/")) == 4:
+        # ["", "v1", "orders", "{order_id}"]
+        return get_order(path.split("/")[3])
 
+    return _resp(404, {"error": {"code": "NOT_FOUND", "message": "Route not found"}})
 
 # -------------------------
 # Order Create
 # -------------------------
 
 def create_order(payload: dict):
+    orders_repo, config_repo, capacity_repo = _deps()
     restaurant_id = payload.get("restaurant_id")
     items = payload.get("items")
 
@@ -209,6 +229,7 @@ def create_order(payload: dict):
 # -------------------------
 
 def update_vicinity(order_id: str, payload: dict):
+    orders_repo, config_repo, capacity_repo = _deps()
     vicinity = payload.get("vicinity")
     if vicinity is not True and vicinity is not False:
         return _resp(400, {"error": {"code": "VALIDATION", "message": "vicinity must be boolean"}})
@@ -328,6 +349,7 @@ def update_vicinity(order_id: str, payload: dict):
 # -------------------------
 
 def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
+    orders_repo, config_repo, capacity_repo = _deps()
     order = orders_repo.get_order(order_id)
     if not order or order.get("restaurant_id") != restaurant_id:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
@@ -373,11 +395,36 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
     return _resp(200, plan.response or {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
 
 
+def get_order(order_id: str):
+    orders_repo, _, _ = _deps()
+    order = orders_repo.get_order(order_id)
+    if not order:
+        return _resp(404, {"error": {"code": "NOT_FOUND", "message": "order not found"}})
+
+    # Return a stable “public” view (you can add fields later safely)
+    return _resp(200, {
+        "order_id": order.get("order_id"),
+        "restaurant_id": order.get("restaurant_id"),
+        "status": order.get("status"),
+        "receipt_mode": order.get("receipt_mode"),
+        "created_at": order.get("created_at"),
+        "sent_at": order.get("sent_at"),
+        "expires_at": order.get("expires_at"),
+        "waiting_since": order.get("waiting_since"),
+        "suggested_start_at": order.get("suggested_start_at"),
+        "items": order.get("items", []),
+        "total_cents": order.get("total_cents"),
+        "prep_units_total": order.get("prep_units_total"),
+        "vicinity": order.get("vicinity"),
+    })
+
+
 # -------------------------
 # List Orders
 # -------------------------
 
 def list_restaurant_orders(restaurant_id: str, status: str):
+    orders_repo, config_repo, capacity_repo = _deps()
     items = orders_repo.query_by_restaurant_status(restaurant_id, status)
     items.sort(key=lambda x: x.get("sent_at", x.get("created_at", 0)))
     return _resp(200, {"restaurant_id": restaurant_id, "status": status, "orders": items})
