@@ -18,6 +18,15 @@ sam deploy
 
 ⚠️ Note: sam build --clean is not supported. To force a clean build, remove .aws-sam/ manually.
 
+## Smoke test (local)
+
+With `sam local start-api` running:
+
+```bash
+cd arrive-api
+./scripts/smoke_local.sh
+```
+
 9.2 DynamoDB Tables & Responsibilities
 Orders Table
 
