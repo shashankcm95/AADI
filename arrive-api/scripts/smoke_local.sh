@@ -14,6 +14,8 @@ ITEM_ID="${ITEM_ID:-it_001}"
 ITEM_NAME="${ITEM_NAME:-Turkey Sandwich}"
 PRICE_CENTS="${PRICE_CENTS:-1099}"
 PREP_UNITS="${PREP_UNITS:-2}"
+CAP_TABLE="${CAP_TABLE:-arrive-dev-CapacityTable-P79F5A2T9RZ3}"
+WINDOW_SECONDS="${WINDOW_SECONDS:-600}"
 
 fail() {
   echo "❌ FAIL: $*" >&2
@@ -50,6 +52,25 @@ http_post_json() {
   curl -sS -X POST "$url" -H "Content-Type: application/json" -d "$body"
 }
 
+http_post_json_i() {
+  # prints headers + body (curl -i)
+  local url="$1"
+  local body="$2"
+  curl -sS -i -X POST "$url" -H "Content-Type: application/json" -d "$body"
+}
+
+http_status() {
+  # usage: http_status "$raw"
+  echo "$1" | head -n 1 | awk '{print $2}'
+}
+
+http_body() { 
+  # usage: http_body "$raw"
+  # strip headers
+  echo "$1" | tr -d '\r' | awk 'BEGIN{h=1} { if(h && $0=="") {h=0; next} if(!h) print }'
+}
+
+
 set_capacity() {
   local max="$1"
   aws dynamodb update-item \
@@ -74,6 +95,16 @@ ack_hard() {
   http_post_json "$API/v1/restaurants/$RID/orders/$oid/ack" '{"mode":"HARD"}'
 }
 
+reset_capacity_window() {
+  local now ws
+  now=$(date +%s)
+  ws=$(( now - (now % WINDOW_SECONDS) ))
+
+  aws dynamodb delete-item \
+    --table-name "$CAP_TABLE" \
+    --key "{\"restaurant_id\":{\"S\":\"$RID\"},\"window_start\":{\"N\":\"$ws\"}}" >/dev/null 2>&1 || true
+}
+
 # -----------------------------
 # Start
 # -----------------------------
@@ -88,6 +119,8 @@ echo "health=$HEALTH"
 echo "$HEALTH" | grep -q '"ok": true' || fail "health check failed"
 
 pass "health check"
+reset_capacity_window
+pass "capacity window reset"
 
 # -----------------------------
 # Test A: capacity available -> SENT
@@ -105,6 +138,49 @@ echo "vicinityA=$RESP_A"
 echo "$RESP_A" | grep -q '"status": "SENT_TO_RESTAURANT"' || fail "expected SENT_TO_RESTAURANT for orderA"
 
 pass "orderA dispatched (PENDING->SENT)"
+
+# -----------------------------
+# Test A0: ACK before send => INVALID_STATE
+# -----------------------------
+ORDER_JSON0="$(create_order)"
+echo "orderA0=$ORDER_JSON0"
+OID_A0="$(echo "$ORDER_JSON0" | python3 -c 'import sys,json; print(json.load(sys.stdin)["order_id"])')"
+
+ACK0="$(ack_hard "$OID_A0")"
+echo "ack0=$ACK0"
+echo "$ACK0" | grep -q '"code": "INVALID_STATE"' || fail "expected INVALID_STATE when ack before send"
+
+pass "ack before send rejected (INVALID_STATE)"
+
+# -----------------------------
+# Test A1: vicinity false is a NO-OP
+# -----------------------------
+RESP_NOOP="$(http_post_json "$API/v1/orders/$OID_A0/vicinity" '{"vicinity": false}')"
+echo "vicinity_noop=$RESP_NOOP"
+echo "$RESP_NOOP" | grep -q '"status": "PENDING_NOT_SENT"' || fail "expected PENDING_NOT_SENT when vicinity=false before send"
+
+pass "vicinity=false no-op"
+
+# Now send it so we can test wrong-RID ack
+RESP_SEND0="$(set_vicinity_true "$OID_A0")"
+echo "vicinity_send0=$RESP_SEND0"
+echo "$RESP_SEND0" | grep -q '"status": "SENT_TO_RESTAURANT"' || fail "expected SENT_TO_RESTAURANT after vicinity=true"
+
+pass "orderA0 dispatched for auth tests"
+
+# -----------------------------
+# Test A2: wrong restaurant => 404 NOT_FOUND (and NOT a routing 403)
+# -----------------------------
+ACK_WRONG_RAW="$(http_post_json_i "$API/v1/restaurants/WRONG/orders/$OID_A0/ack" '{"mode":"HARD"}')"
+ACK_WRONG_STATUS="$(http_status "$ACK_WRONG_RAW")"
+ACK_WRONG_BODY="$(http_body "$ACK_WRONG_RAW")"
+echo "ack_wrong_status=$ACK_WRONG_STATUS"
+echo "ack_wrong_body=$ACK_WRONG_BODY"
+
+[ "$ACK_WRONG_STATUS" = "404" ] || fail "expected HTTP 404 for WRONG restaurant ack"
+echo "$ACK_WRONG_BODY" | grep -q '"code": "NOT_FOUND"' || fail "expected NOT_FOUND body for WRONG restaurant ack"
+
+pass "wrong restaurant ack rejected (404 NOT_FOUND)"
 
 # -----------------------------
 # Test B: capacity blocked -> WAITING then retry -> SENT
