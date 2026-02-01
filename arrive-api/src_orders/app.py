@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 import boto3
 from boto3.dynamodb.conditions import Key
 
+from core.models import (
+    STATUS_PENDING, STATUS_SENT, STATUS_WAITING, STATUS_EXPIRED,
+    RECEIPT_SOFT, RECEIPT_HARD,
+)
+
 # -------------------------
 # Globals / Config
 # -------------------------
@@ -17,15 +22,6 @@ ddb = boto3.resource("dynamodb")
 ORDERS_TABLE = os.environ["ORDERS_TABLE"]
 RESTAURANT_CONFIG_TABLE = os.environ["RESTAURANT_CONFIG_TABLE"]
 CAPACITY_TABLE = os.environ["CAPACITY_TABLE"]
-
-STATUS_PENDING = "PENDING_NOT_SENT"
-STATUS_SENT = "SENT_TO_RESTAURANT"
-STATUS_WAITING = "WAITING_FOR_CAPACITY"
-STATUS_EXPIRED = "EXPIRED"
-
-RECEIPT_SOFT = "SOFT"
-RECEIPT_HARD = "HARD"
-
 
 # -------------------------
 # Helpers
@@ -176,7 +172,7 @@ def create_order(payload: dict):
     })
 
     _log(
-    "ORDER_CREATED",
+        "ORDER_CREATED",
         order_id=order_id,
         restaurant_id=restaurant_id,
         prep_units_total=units,
@@ -314,6 +310,9 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
     table = ddb.Table(ORDERS_TABLE)
     order = table.get_item(Key={"order_id": order_id}).get("Item")
 
+    if not order or order["restaurant_id"] != restaurant_id:
+        return _resp(404, {"error": {"code": "NOT_FOUND"}})
+
     _log(
         "RESTAURANT_ACK_REQUEST",
         order_id=order_id,
@@ -321,10 +320,6 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
         status=order.get("status"),
         current_receipt_mode=order.get("receipt_mode"),
     )
-
-
-    if not order or order["restaurant_id"] != restaurant_id:
-        return _resp(404, {"error": {"code": "NOT_FOUND"}})
 
     if order["status"] != STATUS_SENT:
         return _resp(409, {"error": {"code": "INVALID_STATE"}})
