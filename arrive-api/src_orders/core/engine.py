@@ -2,9 +2,18 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 from .models import (
-    STATUS_PENDING, STATUS_SENT, STATUS_WAITING,
-    RECEIPT_SOFT, RECEIPT_HARD,
+    STATUS_PENDING,
+    STATUS_SENT,
+    STATUS_WAITING,
+    STATUS_EXPIRED,
+    STATUS_CANCELED,
+    STATUS_IN_PROGRESS,
+    STATUS_READY,
+    STATUS_COMPLETED,
+    RECEIPT_SOFT,
+    RECEIPT_HARD,
 )
+
 from .errors import ExpiredError, InvalidStateError, NotFoundError
 
 
@@ -111,3 +120,72 @@ def decide_ack_upgrade(order: Dict[str, Any], restaurant_id: str, now: int) -> U
         response={"order_id": order["order_id"], "receipt_mode": RECEIPT_HARD, "received_at": now},
     )
 
+def decide_cancel(order: Dict[str, Any], now: int) -> UpdatePlan:
+    if not order:
+        raise NotFoundError()
+
+    status = order.get("status")
+
+    if status not in (STATUS_PENDING, STATUS_WAITING):
+        # Not cancelable once sent/in-progress/etc.
+        raise InvalidStateError()
+
+    return UpdatePlan(
+        condition_allowed_statuses=(STATUS_PENDING, STATUS_WAITING),
+        set_fields={
+            "status": STATUS_CANCELED,
+            "canceled_at": now,
+        },
+        remove_fields=("waiting_since", "suggested_start_at"),
+        response={"order_id": order["order_id"], "status": STATUS_CANCELED, "canceled_at": now},
+    )
+
+def decide_restaurant_status_update(
+    order: Dict[str, Any],
+    restaurant_id: str,
+    new_status: str,
+    now: int,
+) -> UpdatePlan:
+    if not order or order.get("restaurant_id") != restaurant_id:
+        raise NotFoundError()
+
+    current = order.get("status")
+
+    allowed_targets = (STATUS_IN_PROGRESS, STATUS_READY, STATUS_COMPLETED)
+    if new_status not in allowed_targets:
+        raise InvalidStateError()
+
+    # Idempotent
+    if current == new_status:
+        return UpdatePlan(
+            response={"order_id": order["order_id"], "status": current}
+        )
+
+    # Legal transitions
+    allowed_next = {
+        STATUS_SENT: (STATUS_IN_PROGRESS,),
+        STATUS_IN_PROGRESS: (STATUS_READY,),
+        STATUS_READY: (STATUS_COMPLETED,),
+    }
+
+    if current not in allowed_next or new_status not in allowed_next[current]:
+        raise InvalidStateError()
+
+    set_fields: Dict[str, Any] = {
+        "status": new_status,
+        "updated_at": now,
+    }
+
+    # Useful timestamps per transition
+    if new_status == STATUS_IN_PROGRESS:
+        set_fields["started_at"] = now
+    elif new_status == STATUS_READY:
+        set_fields["ready_at"] = now
+    elif new_status == STATUS_COMPLETED:
+        set_fields["completed_at"] = now
+
+    return UpdatePlan(
+        condition_allowed_statuses=(current,),
+        set_fields=set_fields,
+        response={"order_id": order["order_id"], "status": new_status},
+    )
