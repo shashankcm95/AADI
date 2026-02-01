@@ -18,7 +18,7 @@ from core.engine import decide_vicinity_update, decide_ack_upgrade
 from adapters.orders_repo_ddb import OrdersRepoDdb
 from adapters.config_repo_ddb import ConfigRepoDdb
 from adapters.capacity_repo_ddb import CapacityRepoDdb
-
+from core.dynamo_apply import build_update_item_kwargs
 
 # -------------------------
 # Globals / Config
@@ -246,53 +246,11 @@ def update_vicinity(order_id: str, payload: dict):
         reserved_capacity=reserved,
     )
 
-    # Apply plan updates (if any)
-    if plan.set_fields or plan.remove_fields:
-        update_expr_parts = []
-        expr_names = {"#s": "status"} if "status" in (plan.set_fields or {}) else {}
-        expr_values = {}
-
-        # SET ...
-        if plan.set_fields:
-            set_chunks = []
-            for k, v in plan.set_fields.items():
-                if k == "status":
-                    set_chunks.append("#s = :status")
-                    expr_values[":status"] = v
-                else:
-                    placeholder = f":{k}"
-                    set_chunks.append(f"{k} = {placeholder}")
-                    expr_values[placeholder] = v
-            update_expr_parts.append("SET " + ", ".join(set_chunks))
-
-        # REMOVE ...
-        if plan.remove_fields:
-            update_expr_parts.append("REMOVE " + ", ".join(plan.remove_fields))
-
-        kwargs = {
-            "Key": {"order_id": order_id},
-            "UpdateExpression": " ".join(update_expr_parts),
-            "ExpressionAttributeValues": expr_values,
-        }
-        if expr_names:
-            kwargs["ExpressionAttributeNames"] = expr_names
-
-        # Optional condition (idempotency / state safety)
-        if plan.condition_allowed_statuses:
-            cond_vals = {}
-            cond_list = []
-            for i, s in enumerate(plan.condition_allowed_statuses):
-                ph = f":c{i}"
-                cond_vals[ph] = s
-                cond_list.append(ph)
-            kwargs["ConditionExpression"] = f"#s IN ({', '.join(cond_list)})"
-            kwargs["ExpressionAttributeNames"] = {**kwargs.get("ExpressionAttributeNames", {}), "#s": "status"}
-            kwargs["ExpressionAttributeValues"] = {**kwargs["ExpressionAttributeValues"], **cond_vals}
-
+    kwargs = build_update_item_kwargs(order_id, plan)
+    if kwargs:
         try:
             orders_repo.update_order(**kwargs)
         except Exception:
-            # keep behavior: best-effort; caller gets current status
             latest = orders_repo.get_order(order_id) or order
             return _resp(200, {"order_id": order_id, "status": latest.get("status")})
 
@@ -359,27 +317,8 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
     plan = decide_ack_upgrade(order=order, restaurant_id=restaurant_id, now=now)
 
     # Apply plan if any state change
-    if plan.set_fields:
-        expr_names = {"#s": "status"} if "status" in plan.set_fields else {"#s": "status"}
-        expr_values = {}
-        set_chunks = []
-
-        for k, v in plan.set_fields.items():
-            ph = f":{k}"
-            set_chunks.append(f"{k} = {ph}")
-            expr_values[ph] = v
-
-        kwargs = {
-            "Key": {"order_id": order_id},
-            "UpdateExpression": "SET " + ", ".join(set_chunks),
-            "ExpressionAttributeValues": expr_values,
-        }
-
-        # Condition: ensure still SENT
-        kwargs["ConditionExpression"] = "#s = :sent"
-        kwargs["ExpressionAttributeNames"] = {"#s": "status"}
-        kwargs["ExpressionAttributeValues"][":sent"] = STATUS_SENT
-
+    kwargs = build_update_item_kwargs(order_id, plan)
+    if kwargs:
         try:
             orders_repo.update_order(**kwargs)
             _log(
@@ -390,15 +329,12 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
                 received_at=now,
             )
         except Exception:
-            # idempotent / race
             latest = orders_repo.get_order(order_id) or order
             if latest.get("receipt_mode") == RECEIPT_HARD:
                 _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
                 return _resp(200, {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
             return _resp(409, {"error": {"code": "INVALID_STATE"}})
-
     else:
-        # Already HARD
         _log("RESTAURANT_ACK_IDEMPOTENT", order_id=order_id, restaurant_id=restaurant_id)
 
     return _resp(200, plan.response or {"order_id": order_id, "receipt_mode": RECEIPT_HARD})
