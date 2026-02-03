@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
 # -----------------------------
 # Config (override via env)
@@ -9,6 +10,9 @@ RID="${RID:-rst_001}"
 
 CFG_TABLE="${CFG_TABLE:-arrive-dev-RestaurantConfigTable-4CJXU663PPYC}"
 ORDERS_TABLE="${ORDERS_TABLE:-arrive-dev-OrdersTable-1NZGZZ1LUTWVV}"
+CAPACITY_TABLE="${CAPACITY_TABLE:-arrive-dev-CapacityTable-P79F5A2T9RZ3}"
+IDEMPOTENCY_TABLE="${IDEMPOTENCY_TABLE:-arrive-dev-IdempotencyTable-VUBEBNT8L1N6}"
+
 
 ITEM_ID="${ITEM_ID:-it_001}"
 ITEM_NAME="${ITEM_NAME:-Turkey Sandwich}"
@@ -52,6 +56,20 @@ http_post_json() {
   curl -sS -X POST "$url" -H "Content-Type: application/json" -d "$body"
 }
 
+http_post_json_with_header() {
+  local url="$1"
+  local header="$2"
+  local body="$3"
+  curl -sS -X POST "$url" -H "Content-Type: application/json" -H "$header" -d "$body"
+}
+
+http_post_json_with_header_i() {
+  local url="$1"
+  local header="$2"
+  local body="$3"
+  curl -sS -i -X POST "$url" -H "Content-Type: application/json" -H "$header" -d "$body"
+}
+
 http_post_json_i() {
   # prints headers + body (curl -i)
   local url="$1"
@@ -61,7 +79,7 @@ http_post_json_i() {
 
 http_status() {
   # usage: http_status "$raw"
-  echo "$1" | head -n 1 | awk '{print $2}'
+  echo "$1" | head -n 1 | tr -d '\r' | awk '{print $2}'
 }
 
 http_body() { 
@@ -134,6 +152,7 @@ pass "health check"
 reset_capacity_window
 pass "capacity window reset"
 
+
 # -----------------------------
 # Test A: capacity available -> SENT
 # -----------------------------
@@ -150,6 +169,36 @@ echo "vicinityA=$RESP_A"
 echo "$RESP_A" | grep -q '"status": "SENT_TO_RESTAURANT"' || fail "expected SENT_TO_RESTAURANT for orderA"
 
 pass "orderA dispatched (PENDING->SENT)"
+
+# -----------------------------
+# Test A-idem: POST /v1/orders Idempotency-Key (same payload => same order_id)
+# -----------------------------
+IDEM_KEY="idem_smoke_$(date +%s)"
+ORDER_BODY="{\"restaurant_id\":\"$RID\",\"customer_name\":\"IdemSmoke\",\"items\":[{\"id\":\"$ITEM_ID\",\"qty\":1,\"name\":\"$ITEM_NAME\",\"price_cents\":$PRICE_CENTS,\"prep_units\":$PREP_UNITS}]}"
+IDEM1="$(http_post_json_with_header "$API/v1/orders" "Idempotency-Key: $IDEM_KEY" "$ORDER_BODY")"
+echo "idem1=$IDEM1"
+OID_I1="$(echo "$IDEM1" | python3 -c 'import sys,json; print(json.load(sys.stdin)["order_id"])')"
+[ -n "$OID_I1" ] || fail "missing order_id from idempotent create (1)"
+
+IDEM2="$(http_post_json_with_header "$API/v1/orders" "Idempotency-Key: $IDEM_KEY" "$ORDER_BODY")"
+echo "idem2=$IDEM2"
+OID_I2="$(echo "$IDEM2" | python3 -c 'import sys,json; print(json.load(sys.stdin)["order_id"])')"
+[ -n "$OID_I2" ] || fail "missing order_id from idempotent create (2)"
+
+[ "$OID_I1" = "$OID_I2" ] || fail "idempotency failed: order_id mismatch for same Idempotency-Key"
+pass "idempotency returns same order_id"
+
+# Same key + different payload => 409 conflict
+ORDER_BODY2="{\"restaurant_id\":\"$RID\",\"customer_name\":\"IdemSmoke_CHANGED\",\"items\":[{\"id\":\"$ITEM_ID\",\"qty\":1,\"name\":\"$ITEM_NAME\",\"price_cents\":$PRICE_CENTS,\"prep_units\":$PREP_UNITS}]}"
+IDEM3_RAW="$(http_post_json_with_header_i "$API/v1/orders" "Idempotency-Key: $IDEM_KEY" "$ORDER_BODY2")"
+IDEM3_STATUS="$(http_status "$IDEM3_RAW")"
+IDEM3_BODY="$(http_body "$IDEM3_RAW")"
+echo "idem3_status=$IDEM3_STATUS"
+echo "idem3_body=$IDEM3_BODY"
+
+[ "$IDEM3_STATUS" = "409" ] || fail "expected 409 for Idempotency-Key reuse with different payload"
+echo "$IDEM3_BODY" | grep -q 'IDEMPOTENCY_KEY_REUSED' || fail "expected IDEMPOTENCY_KEY_REUSED in conflict response"
+pass "idempotency key reuse with different payload rejected (409)"
 
 # -----------------------------
 # Test A0: ACK before send => INVALID_STATE

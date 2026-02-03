@@ -22,12 +22,30 @@ from adapters.capacity_repo_ddb import CapacityRepoDdb
 from core.dynamo_apply import build_update_item_kwargs
 from core.http_errors import map_core_error
 from core.errors import ExpiredError, InvalidStateError, NotFoundError
+import hashlib
+from adapters.idempotency_repo_ddb import IdempotencyRepoDdb, IdempotencyConflictError
+
+import boto3
+from boto3.dynamodb.types import TypeSerializer
+from botocore.exceptions import ClientError
 
 # -------------------------
 # Cached dependency getter 
 # -------------------------
 
 from functools import lru_cache
+
+_SER = TypeSerializer()
+
+def _av(v):
+    # TypeSerializer returns {"S": "..."} / {"N": "..."} / {"BOOL": True} / {"L": [...]} etc.
+    return _SER.serialize(v)
+
+
+@lru_cache(maxsize=1)
+def _ddb():
+    return boto3.client("dynamodb")
+
 
 @lru_cache(maxsize=1)
 def _deps():
@@ -50,7 +68,12 @@ def _deps():
         CapacityRepoDdb(cap_table),
     )
 
-
+@lru_cache(maxsize=1)
+def _idemp_repo():
+    table = os.getenv('IDEMPOTENCY_TABLE')
+    if not table:
+        return None
+    return IdempotencyRepoDdb(table)
 # -------------------------
 # Helpers
 # -------------------------
@@ -86,6 +109,14 @@ def _log(event: str, **fields):
     payload.update(fields)
     print(json.dumps(payload, default=_json_default))
 
+def _get_header(headers: dict, name: str) -> str | None:
+    if not headers:
+        return None
+    lower=name.lower()
+    for k,v in headers.items():
+        if k and k.lower()==lower:
+            return v
+    return None
 
 def _parse_json(body: str):
     try:
@@ -118,7 +149,8 @@ def lambda_handler(event, context):
         payload, err = _parse_json(body)
         if err:
             return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
-        return create_order(payload)
+        idem_key = _get_header(event.get('headers') or {}, 'Idempotency-Key')
+        return create_order(payload, idempotency_key=idem_key, raw_body=body)
 
     # POST /v1/orders/{order_id}/vicinity
     if method == "POST" and path.startswith("/v1/orders/") and path.endswith("/vicinity"):
@@ -176,8 +208,28 @@ def lambda_handler(event, context):
 # Order Create
 # -------------------------
 
-def create_order(payload: dict):
+def create_order(payload: dict, idempotency_key: str | None = None, raw_body: str | None = None):
     orders_repo, config_repo, capacity_repo = _deps()
+    # Optional idempotency for POST /v1/orders
+    idemp_repo = _idemp_repo()
+    request_hash = None
+    if idemp_repo and idempotency_key:
+        existing = idemp_repo.get(idempotency_key)
+        # Prefer raw_body (what the client actually sent) for stability
+        material = (raw_body or json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        request_hash = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        if existing:
+            try:
+                idemp_repo.assert_same_request(existing, request_hash)
+            except IdempotencyConflictError:
+                return _resp(409, {"error": {"code": "IDEMPOTENCY_KEY_REUSED"}})
+            # Return the stored response
+            return {
+                "statusCode": int(existing.get("response_status", 200)),
+                "headers": {"Content-Type": "application/json"},
+                "body": existing.get("response_body", "{}"),
+            }
+
     restaurant_id = payload.get("restaurant_id")
     items = payload.get("items")
 
@@ -236,7 +288,7 @@ def create_order(payload: dict):
         expires_at=now + 1800,
     )
 
-    return _resp(
+    resp = _resp(
         201,
         {
             "order_id": order_id,
@@ -244,7 +296,22 @@ def create_order(payload: dict):
             "expires_at": now + 1800,
         },
     )
+    # Best-effort write of idempotency record (after successful create)
+    if idemp_repo and idempotency_key and request_hash:
+        try:
+            idemp_repo.put_response_if_absent(
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                response_status=int(resp["statusCode"]),
+                response_body=resp["body"],
+                created_at=now,
+                ttl=now + 24 * 3600,
+            )
+        except Exception:
+            # Ignore idempotency write failures for prototype; create succeeded.
+            pass
 
+    return resp
 
 # -------------------------
 # Vicinity → Send (capacity-gated)
@@ -281,51 +348,132 @@ def update_vicinity(order_id: str, payload: dict):
         _log("ORDER_EXPIRED", order_id=order_id, restaurant_id=order.get("restaurant_id"))
         return _resp(409, {"error": {"code": "EXPIRED"}})
 
+    # Defaults only used when we don’t need config (vicinity=false or non-actionable state).
     ws_sec, max_units = 600, 20
     ws = _window_start(now, ws_sec)
 
-    reserved = False
-    if vicinity is True and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
-        # Only attempt capacity reservation when it could lead to dispatch
+    status = order.get("status")
+    dispatched = False
+
+    # Leak-free dispatch path:
+    # If vicinity=true and status is actionable, attempt a single DynamoDB transaction:
+    #   1) capacity reserve (conditional)
+    #   2) order status update to SENT (conditional)
+    if vicinity is True and status in (STATUS_PENDING, STATUS_WAITING):
         ws_sec, max_units = config_repo.get_capacity_config(order["restaurant_id"])
         ws = _window_start(now, ws_sec)
+
+        add_units = int(order.get("prep_units_total", 0))
         _log(
             "CAPACITY_CHECK",
             order_id=order_id,
             restaurant_id=order.get("restaurant_id"),
             window_start=ws,
             window_seconds=ws_sec,
-            add_units=order.get("prep_units_total"),
+            add_units=add_units,
             max_units=max_units,
         )
-        reserved = capacity_repo.try_reserve_capacity(
-            order["restaurant_id"],
-            ws,
-            int(order.get("prep_units_total", 0)),
-            max_units,
-        )
-    try:
-        plan = decide_vicinity_update(
-            order=order,
-            vicinity=vicinity,
-            now=now,
-            window_seconds=ws_sec,
-            max_units=max_units,
-            window_start=ws,
-            reserved_capacity=reserved,
-    ) 
-    except (ExpiredError, InvalidStateError, NotFoundError) as e:
-        spec = map_core_error(e)
-        return _resp(spec.status_code, spec.body)
 
-    kwargs = build_update_item_kwargs(order_id, plan)
-    if kwargs:
+        # Build the “dispatch” plan optimistically (reserved_capacity=True),
+        # then attempt to apply it atomically with capacity reservation.
         try:
-            orders_repo.update_order(**kwargs)
-        except Exception:
-            latest = orders_repo.get_order(order_id) or order
-            return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+            plan = decide_vicinity_update(
+                order=order,
+                vicinity=vicinity,
+                now=now,
+                window_seconds=ws_sec,
+                max_units=max_units,
+                window_start=ws,
+                reserved_capacity=True,
+            )
+        except (ExpiredError, InvalidStateError, NotFoundError) as e:
+            spec = map_core_error(e)
+            return _resp(spec.status_code, spec.body)
 
+        # Only transact if the plan would actually dispatch.
+        if plan.response and plan.response.get("status") == STATUS_SENT:
+            orders_table = os.environ["ORDERS_TABLE"]
+            capacity_table = os.environ["CAPACITY_TABLE"]
+
+            ttl_seconds = 6 * 3600
+            ttl = ws + ttl_seconds
+
+            # Capacity Update (same condition as CapacityRepoDdb, but inside a transaction)
+            cap_update = {
+                "TableName": capacity_table,
+                "Key": {
+                    "restaurant_id": {"S": order["restaurant_id"]},
+                    "window_start": {"N": str(ws)},
+                },
+                "UpdateExpression": "SET #ttl = :ttl ADD used_units :add",
+                "ExpressionAttributeNames": {"#ttl": "ttl"},
+                "ConditionExpression": (
+                    "(attribute_not_exists(used_units) AND :add <= :max) "
+                    "OR (used_units <= :limit)"
+                ),
+                "ExpressionAttributeValues": {
+                    ":add": {"N": str(add_units)},
+                    ":max": {"N": str(max_units)},
+                    ":limit": {"N": str(max_units - add_units)},
+                    ":ttl": {"N": str(ttl)},
+                },
+            }
+
+            # Order Update (reuse your existing plan->Dynamo update builder, then serialize values)
+            order_kwargs = build_update_item_kwargs(order_id, plan)
+            if order_kwargs:
+                order_update = {
+                    "TableName": orders_table,
+                    "Key": {"order_id": {"S": order_id}},
+                    "UpdateExpression": order_kwargs["UpdateExpression"],
+                }
+                if "ConditionExpression" in order_kwargs:
+                    order_update["ConditionExpression"] = order_kwargs["ConditionExpression"]
+                if "ExpressionAttributeNames" in order_kwargs:
+                    order_update["ExpressionAttributeNames"] = order_kwargs["ExpressionAttributeNames"]
+                if "ExpressionAttributeValues" in order_kwargs:
+                    order_update["ExpressionAttributeValues"] = {
+                        k: _av(v) for k, v in order_kwargs["ExpressionAttributeValues"].items()
+                    }
+
+                try:
+                    _ddb().transact_write_items(
+                        TransactItems=[
+                            {"Update": cap_update},
+                            {"Update": order_update},
+                        ]
+                    )
+                    dispatched = True
+                except ClientError as e:
+                    code = (e.response.get("Error") or {}).get("Code")
+                    # Capacity full or stale status -> treat as “not reserved”, fall through to WAITING logic.
+                    if code not in ("TransactionCanceledException", "ConditionalCheckFailedException"):
+                        raise
+
+    if not dispatched:
+        # Non-dispatch path: keep existing behavior (WAITING / no-op responses).
+        try:
+            plan = decide_vicinity_update(
+                order=order,
+                vicinity=vicinity,
+                now=now,
+                window_seconds=ws_sec,
+                max_units=max_units,
+                window_start=ws,
+                reserved_capacity=False,
+            )
+        except (ExpiredError, InvalidStateError, NotFoundError) as e:
+            spec = map_core_error(e)
+            return _resp(spec.status_code, spec.body)
+
+        kwargs = build_update_item_kwargs(order_id, plan)
+        if kwargs:
+            try:
+                orders_repo.update_order(**kwargs)
+            except Exception:
+                latest = orders_repo.get_order(order_id) or order
+                return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+ 
     # Emit lifecycle logs in the same places as before
     if plan.response and plan.response.get("status") == STATUS_SENT and order.get("status") in (STATUS_PENDING, STATUS_WAITING):
         _log(
