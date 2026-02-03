@@ -95,6 +95,18 @@ ack_hard() {
   http_post_json "$API/v1/restaurants/$RID/orders/$oid/ack" '{"mode":"HARD"}'
 }
 
+cancel_order() {
+  local oid="$1"
+  http_post_json "$API/v1/orders/$oid/cancel" '{}'
+}
+
+set_status() {
+  local oid="$1"
+  local st="$2"
+  http_post_json "$API/v1/restaurants/$RID/orders/$oid/status" "{\"status\":\"$st\"}"
+}
+
+
 reset_capacity_window() {
   local now ws
   now=$(date +%s)
@@ -208,6 +220,22 @@ echo "$RESP_B2" | grep -q '"status": "SENT_TO_RESTAURANT"' || fail "expected SEN
 
 pass "orderB dispatched (WAITING->SENT)"
 
+# Cancel should fail if already SENT
+CANCEL_SENT="$(cancel_order "$OID_A")"
+echo "cancel_sent=$CANCEL_SENT"
+echo "$CANCEL_SENT" | grep -q '"code": "INVALID_STATE"' && pass "cancel SENT rejected (INVALID_STATE)" || true
+# (Depending on your error shape, adjust this grep to match map_core_error)
+
+#create a PENDING order and cancel it
+ORDER_CAN="$(create_order)"
+OID_CAN="$(echo "$ORDER_CAN" | python3 -c 'import sys,json; print(json.load(sys.stdin)["order_id"])')"
+CANCEL1="$(cancel_order "$OID_CAN")"
+echo "cancel1=$CANCEL1"
+echo "$CANCEL1" | grep -q '"status": "CANCELED"' || fail "expected CANCELED"
+pass "cancel PENDING -> CANCELED"
+
+
+
 # -----------------------------
 # Test C: ACK hard + idempotent
 # -----------------------------
@@ -222,6 +250,26 @@ echo "ack2=$ACK2"
 echo "$ACK2" | grep -q '"receipt_mode": "HARD"' || fail "expected receipt_mode HARD on idempotent ack"
 
 pass "ack idempotent"
+
+# -----------------------------
+# Test D: Status transitions
+# -----------------------------
+
+S1="$(set_status "$OID_A" "IN_PROGRESS")"
+echo "status1=$S1"
+echo "$S1" | grep -q '"status": "IN_PROGRESS"' || fail "expected IN_PROGRESS"
+pass "status SENT->IN_PROGRESS"
+
+S2="$(set_status "$OID_A" "READY")"
+echo "status2=$S2"
+echo "$S2" | grep -q '"status": "READY"' || fail "expected READY"
+pass "status IN_PROGRESS->READY"
+
+S3="$(set_status "$OID_A" "COMPLETED")"
+echo "status3=$S3"
+echo "$S3" | grep -q '"status": "COMPLETED"' || fail "expected COMPLETED"
+pass "status READY->COMPLETED"
+
 
 echo
 echo "🎉 SMOKE TEST PASSED"

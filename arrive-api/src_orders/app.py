@@ -13,7 +13,8 @@ from core.models import (
     RECEIPT_SOFT,
     RECEIPT_HARD,
 )
-from core.engine import decide_vicinity_update, decide_ack_upgrade
+from core.engine import decide_vicinity_update, decide_ack_upgrade, decide_cancel, decide_restaurant_status_update
+
 
 from adapters.orders_repo_ddb import OrdersRepoDdb
 from adapters.config_repo_ddb import ConfigRepoDdb
@@ -147,6 +148,27 @@ def lambda_handler(event, context):
     if method == "GET" and path.startswith("/v1/orders/") and len(path.split("/")) == 4:
         # ["", "v1", "orders", "{order_id}"]
         return get_order(path.split("/")[3])
+
+    # POST /v1/orders/{order_id}/cancel
+    if method == "POST" and path.startswith("/v1/orders/") and path.endswith("/cancel"):
+        payload, err = _parse_json(body)
+        if err:
+            return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
+        return cancel_order(path.split("/")[3])
+    
+    # POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status
+    if (
+        method == "POST"
+        and path.startswith("/v1/restaurants/")
+        and "/orders/" in path
+        and path.endswith("/status")
+    ):
+        parts = path.split("/")
+        payload, err = _parse_json(body)
+        if err:
+            return _resp(400, {"error": {"code": "BAD_JSON", "message": "Invalid JSON body"}})
+        return restaurant_set_status(parts[3], parts[5], payload)
+
 
     return _resp(404, {"error": {"code": "NOT_FOUND", "message": "Route not found"}})
 
@@ -417,6 +439,63 @@ def get_order(order_id: str):
         "prep_units_total": order.get("prep_units_total"),
         "vicinity": order.get("vicinity"),
     })
+
+def cancel_order(order_id: str):
+    orders_repo, _, _ = _deps()
+    order = orders_repo.get_order(order_id)
+    if not order:
+        return _resp(404, {"error": {"code": "NOT_FOUND"}})
+
+    now = _now()
+
+    try:
+        plan = decide_cancel(order=order, now=now)   # <-- already exists in engine
+    except (ExpiredError, InvalidStateError, NotFoundError) as e:
+        spec = map_core_error(e)
+        return _resp(spec.status_code, spec.body)
+
+    kwargs = build_update_item_kwargs(order_id, plan)
+    if kwargs:
+        try:
+            orders_repo.update_order(**kwargs)
+        except Exception:
+            latest = orders_repo.get_order(order_id) or order
+            # return latest stable state
+            return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+
+    return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
+
+def restaurant_set_status(restaurant_id: str, order_id: str, payload: dict):
+    orders_repo, _, _ = _deps()
+
+    target = payload.get("status")
+    if not isinstance(target, str) or not target:
+        return _resp(400, {"error": {"code": "VALIDATION", "message": "status is required"}})
+
+    order = orders_repo.get_order(order_id)
+    now = _now()
+
+    try:
+        plan = decide_restaurant_status_update(
+            order=order,
+            restaurant_id=restaurant_id,
+            new_status=target,
+            now=now,
+        )
+
+    except (ExpiredError, InvalidStateError, NotFoundError) as e:
+        spec = map_core_error(e)
+        return _resp(spec.status_code, spec.body)
+
+    kwargs = build_update_item_kwargs(order_id, plan)
+    if kwargs:
+        try:
+            orders_repo.update_order(**kwargs)
+        except Exception:
+            latest = orders_repo.get_order(order_id) or order
+            return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+
+    return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
 
 
 # -------------------------

@@ -184,6 +184,16 @@ Resources:
           Properties:
             Path: /v1/orders/{order_id}
             Method: GET
+        CancelOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/cancel
+            Method: POST
+        RestaurantSetStatus:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/status
+            Method: POST
 
 
   ApplicationResourceGroup:
