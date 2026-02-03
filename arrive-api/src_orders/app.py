@@ -611,6 +611,14 @@ def cancel_order(order_id: str):
             # return latest stable state
             return _resp(200, {"order_id": order_id, "status": latest.get("status")})
 
+    _log(
+        "ORDER_CANCELED",
+        order_id=order_id,
+        restaurant_id=order.get("restaurant_id"),
+        from_status=order.get("status"),
+        canceled_at=now,
+    )
+
     return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
 
 def restaurant_set_status(restaurant_id: str, order_id: str, payload: dict):
@@ -642,6 +650,15 @@ def restaurant_set_status(restaurant_id: str, order_id: str, payload: dict):
         except Exception:
             latest = orders_repo.get_order(order_id) or order
             return _resp(200, {"order_id": order_id, "status": latest.get("status")})
+
+    _log(
+        "RESTAURANT_STATUS_UPDATE",
+        order_id=order_id,
+        restaurant_id=restaurant_id,
+        from_status=order.get("status"),
+        to_status=target,
+        updated_at=now,
+    )
 
     return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
 
