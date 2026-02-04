@@ -9,7 +9,7 @@ class TestGetOrder(unittest.TestCase):
         with patch.object(app, "_deps") as deps:
             repo = MagicMock()
             repo.get_order.return_value = None
-            deps.return_value = (repo, MagicMock(), MagicMock())  # orders_repo, config_repo, capacity_repo
+            deps.return_value = (repo, MagicMock(), MagicMock(), MagicMock())
             resp = app.get_order("ord_missing")
             self.assertEqual(resp["statusCode"], 404)
             
@@ -25,7 +25,7 @@ class TestGetOrder(unittest.TestCase):
         with patch.object(app, "_deps") as deps:
             repo = MagicMock() 
             repo.get_order.return_value = fake
-            deps.return_value = (repo, MagicMock(), MagicMock())  # orders_repo, config_repo, capacity_repo
+            deps.return_value = (repo, MagicMock(), MagicMock(), MagicMock())
             resp = app.get_order("ord_1")
             self.assertEqual(resp["statusCode"], 200)
             self.assertIn('"order_id": "ord_1"', resp["body"])

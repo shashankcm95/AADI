@@ -46,6 +46,7 @@ class TestCreateOrderIdempotency(unittest.TestCase):
         orders_repo = MagicMock()
         config_repo = MagicMock()
         capacity_repo = MagicMock()
+        txn_repo = MagicMock()
 
         body = {
             "restaurant_id": "rst_001",
@@ -53,7 +54,7 @@ class TestCreateOrderIdempotency(unittest.TestCase):
             "items": [{"id": "it_001", "qty": 1, "name": "Turkey", "price_cents": 100, "prep_units": 2}],
         }
 
-        with patch.object(app, "_deps", return_value=(orders_repo, config_repo, capacity_repo)), \
+        with patch.object(app, "_deps", return_value=(orders_repo, config_repo, capacity_repo, txn_repo)), \
              patch.object(app, "_idemp_repo", return_value=fake_idemp), \
              patch.object(app.uuid, "uuid4") as u4, \
              patch.object(app.time, "time", return_value=1700000000):
@@ -77,6 +78,7 @@ class TestCreateOrderIdempotency(unittest.TestCase):
         orders_repo = MagicMock()
         config_repo = MagicMock()
         capacity_repo = MagicMock()
+        txn_repo = MagicMock()
 
         body1 = {
             "restaurant_id": "rst_001",
@@ -89,7 +91,7 @@ class TestCreateOrderIdempotency(unittest.TestCase):
             "items": [{"id": "it_001", "qty": 1, "name": "Turkey", "price_cents": 100, "prep_units": 2}],
         }
 
-        with patch.object(app, "_deps", return_value=(orders_repo, config_repo, capacity_repo)), \
+        with patch.object(app, "_deps", return_value=(orders_repo, config_repo, capacity_repo, txn_repo)), \
              patch.object(app, "_idemp_repo", return_value=fake_idemp), \
              patch.object(app.uuid, "uuid4") as u4, \
              patch.object(app.time, "time", return_value=1700000000):

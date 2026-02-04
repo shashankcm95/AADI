@@ -25,26 +25,8 @@ from core.errors import ExpiredError, InvalidStateError, NotFoundError
 import hashlib
 from adapters.idempotency_repo_ddb import IdempotencyRepoDdb, IdempotencyConflictError
 
-import boto3
-from boto3.dynamodb.types import TypeSerializer
-from botocore.exceptions import ClientError
-
-# -------------------------
-# Cached dependency getter 
-# -------------------------
-
+from adapters.transaction_repo_ddb import TransactionRepoDdb
 from functools import lru_cache
-
-_SER = TypeSerializer()
-
-def _av(v):
-    # TypeSerializer returns {"S": "..."} / {"N": "..."} / {"BOOL": True} / {"L": [...]} etc.
-    return _SER.serialize(v)
-
-
-@lru_cache(maxsize=1)
-def _ddb():
-    return boto3.client("dynamodb")
 
 
 @lru_cache(maxsize=1)
@@ -66,6 +48,7 @@ def _deps():
         OrdersRepoDdb(orders_table),
         ConfigRepoDdb(cfg_table),
         CapacityRepoDdb(cap_table),
+        TransactionRepoDdb(cap_table, orders_table),
     )
 
 @lru_cache(maxsize=1)
@@ -209,7 +192,7 @@ def lambda_handler(event, context):
 # -------------------------
 
 def create_order(payload: dict, idempotency_key: str | None = None, raw_body: str | None = None):
-    orders_repo, config_repo, capacity_repo = _deps()
+    orders_repo, config_repo, capacity_repo, _ = _deps()
     # Optional idempotency for POST /v1/orders
     idemp_repo = _idemp_repo()
     request_hash = None
@@ -318,7 +301,7 @@ def create_order(payload: dict, idempotency_key: str | None = None, raw_body: st
 # -------------------------
 
 def update_vicinity(order_id: str, payload: dict):
-    orders_repo, config_repo, capacity_repo = _deps()
+    orders_repo, config_repo, capacity_repo, txn_repo = _deps()
     vicinity = payload.get("vicinity")
     if vicinity is not True and vicinity is not False:
         return _resp(400, {"error": {"code": "VALIDATION", "message": "vicinity must be boolean"}})
@@ -390,68 +373,25 @@ def update_vicinity(order_id: str, payload: dict):
             spec = map_core_error(e)
             return _resp(spec.status_code, spec.body)
 
-        # Only transact if the plan would actually dispatch.
         if plan.response and plan.response.get("status") == STATUS_SENT:
-            orders_table = os.environ["ORDERS_TABLE"]
-            capacity_table = os.environ["CAPACITY_TABLE"]
-
+            # Atomic Dispatch (Capacity Reserve + Order Update)
             ttl_seconds = 6 * 3600
-            ttl = ws + ttl_seconds
-
-            # Capacity Update (same condition as CapacityRepoDdb, but inside a transaction)
-            cap_update = {
-                "TableName": capacity_table,
-                "Key": {
-                    "restaurant_id": {"S": order["restaurant_id"]},
-                    "window_start": {"N": str(ws)},
-                },
-                "UpdateExpression": "SET #ttl = :ttl ADD used_units :add",
-                "ExpressionAttributeNames": {"#ttl": "ttl"},
-                "ConditionExpression": (
-                    "(attribute_not_exists(used_units) AND :add <= :max) "
-                    "OR (used_units <= :limit)"
-                ),
-                "ExpressionAttributeValues": {
-                    ":add": {"N": str(add_units)},
-                    ":max": {"N": str(max_units)},
-                    ":limit": {"N": str(max_units - add_units)},
-                    ":ttl": {"N": str(ttl)},
-                },
-            }
-
-            # Order Update (reuse your existing plan->Dynamo update builder, then serialize values)
             order_kwargs = build_update_item_kwargs(order_id, plan)
-            if order_kwargs:
-                order_update = {
-                    "TableName": orders_table,
-                    "Key": {"order_id": {"S": order_id}},
-                    "UpdateExpression": order_kwargs["UpdateExpression"],
-                }
-                if "ConditionExpression" in order_kwargs:
-                    order_update["ConditionExpression"] = order_kwargs["ConditionExpression"]
-                if "ExpressionAttributeNames" in order_kwargs:
-                    order_update["ExpressionAttributeNames"] = order_kwargs["ExpressionAttributeNames"]
-                if "ExpressionAttributeValues" in order_kwargs:
-                    order_update["ExpressionAttributeValues"] = {
-                        k: _av(v) for k, v in order_kwargs["ExpressionAttributeValues"].items()
-                    }
-
-                try:
-                    _ddb().transact_write_items(
-                        TransactItems=[
-                            {"Update": cap_update},
-                            {"Update": order_update},
-                        ]
-                    )
-                    dispatched = True
-                except ClientError as e:
-                    code = (e.response.get("Error") or {}).get("Code")
-                    # Capacity full or stale status -> treat as “not reserved”, fall through to WAITING logic.
-                    if code not in ("TransactionCanceledException", "ConditionalCheckFailedException"):
-                        raise
-
+            
+            dispatched = txn_repo.atomic_dispatch(
+                restaurant_id=order["restaurant_id"],
+                window_start=ws,
+                add_units=add_units,
+                max_units=max_units,
+                ttl=ws + ttl_seconds,
+                order_id=order_id,
+                order_update_kwargs=order_kwargs
+            )
+    
     if not dispatched:
-        # Non-dispatch path: keep existing behavior (WAITING / no-op responses).
+        # Non-dispatch path OR Atomic dispatch failed (Capacity Full):
+        # We must re-calculate the "Waiting" plan to return the correct Retry-After/Suggested-Start.
+        # Note: If it was a capacity failure, we might want to force "reserved_capacity=False" logic.
         try:
             plan = decide_vicinity_update(
                 order=order,
@@ -460,7 +400,7 @@ def update_vicinity(order_id: str, payload: dict):
                 window_seconds=ws_sec,
                 max_units=max_units,
                 window_start=ws,
-                reserved_capacity=False,
+                reserved_capacity=False, # Force non-reserved logic
             )
         except (ExpiredError, InvalidStateError, NotFoundError) as e:
             spec = map_core_error(e)
@@ -519,7 +459,7 @@ def update_vicinity(order_id: str, payload: dict):
 # -------------------------
 
 def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
-    orders_repo, config_repo, capacity_repo = _deps()
+    orders_repo, config_repo, capacity_repo, _ = _deps()
     order = orders_repo.get_order(order_id)
     if not order or order.get("restaurant_id") != restaurant_id:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
@@ -566,7 +506,7 @@ def restaurant_ack_order(restaurant_id: str, order_id: str, payload: dict):
 
 
 def get_order(order_id: str):
-    orders_repo, _, _ = _deps()
+    orders_repo, _, _, _ = _deps()
     order = orders_repo.get_order(order_id)
     if not order:
         return _resp(404, {"error": {"code": "NOT_FOUND", "message": "order not found"}})
@@ -589,7 +529,7 @@ def get_order(order_id: str):
     })
 
 def cancel_order(order_id: str):
-    orders_repo, _, _ = _deps()
+    orders_repo, _, _, _ = _deps()
     order = orders_repo.get_order(order_id)
     if not order:
         return _resp(404, {"error": {"code": "NOT_FOUND"}})
@@ -622,7 +562,7 @@ def cancel_order(order_id: str):
     return _resp(200, plan.response or {"order_id": order_id, "status": order.get("status")})
 
 def restaurant_set_status(restaurant_id: str, order_id: str, payload: dict):
-    orders_repo, _, _ = _deps()
+    orders_repo, _, _, _ = _deps()
 
     target = payload.get("status")
     if not isinstance(target, str) or not target:
@@ -668,7 +608,7 @@ def restaurant_set_status(restaurant_id: str, order_id: str, payload: dict):
 # -------------------------
 
 def list_restaurant_orders(restaurant_id: str, status: str):
-    orders_repo, config_repo, capacity_repo = _deps()
+    orders_repo, config_repo, capacity_repo, _ = _deps()
     items = orders_repo.query_by_restaurant_status(restaurant_id, status)
     items.sort(key=lambda x: x.get("sent_at", x.get("created_at", 0)))
     return _resp(200, {"restaurant_id": restaurant_id, "status": status, "orders": items})
