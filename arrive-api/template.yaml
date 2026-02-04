@@ -117,6 +117,20 @@ Resources:
   MyApi:
     Type: AWS::Serverless::HttpApi
     Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "http://localhost:5173"
+          - "http://localhost:3000"
+        AllowHeaders:
+          - "Authorization"
+          - "Content-Type"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowCredentials: true
       Auth:
         DefaultAuthorizer: CognitoJWT
         Authorizers:
