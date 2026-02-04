@@ -5,18 +5,132 @@ Description: >
 
   Sample SAM Template for arrive-api
 
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Parameters:
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth 2.0 Client ID
+    Default: "PLACEHOLDER_CLIENT_ID"
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth 2.0 Client Secret
+    Default: "PLACEHOLDER_CLIENT_SECRET"
+    NoEcho: true
+
 Globals:
   Function:
     Timeout: 3
 
     Tracing: Active
-    # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
     LoggingConfig:
       LogFormat: JSON
+      ApplicationLogLevel: INFO
+      SystemLogLevel: INFO
   Api:
     TracingEnabled: true
+    # Security for Stage
+    Auth:
+      DefaultAuthorizer: CognitoJWT
+      Authorizers:
+        CognitoJWT:
+          IdentitySource: "$request.header.Authorization"
+          JwtConfiguration:
+            issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+            audience:
+              - !Ref UserPoolClient
+
 Resources:
+  # -------------------------------------------------------------------------
+  # Auth Resources (Cognito + Google)
+  # -------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-user-pool"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: GoogleProvider
+    Properties:
+      ClientName: !Sub "${AWS::StackName}-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+        - Google
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - "http://localhost:3000/callback" 
+        # Break circular dependency (User must add API URL manually after deploy)
+        - "https://example.com/callback"
+      LogoutURLs:
+        - "http://localhost:3000/logout"
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${AWS::StackName}-auth-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+  GoogleProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      ProviderName: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "email profile openid"
+      ProviderType: Google
+      UserPoolId: !Ref UserPool
+      AttributeMapping:
+        email: "email"
+        given_name: "given_name"
+        family_name: "family_name"
+
+  # -------------------------------------------------------------------------
+  # API Definition (Explicit)
+  # -------------------------------------------------------------------------
+  MyApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        DefaultAuthorizer: CognitoJWT
+        Authorizers:
+          CognitoJWT:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              audience:
+                - !Ref UserPoolClient
+
+  # -------------------------------------------------------------------------
+  # API & Functions
+  # -------------------------------------------------------------------------
+
   HealthFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -27,8 +141,11 @@ Resources:
         HealthApi:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/health
             Method: GET
+            Auth:
+              Authorizer: NONE
 
   RestaurantsTable:
     Type: AWS::DynamoDB::Table
@@ -121,11 +238,13 @@ Resources:
         ListRestaurants:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/restaurants
             Method: GET
         GetMenu:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/restaurants/{restaurant_id}/menu
             Method: GET
 
@@ -152,7 +271,7 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
-
+  
   OrdersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -179,36 +298,43 @@ Resources:
         CreateOrder:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/orders
             Method: POST
         UpdateVicinity:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/orders/{order_id}/vicinity
             Method: POST
         ListRestaurantOrders:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/restaurants/{restaurant_id}/orders
             Method: GET
         RestaurantAck:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/ack
             Method: POST
         GetOrder:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/orders/{order_id}
             Method: GET
         CancelOrder:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/orders/{order_id}/cancel
             Method: POST
         RestaurantSetStatus:
           Type: HttpApi
           Properties:
+            ApiId: !Ref MyApi
             Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/status
             Method: POST
 
@@ -229,7 +355,12 @@ Resources:
 Outputs:
   ApiUrl:
     Description: "HTTP API endpoint URL"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com"
+  
+  AuthUrl:
+    Description: "Cognito Hosted UI"
+    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${UserPoolClient}&response_type=code&scope=email+openid+profile&redirect_uri=https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/callback"
+
   HealthFunctionArn:
     Description: "Health Lambda ARN"
     Value: !GetAtt HealthFunction.Arn
@@ -258,4 +389,10 @@ Outputs:
     Description: "DynamoDB table for idempotency keys"
     Value: !Ref IdempotencyTable
 
+  UserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref UserPool
 
+  UserPoolClientId:
+    Description: "Cognito App Client ID"
+    Value: !Ref UserPoolClient
