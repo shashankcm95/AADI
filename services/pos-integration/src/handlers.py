@@ -22,6 +22,10 @@ ORDERS_TABLE = os.environ.get('ORDERS_TABLE', '')
 MENUS_TABLE = os.environ.get('MENUS_TABLE', '')
 WEBHOOK_LOGS_TABLE = os.environ.get('POS_WEBHOOK_LOGS_TABLE', '')
 
+for _name, _val in [('ORDERS_TABLE', ORDERS_TABLE), ('MENUS_TABLE', MENUS_TABLE), ('POS_WEBHOOK_LOGS_TABLE', WEBHOOK_LOGS_TABLE)]:
+    if not _val:
+        print(f"WARN: {_name} env var not set — related operations will be no-ops")
+
 orders_table = dynamodb.Table(ORDERS_TABLE) if ORDERS_TABLE else None
 menus_table = dynamodb.Table(MENUS_TABLE) if MENUS_TABLE else None
 webhook_logs_table = dynamodb.Table(WEBHOOK_LOGS_TABLE) if WEBHOOK_LOGS_TABLE else None

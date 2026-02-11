@@ -20,6 +20,14 @@ from models import (
 
 from errors import ExpiredError, InvalidStateError, NotFoundError
 
+# Module-level state machine: maps current status → allowed next statuses
+ALLOWED_TRANSITIONS = {
+    STATUS_SENT: (STATUS_IN_PROGRESS,),
+    STATUS_IN_PROGRESS: (STATUS_READY,),
+    STATUS_READY: (STATUS_FULFILLING,),
+    STATUS_FULFILLING: (STATUS_COMPLETED,),
+}
+
 @dataclass(frozen=True)
 class UpdatePlan:
     """
@@ -170,15 +178,7 @@ def decide_destination_status_update(
             response={"session_id": session_id, "status": current}
         )
 
-    # Legal transitions
-    allowed_next = {
-        STATUS_SENT: (STATUS_IN_PROGRESS,),
-        STATUS_IN_PROGRESS: (STATUS_READY,),
-        STATUS_READY: (STATUS_FULFILLING,),
-        STATUS_FULFILLING: (STATUS_COMPLETED,),
-    }
-
-    if current not in allowed_next or new_status not in allowed_next[current]:
+    if current not in ALLOWED_TRANSITIONS or new_status not in ALLOWED_TRANSITIONS[current]:
         raise InvalidStateError()
 
     set_fields: Dict[str, Any] = {
@@ -296,7 +296,7 @@ def calculate_arrive_fee(order_total_cents: int, fee_percent: float = 2.0) -> Di
     """
     Calculate the Arrive platform fee, split between restaurant and customer.
     """
-    total_fee = int(order_total_cents * fee_percent / 100)
+    total_fee = round(order_total_cents * fee_percent / 100)
     restaurant_share = total_fee // 2
     customer_share = total_fee - restaurant_share
     return {

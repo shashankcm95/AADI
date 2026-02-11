@@ -12,6 +12,10 @@ from typing import Optional, Dict, Any
 
 dynamodb = boto3.resource('dynamodb')
 POS_API_KEYS_TABLE = os.environ.get('POS_API_KEYS_TABLE')
+
+if not POS_API_KEYS_TABLE:
+    print("WARN: POS_API_KEYS_TABLE env var not set — all API key validation will fail")
+
 keys_table = dynamodb.Table(POS_API_KEYS_TABLE) if POS_API_KEYS_TABLE else None
 
 
