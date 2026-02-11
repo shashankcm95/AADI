@@ -197,20 +197,20 @@ def tables():
         'active_menu_version': 'v1',
     }
 
-    import app
-    original_orders = app.orders_table
-    original_cap = app.capacity_table
-    original_config = app.config_table
+    import db
+    original_orders = db.orders_table
+    original_cap = db.capacity_table
+    original_config = db.config_table
 
-    app.orders_table = orders
-    app.capacity_table = cap
-    app.config_table = config
+    db.orders_table = orders
+    db.capacity_table = cap
+    db.config_table = config
 
     yield {'orders': orders, 'capacity': cap, 'config': config}
 
-    app.orders_table = original_orders
-    app.capacity_table = original_cap
-    app.config_table = original_config
+    db.orders_table = original_orders
+    db.capacity_table = original_cap
+    db.config_table = original_config
 
 
 def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1'):
