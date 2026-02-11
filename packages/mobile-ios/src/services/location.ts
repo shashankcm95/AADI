@@ -16,7 +16,7 @@ import * as TaskManager from 'expo-task-manager';
 const LOCATION_TASK_NAME = 'arrive-background-location';
 
 // --- Configuration ---
-const CONFIG = {
+export const CONFIG = {
     // Hybrid Zone Thresholds (in minutes)
     ZONE_FAR: 15,       // > 15 min -> Square Root Decay
     ZONE_MID: 5,        // 5 - 15 min -> Constant 30s
@@ -64,7 +64,7 @@ interface RestaurantLocation {
 }
 
 // Geofence event priority (higher index = higher priority)
-const EVENT_PRIORITY: Record<string, number> = {
+export const EVENT_PRIORITY: Record<string, number> = {
     '5_MIN_OUT': 1,
     'PARKING': 2,
     'AT_DOOR': 3,
@@ -80,6 +80,7 @@ interface TrackingState {
     isStarted: boolean;         // Guard against multiple startLocationTracking calls
     firedEvents: Set<string>;   // Events already fired this session (prevents cascade)
     highestFiredPriority: number; // Highest priority event that has fired
+    lastConfiguredInterval: number; // Last polling interval set on the native API
 }
 
 // Runtime State
@@ -93,10 +94,39 @@ let trackingState: TrackingState = {
     isStarted: false,
     firedEvents: new Set(),
     highestFiredPriority: 0,
+    lastConfiguredInterval: 0,
 };
+
+// Module-level tracking context (needed for background task at module scope)
+let activeRestaurant: RestaurantLocation | null = null;
+let activeOrderId: string | null = null;
 
 // Event callbacks
 let onArrivalEvent: ((event: string, orderId: string, metadata?: any) => void) | null = null;
+
+// ===== Background Task Registration (Module Scope per Expo Docs) =====
+// Must be at top-level so the OS can re-invoke the task after a background wake.
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
+    if (error) {
+        console.error('[Location] Task error:', error);
+        return;
+    }
+
+    if (data && activeRestaurant && activeOrderId) {
+        const { locations } = data;
+        const location = locations[0]; // Process most recent
+
+        if (location) {
+            // Acquire mutex: ensures only one processLocationUpdate runs at a time
+            const release = await processingMutex.acquire();
+            try {
+                await processLocationUpdate(location, activeRestaurant, activeOrderId);
+            } finally {
+                release(); // Always release, even on error
+            }
+        }
+    }
+});
 
 // ===== Concurrency Primitives =====
 
@@ -105,7 +135,7 @@ let onArrivalEvent: ((event: string, orderId: string, metadata?: any) => void) |
  * If a GPS callback fires while the previous is still processing,
  * the new callback waits for the lock instead of racing on trackingState.
  */
-class AsyncMutex {
+export class AsyncMutex {
     private _lock: Promise<void> = Promise.resolve();
     private _locked = false;
 
@@ -148,7 +178,7 @@ interface QueuedEvent {
     retries: number;
 }
 
-class SerialEventQueue {
+export class SerialEventQueue {
     private queue: QueuedEvent[] = [];
     private processing = false;
     private sender: ((event: string, orderId: string, metadata?: any) => Promise<void>) | null = null;
@@ -228,36 +258,17 @@ export async function startLocationTracking(
     }
     trackingState.isStarted = true;
     onArrivalEvent = onEvent;
+
+    // Set module-level context for the background task
+    activeRestaurant = restaurant;
+    activeOrderId = orderId;
     console.log(`[Location] Starting Hybrid Geofencing for order ${orderId}`);
 
-    // Set up the event queue sender (wraps the callback in a Promise)
+    // Set up the event queue sender
+    // The sender must be async and throw on failure so the queue can retry
     eventQueue.setSender(async (event, oid, meta) => {
         if (onArrivalEvent) {
-            // Wrap in try/catch so the queue can retry on failure
-            onArrivalEvent(event, oid, meta);
-        }
-    });
-
-    // Define the background task (with mutex for serialization)
-    await TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: any) => {
-        if (error) {
-            console.error('[Location] Task error:', error);
-            return;
-        }
-
-        if (data) {
-            const { locations } = data;
-            const location = locations[0]; // Process most recent
-
-            if (location) {
-                // Acquire mutex: ensures only one processLocationUpdate runs at a time
-                const release = await processingMutex.acquire();
-                try {
-                    await processLocationUpdate(location, restaurant, orderId);
-                } finally {
-                    release(); // Always release, even on error
-                }
-            }
+            await Promise.resolve(onArrivalEvent(event, oid, meta));
         }
     });
 
@@ -289,6 +300,8 @@ export async function stopLocationTracking(): Promise<void> {
         console.warn('[Location] Stop error (non-fatal):', err);
     }
     onArrivalEvent = null;
+    activeRestaurant = null;
+    activeOrderId = null;
     eventQueue.clear(); // Drain pending events
     trackingState = {
         lastLocationTs: 0,
@@ -300,6 +313,7 @@ export async function stopLocationTracking(): Promise<void> {
         isStarted: false,
         firedEvents: new Set(),
         highestFiredPriority: 0,
+        lastConfiguredInterval: 0,
     };
 }
 
@@ -316,7 +330,7 @@ export async function stopLocationTracking(): Promise<void> {
  *   - In FAR zone, boundary is at 15 min. Must drop to 14.5 min to enter MID.
  *   - In MID zone, boundary is at 15 min. Must rise to 15.5 min to re-enter FAR.
  */
-function determineZone(ttaSeconds: number, currentZone: Zone | null): Zone {
+export function determineZone(ttaSeconds: number, currentZone: Zone | null): Zone {
     const ttaMinutes = ttaSeconds / 60;
     const bufferMinutes = CONFIG.HYSTERESIS_BUFFER / 60; // 0.5 min
 
@@ -502,16 +516,16 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
         }
     }
 
-    // 8. Re-configure Polling (The "Tether")
+    // 9. Re-configure Polling (The "Tether")
     // Only update if interval changed significantly (>5s difference) to avoid thrashing native APIs
-    const timeSinceLastUpdate = now - trackingState.lastLocationTs;
-    if (trackingState.lastLocationTs === 0 || Math.abs(nextInterval - timeSinceLastUpdate) > 5000) {
+    if (trackingState.lastConfiguredInterval === 0 || Math.abs(nextInterval - trackingState.lastConfiguredInterval) > 5000) {
         await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
             accuracy: accuracy,
             distanceInterval: accuracy === Location.Accuracy.BestForNavigation ? 5 : 50,
             deferredUpdatesInterval: nextInterval,
             showsBackgroundLocationIndicator: true,
         });
+        trackingState.lastConfiguredInterval = nextInterval;
     }
     trackingState.lastLocationTs = now;
 }
@@ -535,7 +549,7 @@ export async function getCurrentLocation(): Promise<{ latitude: number; longitud
 /**
  * Calculate distance between two points (Haversine formula)
  */
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371e3; // Earth's radius in meters
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
