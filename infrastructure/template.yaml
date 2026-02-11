@@ -1,0 +1,363 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  arrive-api
+
+  Sample SAM Template for arrive-api
+
+Parameters:
+  GoogleClientId:
+    Type: String
+    Description: Google OAuth 2.0 Client ID
+    # Default: "PLACEHOLDER_CLIENT_ID"
+  GoogleClientSecret:
+    Type: String
+    Description: Google OAuth 2.0 Client Secret
+    Default: "PLACEHOLDER_CLIENT_SECRET"
+    NoEcho: true
+
+Globals:
+  Function:
+    Timeout: 15
+
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+      ApplicationLogLevel: INFO
+      SystemLogLevel: INFO
+  Api:
+    TracingEnabled: true
+    # Security for Stage
+    Auth:
+      DefaultAuthorizer: CognitoJWT
+      Authorizers:
+        CognitoJWT:
+          IdentitySource: "$request.header.Authorization"
+          JwtConfiguration:
+            issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+            audience:
+              - !Ref UserPoolClient
+
+Resources:
+  # -------------------------------------------------------------------------
+  # Auth Resources (Cognito + Google)
+  # -------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${AWS::StackName}-user-pool"
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: restaurant_id
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${AWS::StackName}-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+      CallbackURLs:
+        - "http://localhost:3000/callback" 
+        - "http://localhost:5173/"
+        - "http://localhost:5174/"
+        - !Sub "https://${CustomerWebDistribution.DomainName}/"
+        - !Sub "https://${AdminPortalDistribution.DomainName}/"
+      LogoutURLs:
+        - "http://localhost:3000/logout"
+        - "http://localhost:5173/"
+        - "http://localhost:5174/"
+        - !Sub "https://${CustomerWebDistribution.DomainName}/"
+        - !Sub "https://${AdminPortalDistribution.DomainName}/"
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${AWS::StackName}-auth-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+
+
+  # -------------------------------------------------------------------------
+  # API Definition (Explicit)
+  # -------------------------------------------------------------------------
+  MyApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "http://localhost:5173"
+          - "http://localhost:5174"
+          - "http://localhost:3000"
+          - "https://d2idolu27jfcgi.cloudfront.net"
+          - "https://d1xussnmc4cu06.cloudfront.net"
+        AllowHeaders:
+          - "Authorization"
+          - "Content-Type"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowCredentials: true
+      StageName: Prod
+      Auth:
+        DefaultAuthorizer: CognitoJWT
+        Authorizers:
+          CognitoJWT:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              audience:
+                - !Ref UserPoolClient
+
+  # -------------------------------------------------------------------------
+  # WAF & Security
+  # -------------------------------------------------------------------------
+  AppWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${AWS::StackName}-web-acl"
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${AWS::StackName}-web-acl"
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: RateLimit
+          Priority: 1
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimit
+            SampledRequestsEnabled: true
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Sub "arn:aws:apigateway:${AWS::Region}::/apis/${MyApi}/stages/Prod"
+      WebACLArn: !GetAtt AppWebAcl.Arn
+
+  # -------------------------------------------------------------------------
+  # API & Functions
+  # -------------------------------------------------------------------------
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - arm64
+      Events:
+        HealthApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref MyApi
+            Path: /v1/health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+  # Restaurants/Menus Resources moved to services/restaurants/template.yaml
+
+  # Orders Resources moved to services/orders/template.yaml
+
+
+  # -------------------------------------------------------------------------
+  # Frontend Hosting (S3)
+  # -------------------------------------------------------------------------
+  CustomerWebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-customer-web-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CustomerWebCloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for ${AWS::StackName}-customer-web"
+
+  CustomerWebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CustomerWebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontReadAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${CustomerWebCloudFrontOAI}"
+            Action: "s3:GetObject"
+            Resource: !Sub "${CustomerWebBucket.Arn}/*"
+
+  AdminPortalBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-admin-portal-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  AdminPortalCloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for ${AWS::StackName}-admin-portal"
+
+  AdminPortalBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AdminPortalBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontReadAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${AdminPortalCloudFrontOAI}"
+            Action: "s3:GetObject"
+            Resource: !Sub "${AdminPortalBucket.Arn}/*"
+
+
+  ApplicationResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name:
+        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+  ApplicationInsightsMonitoring:
+    Type: AWS::ApplicationInsights::Application
+    Properties:
+      ResourceGroupName:
+        Ref: ApplicationResourceGroup
+      AutoConfigurationEnabled: 'true'
+
+  CustomerWebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: CustomerWebOrigin
+            DomainName: !Select [2, !Split ["/", !GetAtt CustomerWebBucket.WebsiteURL]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: CustomerWebOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  AdminPortalDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: AdminPortalOrigin
+            DomainName: !Select [2, !Split ["/", !GetAtt AdminPortalBucket.WebsiteURL]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: AdminPortalOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+Outputs:
+  ApiUrl:
+    Description: "HTTP API endpoint URL"
+    Value: !GetAtt MyApi.ApiEndpoint
+  
+  AuthUrl:
+    Description: "Cognito Hosted UI"
+    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${UserPoolClient}&response_type=code&scope=email+openid+profile&redirect_uri=https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/callback"
+
+  CustomerWebBucketName:
+    Description: "S3 Bucket for Customer Web"
+    Value: !Ref CustomerWebBucket
+
+  AdminPortalBucketName:
+    Description: "S3 Bucket for Admin Portal"
+    Value: !Ref AdminPortalBucket
+
+  CustomerWebURL:
+    Description: "CloudFront URL for Customer Web"
+    Value: !Sub "https://${CustomerWebDistribution.DomainName}"
+
+  AdminPortalURL:
+    Description: "CloudFront URL for Admin Portal"
+    Value: !Sub "https://${AdminPortalDistribution.DomainName}"
+

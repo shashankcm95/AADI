@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aadi-orders-service
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID for JWT auth
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool Client ID
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+    Architectures:
+      - arm64
+  HttpApi:
+    Auth:
+      DefaultAuthorizer: CognitoJWT
+      Authorizers:
+        CognitoJWT:
+          IdentitySource: "$request.header.Authorization"
+          JwtConfiguration:
+            issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}"
+            audience:
+              - !Ref UserPoolClientId
+
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_id
+          AttributeType: S
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: N
+      KeySchema:
+        - AttributeName: order_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_RestaurantStatus
+          KeySchema:
+            - AttributeName: restaurant_id
+              KeyType: HASH
+            - AttributeName: status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI_CustomerOrders
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  CapacityTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: window_start
+          AttributeType: N
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+        - AttributeName: window_start
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  IdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: idempotency_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: idempotency_key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  OrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+          CAPACITY_TABLE: !Ref CapacityTable
+          IDEMPOTENCY_TABLE: !Ref IdempotencyTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CapacityTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref IdempotencyTable
+      Events:
+        CreateOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders
+            Method: POST
+        UpdateVicinity:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/vicinity
+            Method: POST
+        ListRestaurantOrders:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/orders
+            Method: GET
+        RestaurantAck:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/ack
+            Method: POST
+        GetOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}
+            Method: GET
+        ListCustomerOrders:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders
+            Method: GET
+        CancelOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/cancel
+            Method: POST
+        RestaurantSetStatus:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/status
+            Method: POST
+        AddTip:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/tip
+            Method: POST
+
+Outputs:
+  OrdersApi:
+    Description: "API Gateway endpoint URL for Orders Service"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

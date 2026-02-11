@@ -1,0 +1,107 @@
+[
+    {
+        "restaurant_id": "rst_demo_001",
+        "name": "🍔 Arrive Bistro",
+        "cuisine": "American",
+        "rating": 4.8,
+        "emoji": "🍔",
+        "address": "123 Innovation Dr, Austin TX",
+        "latitude": 30.2672,
+        "longitude": -97.7431,
+        "pin": "1234",
+        "menu": [
+            {
+                "id": "item_1",
+                "name": "Signature Truffle Burger",
+                "price_cents": 1499,
+                "description": "Wagyu beef, truffle aioli, brioche"
+            },
+            {
+                "id": "item_2",
+                "name": "Spicy Rigatoni",
+                "price_cents": 1850,
+                "description": "Vodka sauce, calabrian chili, basil"
+            },
+            {
+                "id": "item_3",
+                "name": "Crispy Brussels Sprouts",
+                "price_cents": 900,
+                "description": "Honey balsamic glaze, pancetta"
+            },
+            {
+                "id": "item_4",
+                "name": "Tiramisu",
+                "price_cents": 800,
+                "description": "Espresso soak, mascarpone cream"
+            },
+            {
+                "id": "item_5",
+                "name": "Pinot Noir (Glass)",
+                "price_cents": 1200,
+                "description": "Sonoma Coast, 2021"
+            }
+        ]
+    },
+    {
+        "restaurant_id": "rst_pilot_002",
+        "name": "🍕 Partner Pizza",
+        "cuisine": "Italian",
+        "rating": 4.6,
+        "emoji": "🍕",
+        "address": "456 Tech Blvd, Austin TX",
+        "latitude": 30.2850,
+        "longitude": -97.7380,
+        "pin": "5678",
+        "menu": [
+            {
+                "id": "piz_1",
+                "name": "Margherita",
+                "price_cents": 1400,
+                "description": "San Marzano tomato, mozzarella di bufala, basil"
+            },
+            {
+                "id": "piz_2",
+                "name": "Pepperoni",
+                "price_cents": 1600,
+                "description": "Double pepperoni, hot honey"
+            },
+            {
+                "id": "piz_3",
+                "name": "Truffle Mushroom",
+                "price_cents": 1800,
+                "description": "Wild mushrooms, truffle oil, thyme"
+            },
+            {
+                "id": "bev_1",
+                "name": "Coca Cola",
+                "price_cents": 300,
+                "description": "Glass bottle"
+            }
+        ]
+    },
+    {
+        "restaurant_id": "rst_test_003",
+        "name": "🧪 Test Kitchen",
+        "cuisine": "Fusion",
+        "rating": 4.9,
+        "emoji": "🧪",
+        "address": "789 Debug Lane, Austin TX",
+        "latitude": 30.2500,
+        "longitude": -97.7500,
+        "pin": "9999",
+        "menu": [
+            {
+                "id": "fus_1",
+                "name": "Kimchi Tacos",
+                "price_cents": 1200,
+                "description": "Bulgogi beef, kimchi slaw"
+            },
+            {
+                "id": "fus_2",
+                "name": "Matcha Latte",
+                "price_cents": 550,
+                "description": "Oat milk, ceremonial grade matcha"
+            }
+        ]
+    }
+]

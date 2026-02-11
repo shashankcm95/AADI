@@ -1,0 +1,83 @@
+name: Arrive CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./infrastructure
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install SAM CLI
+        uses: aws-actions/setup-sam@v2
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Build and Deploy Backend
+        run: |
+          sam build
+          sam deploy --no-confirm-changeset --stack-name arrive-dev --region us-east-1 --capabilities CAPABILITY_IAM
+
+      - name: Get S3 Bucket Names
+        id: get-buckets
+        run: |
+          CUSTOMER_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='CustomerWebBucketName'].OutputValue" --output text)
+          ADMIN_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='AdminPortalBucketName'].OutputValue" --output text)
+          echo "CUSTOMER_BUCKET=$CUSTOMER_BUCKET" >> $GITHUB_ENV
+          echo "ADMIN_BUCKET=$ADMIN_BUCKET" >> $GITHUB_ENV
+
+  deploy-frontend:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install & Build Frontends
+        run: |
+          npm ci
+          # Build Client
+          npx turbo run build --filter=client
+          # Build Admin
+          npx turbo run build --filter=admin-portal
+
+      - name: Deploy Customer Web
+        # Fetch bucket again or pass via outputs (simplified here by re-fetching or known convention, but CD job separation makes env sharing harder. Let's merge jobs or re-fetch)
+        # Merging approach: actually 'deploy' job above only did backend. Let's do it all in one job or use outputs.
+        # For simplicity, we'll re-fetch or just assume the first job populated the stack.
+        run: |
+          CUSTOMER_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='CustomerWebBucketName'].OutputValue" --output text)
+          aws s3 sync packages/customer-web/dist s3://$CUSTOMER_BUCKET --delete
+          echo "Deployed Customer Web to: http://$CUSTOMER_BUCKET.s3-website-us-east-1.amazonaws.com"
+
+      - name: Deploy Admin Portal
+        run: |
+          ADMIN_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='AdminPortalBucketName'].OutputValue" --output text)
+          aws s3 sync packages/admin-portal/dist s3://$ADMIN_BUCKET --delete
+          echo "Deployed Admin Portal to: http://$ADMIN_BUCKET.s3-website-us-east-1.amazonaws.com"

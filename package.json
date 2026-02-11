@@ -1,0 +1,31 @@
+{
+    "name": "arrive-platform",
+    "version": "1.0.0",
+    "private": true,
+    "packageManager": "npm@9.6.7",
+    "description": "Arrive: GPS-Powered Just-in-Time Kitchen Orchestration",
+    "workspaces": [
+        "packages/*"
+    ],
+    "scripts": {
+        "dev": "turbo run dev",
+        "build": "turbo run build",
+        "test": "turbo run test",
+        "lint": "turbo run lint",
+        "clean": "turbo run clean && rm -rf node_modules",
+        "dev:mock-server": "node tools/mock-server/index.js",
+        "dev:customer": "npm run dev --workspace=packages/customer-web",
+        "dev:admin": "npm run dev --workspace=packages/admin-portal",
+        "dev:ios": "npm run start --workspace=packages/mobile-ios"
+    },
+    "devDependencies": {
+        "turbo": "^2.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/arrive-platform/arrive"
+    }
+}

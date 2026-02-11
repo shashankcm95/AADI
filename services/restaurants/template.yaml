@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aadi-restaurants-service
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID for JWT auth
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool Client ID
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+    Architectures:
+      - arm64
+  HttpApi:
+    Auth:
+      DefaultAuthorizer: CognitoJWT
+      Authorizers:
+        CognitoJWT:
+          IdentitySource: "$request.header.Authorization"
+          JwtConfiguration:
+            issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}"
+            audience:
+              - !Ref UserPoolClientId
+
+Resources:
+  RestaurantsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+
+  RestaurantConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+
+  MenusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: restaurant_id
+          AttributeType: S
+        - AttributeName: menu_version
+          AttributeType: S
+      KeySchema:
+        - AttributeName: restaurant_id
+          KeyType: HASH
+        - AttributeName: menu_version
+          KeyType: RANGE
+
+  RestaurantsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          RESTAURANTS_TABLE: !Ref RestaurantsTable
+          MENUS_TABLE: !Ref MenusTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MenusTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantConfigTable
+      Events:
+        ListRestaurants:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants
+            Method: GET
+        GetMenu:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/menu
+            Method: GET
+        HealthCheck:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/health
+            Method: GET
+
+Outputs:
+  RestaurantsApi:
+    Description: "API Gateway endpoint URL for Restaurants Service"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

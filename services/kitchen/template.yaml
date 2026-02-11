@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aadi-kitchen-service
+
+Globals:
+  Function:
+    Timeout: 5
+    Runtime: python3.11
+    Architectures:
+      - arm64
+
+Resources:
+  KitchenTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: kitchen_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: kitchen_id
+          KeyType: HASH
+
+  KitchenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref KitchenTable
+      Events:
+        HealthCheck:
+          Type: HttpApi
+          Properties:
+            Path: /v1/kitchen/health
+            Method: GET
+
+Outputs:
+  KitchenApi:
+    Description: "API Gateway endpoint URL for Kitchen Service"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

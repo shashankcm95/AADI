@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aadi-pos-integration-service
+  POS Integration Layer for Toast, Square, Clover, and other POS systems.
+  Authenticates via API keys (X-POS-API-Key header), not Cognito JWT.
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+    Architectures:
+      - arm64
+
+Resources:
+  PosApiKeysTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: api_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: api_key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  PosWebhookLogsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: webhook_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: webhook_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  PosIntegrationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          POS_API_KEYS_TABLE: !Ref PosApiKeysTable
+          POS_WEBHOOK_LOGS_TABLE: !Ref PosWebhookLogsTable
+          # Cross-service table references (passed via stack parameters in production)
+          ORDERS_TABLE: !Sub "${AWS::StackName}-orders"
+          MENUS_TABLE: !Sub "${AWS::StackName}-menus"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PosApiKeysTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PosWebhookLogsTable
+        # Cross-service table access — POS service needs to read/write orders and menus
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-orders*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-menus*"
+      Events:
+        # POS → Arrive: Push a new order
+        PosCreateOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/orders
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        # POS ← Arrive: List orders for the restaurant
+        PosListOrders:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/orders
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        # POS → Arrive: Update order status
+        PosUpdateStatus:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/orders/{order_id}/status
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        # POS → Arrive: Force fire an order (manual override)
+        PosForceFireOrder:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/orders/{order_id}/fire
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        # POS ← Arrive: Get menu
+        PosGetMenu:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/menu
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        # POS → Arrive: Sync menu
+        PosSyncMenu:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/menu/sync
+            Method: POST
+            Auth:
+              Authorizer: NONE
+        # POS → Arrive: Generic webhook
+        PosWebhook:
+          Type: HttpApi
+          Properties:
+            Path: /v1/pos/webhook
+            Method: POST
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  PosIntegrationApi:
+    Description: "API Gateway endpoint URL for POS Integration Service"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

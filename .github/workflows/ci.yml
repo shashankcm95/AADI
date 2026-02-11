@@ -1,0 +1,53 @@
+name: Arrive CI
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+
+jobs:
+  backend-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./infrastructure
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install SAM CLI
+        uses: aws-actions/setup-sam@v2
+      
+      - name: Validate SAM Template
+        run: sam validate --template template.yaml
+
+      - name: Install Test Dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -r ../services/orders/requirements.txt
+      
+      - name: Run Unit Tests
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)/../services/orders/src
+          pytest tests/
+
+      - name: Run Linter (Ruff)
+        run: ruff check ../services/orders/src
+
+  frontend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: 'npm'
+      
+      - name: Install Dependencies
+        run: npm ci
+      
+      - name: Turbo Lint & Test
+        run: npx turbo run lint test build --filter=client --filter=admin-portal
