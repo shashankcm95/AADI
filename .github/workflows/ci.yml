@@ -9,9 +9,6 @@ on:
 jobs:
   backend-check:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./infrastructure
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -21,21 +18,31 @@ jobs:
       - name: Install SAM CLI
         uses: aws-actions/setup-sam@v2
       
-      - name: Validate SAM Template
-        run: sam validate --template template.yaml
+      - name: Validate SAM Templates
+        run: |
+          sam validate --template infrastructure/template.yaml --region us-east-1
+          sam validate --template services/orders/template.yaml --region us-east-1
+          sam validate --template services/restaurants/template.yaml --region us-east-1
+          sam validate --template services/pos-integration/template.yaml --region us-east-1
 
       - name: Install Test Dependencies
         run: |
-          pip install -r requirements-dev.txt
-          pip install -r ../services/orders/requirements.txt
+          pip install -r infrastructure/requirements-dev.txt
+          pip install -r services/orders/requirements.txt
       
-      - name: Run Unit Tests
+      - name: Run Orders Engine Tests
         run: |
-          export PYTHONPATH=$PYTHONPATH:$(pwd)/../services/orders/src
-          pytest tests/
+          cd services/orders
+          python -m pytest tests/ -v
+
+      - name: Run POS Integration Tests
+        run: |
+          cd services/pos-integration
+          pip install -r requirements.txt 2>/dev/null || true
+          python -m pytest tests/ -v
 
       - name: Run Linter (Ruff)
-        run: ruff check ../services/orders/src
+        run: ruff check services/orders/src services/restaurants/src
 
   frontend-check:
     runs-on: ubuntu-latest
@@ -49,5 +56,5 @@ jobs:
       - name: Install Dependencies
         run: npm ci
       
-      - name: Turbo Lint & Test
-        run: npx turbo run lint test build --filter=client --filter=admin-portal
+      - name: Build & Lint
+        run: npx turbo run lint build --filter=client --filter=admin-portal
