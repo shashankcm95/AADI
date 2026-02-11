@@ -106,9 +106,9 @@ def release_slot(
             ConditionExpression=Attr("current_count").gt(0),
             ExpressionAttributeValues={":one": 1},
         )
-    except Exception:
-        # Row expired or count already 0 — safe to ignore
-        pass
+    except Exception as e:
+        # Row expired or count already 0 — safe to ignore but log for debugging
+        print(f"WARN release_slot({destination_id}, {window_start}): {e}")
 
 
 # =============================================================================

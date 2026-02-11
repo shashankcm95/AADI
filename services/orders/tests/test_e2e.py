@@ -17,14 +17,10 @@ Routes tested:
   POST /v1/restaurants/{rid}/orders/{oid}/status          → update_order_status
 """
 
-import sys
-import os
 import json
 import pytest
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 
 # =============================================================================

@@ -126,8 +126,8 @@ Resources:
           - "http://localhost:5173"
           - "http://localhost:5174"
           - "http://localhost:3000"
-          - "https://d2idolu27jfcgi.cloudfront.net"
-          - "https://d1xussnmc4cu06.cloudfront.net"
+          - !Sub "https://${CustomerWebDistribution.DomainName}"
+          - !Sub "https://${AdminPortalDistribution.DomainName}"
         AllowHeaders:
           - "Authorization"
           - "Content-Type"

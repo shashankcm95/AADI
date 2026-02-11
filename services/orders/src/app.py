@@ -23,6 +23,10 @@ CORS_HEADERS = {
     'Access-Control-Allow-Headers': 'Authorization,Content-Type',
 }
 
+# --- Input validation allowlists ---
+VALID_VICINITY_EVENTS = {'5_MIN_OUT', 'PARKING', 'AT_DOOR', 'EXIT_VICINITY'}
+VALID_RESTAURANT_STATUSES = {'IN_PROGRESS', 'READY', 'FULFILLING', 'COMPLETED'}
+
 def make_response(status_code, body):
     """Helper to build a response with CORS headers."""
     return {
@@ -59,23 +63,25 @@ def lambda_handler(event, context):
     path_params = event.get('pathParameters', {})
     
     try:
+        customer_id = get_customer_id(event)
+
         if route_key == 'POST /v1/orders':
             return create_order(event)
         
         elif route_key == 'GET /v1/orders/{order_id}':
-            return get_order(path_params.get('order_id'))
+            return get_order(path_params.get('order_id'), customer_id)
 
         elif route_key == 'GET /v1/orders':
             return list_customer_orders(event)
             
         elif route_key == 'POST /v1/orders/{order_id}/vicinity':
-            return update_vicinity(path_params.get('order_id'), event)
+            return update_vicinity(path_params.get('order_id'), event, customer_id)
             
         elif route_key == 'POST /v1/orders/{order_id}/tip':
-            return add_tip(path_params.get('order_id'), event)
+            return add_tip(path_params.get('order_id'), event, customer_id)
 
         elif route_key == 'POST /v1/orders/{order_id}/cancel':
-            return cancel_order(path_params.get('order_id'))
+            return cancel_order(path_params.get('order_id'), customer_id)
 
         elif route_key == 'GET /v1/restaurants/{restaurant_id}/orders':
             return list_restaurant_orders(path_params.get('restaurant_id'), event)
@@ -166,7 +172,7 @@ def create_order(event):
         'body': json.dumps(order, default=decimal_default)
     }
 
-def get_order(order_id):
+def get_order(order_id, customer_id=None):
     if not orders_table:
         return {'statusCode': 500, 'body': 'DB not configured'}
         
@@ -174,6 +180,10 @@ def get_order(order_id):
     item = resp.get('Item')
     
     if not item:
+        raise NotFoundError()
+
+    # Ownership check: customer can only see their own orders
+    if customer_id and item.get('customer_id') != customer_id:
         raise NotFoundError()
         
     return {
@@ -238,9 +248,13 @@ def list_restaurant_orders(restaurant_id, event):
         print(f"Query Error: {e}")
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
 
-def update_vicinity(order_id, event):
+def update_vicinity(order_id, event, customer_id=None):
     body = json.loads(event.get('body', '{}'))
     vicinity_event = body.get('event')
+
+    # Validate vicinity event type
+    if vicinity_event not in VALID_VICINITY_EVENTS:
+        return {'statusCode': 400, 'body': json.dumps({'error': f'Invalid vicinity event: {vicinity_event}'})}
     
     # Fetch current state
     if not orders_table:
@@ -250,6 +264,10 @@ def update_vicinity(order_id, event):
     session = resp.get('Item')
     
     if not session:
+        raise NotFoundError()
+
+    # Ownership check
+    if customer_id and session.get('customer_id') != customer_id:
         raise NotFoundError()
     
     now = int(time.time())
@@ -291,11 +309,18 @@ def update_vicinity(order_id, event):
         'body': json.dumps(plan.response, default=decimal_default)
     }
 
-def add_tip(order_id, event):
-    # Minimal implementation for demo
+def add_tip(order_id, event, customer_id=None):
     if not orders_table:
         return {'statusCode': 500}
-        
+
+    # Fetch and verify ownership before updating
+    resp = orders_table.get_item(Key={'order_id': order_id})
+    item = resp.get('Item')
+    if not item:
+        raise NotFoundError()
+    if customer_id and item.get('customer_id') != customer_id:
+        raise NotFoundError()
+
     body = json.loads(event.get('body', '{}'))
     tip_cents = body.get('tip_cents', 0)
     
@@ -340,6 +365,10 @@ def update_order_status(order_id, event):
     if not new_status:
         return {'statusCode': 400, 'body': json.dumps({'error': 'Missing status'})}
 
+    # Validate against allowlist
+    if new_status not in VALID_RESTAURANT_STATUSES:
+        return {'statusCode': 400, 'body': json.dumps({'error': f'Invalid status: {new_status}'})}
+
     # Fetch session first so we can release capacity on completion
     resp = orders_table.get_item(Key={'order_id': order_id})
     session = resp.get('Item')
@@ -368,7 +397,7 @@ def update_order_status(order_id, event):
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
 
 
-def cancel_order(order_id):
+def cancel_order(order_id, customer_id=None):
     if not orders_table:
         return {'statusCode': 500, 'body': 'DB not configured'}
 
@@ -376,6 +405,10 @@ def cancel_order(order_id):
     session = resp.get('Item')
 
     if not session:
+        raise NotFoundError()
+
+    # Ownership check
+    if customer_id and session.get('customer_id') != customer_id:
         raise NotFoundError()
 
     now = int(time.time())

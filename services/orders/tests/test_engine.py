@@ -9,11 +9,7 @@ Tests cover:
 - create_session_model + calculate_arrive_fee: session creation and fees
 - validate_resources_payload: input validation
 """
-import sys
-import os
 import pytest
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 import engine
 from engine import (

@@ -9,12 +9,8 @@ Tests:
   - check_and_reserve_for_arrival: end-to-end dining flow
 """
 
-import sys
-import os
 import pytest
 from unittest.mock import MagicMock, patch
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 import capacity
 

@@ -3,11 +3,7 @@ Tests for dynamo_apply.build_update_item_kwargs.
 Verifies the DynamoDB expression builder produces correct
 UpdateExpression, ExpressionAttributeNames, and ConditionExpression.
 """
-import sys
-import os
 import pytest
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from engine import UpdatePlan
 from dynamo_apply import build_update_item_kwargs
