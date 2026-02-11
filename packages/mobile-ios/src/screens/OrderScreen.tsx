@@ -10,7 +10,8 @@ import {
     TouchableOpacity,
     ActivityIndicator,
 } from 'react-native';
-import { getOrder, sendArrivalEvent } from '../services/api';
+import { getOrder, sendArrivalEvent, getRestaurant } from '../services/api';
+import { startLocationTracking, stopLocationTracking } from '../services/location';
 import { theme } from '../theme';
 
 const STATUS_LABELS: { [key: string]: { label: string; color: string; emoji: string } } = {
@@ -39,10 +40,22 @@ export default function OrderScreen({ route, navigation }: Props) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchOrder();
-        const interval = setInterval(fetchOrder, 2000); // Poll every 2s
+        let mounted = true;
 
-        return () => clearInterval(interval);
+        const init = async () => {
+            await fetchOrder();
+        };
+        init();
+
+        const interval = setInterval(() => {
+            if (mounted) fetchOrder();
+        }, 2000); // Poll every 2s
+
+        return () => {
+            mounted = false;
+            clearInterval(interval);
+            stopLocationTracking(); // Privacy: Stop tracking on unmount
+        };
     }, []);
 
     const fetchOrder = async () => {
@@ -51,13 +64,48 @@ export default function OrderScreen({ route, navigation }: Props) {
             setOrder(data);
             setLoading(false);
 
+            // Manage Location Tracking based on status
+            const activeStatuses = ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'];
+            const isCompleted = ['COMPLETED', 'CANCELLED', 'DECLINED'].includes(data.status);
+
+            if (activeStatuses.includes(data.status)) {
+                // Fetch real restaurant coordinates
+                let targetLat = 30.2672;  // Fallback: Austin, TX
+                let targetLon = -97.7431;
+                try {
+                    const restaurant = await getRestaurant(data.restaurant_id);
+                    if (restaurant.latitude && restaurant.longitude) {
+                        targetLat = restaurant.latitude;
+                        targetLon = restaurant.longitude;
+                    }
+                } catch (err) {
+                    console.warn('[OrderScreen] Could not fetch restaurant coords, using fallback:', err);
+                }
+
+                startLocationTracking(
+                    {
+                        latitude: targetLat,
+                        longitude: targetLon,
+                        restaurantId: data.restaurant_id
+                    },
+                    orderId,
+                    (event, oid, meta) => {
+                        console.log(`[OrderScreen] Event: ${event} Meta:`, meta);
+                        // Forward significant events to backend
+                        if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
+                            simulateArrival(event);
+                        }
+                    }
+                );
+            } else if (isCompleted) {
+                stopLocationTracking();
+            }
+
             // If completed, navigate based on payment mode
             if (data.status === 'COMPLETED') {
                 if (data.payment_mode === 'PREPAID') {
-                    // Prepaid orders → show tip screen (no natural tipping moment)
                     navigation.navigate('Tip', { order: data });
                 }
-                // PAY_AT_RESTAURANT orders stay on this screen — tip handled at table
             }
         } catch (error) {
             console.error('Failed to fetch order:', error);
