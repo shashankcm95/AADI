@@ -43,6 +43,11 @@ export const CONFIG = {
     SPEED_FALLBACK: 5.0,    // 18 km/h - used when GPS speed is unavailable
     SPEED_FLOOR: 1.5,       // ~5 km/h - minimum speed to prevent TTA -> infinity (walking pace)
 
+    // Circuity Factor: road distance ≈ 1.4x straight-line distance
+    // Based on transportation research (Ballou et al., circuity ratio for US road networks)
+    // This corrects the Haversine straight-line distance to approximate actual driving distance.
+    CIRCUITY_FACTOR: 1.4,
+
     // Debounce
     EVENT_DEBOUNCE_MS: 10000, // Don't re-send the same event within 10s
 };
@@ -81,6 +86,8 @@ interface TrackingState {
     firedEvents: Set<string>;   // Events already fired this session (prevents cascade)
     highestFiredPriority: number; // Highest priority event that has fired
     lastConfiguredInterval: number; // Last polling interval set on the native API
+    lastLat: number | null;     // Previous position for bearing calculation
+    lastLon: number | null;     // Previous position for bearing calculation
 }
 
 // Runtime State
@@ -95,6 +102,8 @@ let trackingState: TrackingState = {
     firedEvents: new Set(),
     highestFiredPriority: 0,
     lastConfiguredInterval: 0,
+    lastLat: null,
+    lastLon: null,
 };
 
 // Module-level tracking context (needed for background task at module scope)
@@ -314,6 +323,8 @@ export async function stopLocationTracking(): Promise<void> {
         firedEvents: new Set(),
         highestFiredPriority: 0,
         lastConfiguredInterval: 0,
+        lastLat: null,
+        lastLon: null,
     };
 }
 
@@ -382,7 +393,9 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
     const { latitude, longitude, speed } = location.coords;
 
     // 1. Calculate Distance & Smooth Speed
-    const distanceMeters = calculateDistance(latitude, longitude, restaurant.latitude, restaurant.longitude);
+    const straightLineMeters = calculateDistance(latitude, longitude, restaurant.latitude, restaurant.longitude);
+    // Apply circuity factor: road distance ≈ 1.4x straight-line (Haversine)
+    const distanceMeters = straightLineMeters * CONFIG.CIRCUITY_FACTOR;
 
     // Kalman-lite smoothing: weighted average (70% new, 30% old)
     const rawSpeed = (speed && speed > 0) ? speed : CONFIG.SPEED_FALLBACK;
@@ -390,9 +403,37 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
         ? rawSpeed
         : (rawSpeed * 0.7) + (trackingState.currentSpeed * 0.3);
 
-    // 2. Calculate TTA (Time To Arrival) in seconds
+    // 2. Bearing/Direction Check
+    // Verify user is approaching the restaurant, not driving away.
+    // Uses dot product of movement vector · restaurant vector.
+    // Positive = approaching, Negative = receding.
+    let isApproaching = true; // Assume approaching on first fix
+    if (trackingState.lastLat !== null && trackingState.lastLon !== null) {
+        // Movement vector (user's travel direction)
+        const dxMove = latitude - trackingState.lastLat;
+        const dyMove = longitude - trackingState.lastLon;
+        // Restaurant vector (direction to restaurant from current position)
+        const dxTarget = restaurant.latitude - latitude;
+        const dyTarget = restaurant.longitude - longitude;
+        // Dot product: positive if vectors point in the same general direction
+        const dot = (dxMove * dxTarget) + (dyMove * dyTarget);
+        isApproaching = dot >= 0;
+    }
+    trackingState.lastLat = latitude;
+    trackingState.lastLon = longitude;
+
+    // 3. Calculate TTA (Time To Arrival) in seconds
     const effectiveSpeed = Math.max(trackingState.currentSpeed, CONFIG.SPEED_FLOOR);
-    const ttaSeconds = distanceMeters / effectiveSpeed;
+    let ttaSeconds = distanceMeters / effectiveSpeed;
+
+    // If user is moving AWAY from restaurant, inflate TTA to prevent false zone transitions
+    // We use the raw straight-line distance for geofence radius checks below
+    if (!isApproaching && trackingState.lastLocationTs !== 0) {
+        // User is receding: use a pessimistic TTA (double it)
+        // This prevents false 5_MIN_OUT events when driving past the restaurant
+        ttaSeconds = ttaSeconds * 2;
+        console.log(`[Location] User moving AWAY from restaurant, inflated TTA: ${Math.round(ttaSeconds)}s`);
+    }
     const ttaMinutes = ttaSeconds / 60;
 
     // 3. Determine Zone with Hysteresis
@@ -443,20 +484,26 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
     // Priority: AT_DOOR (3) > PARKING (2) > 5_MIN_OUT (1)
     // Only fire events that are HIGHER priority than what we've already fired.
     // This prevents: cold start at AT_DOOR -> next poll fires PARKING (wrong direction).
-    if (distanceMeters < GEOFENCE_RADII.AT_DOOR) {
+    // Use straight-line distance (not circuity-adjusted) for geofence radius checks
+    // Geofence radii are defined in straight-line meters
+    if (straightLineMeters < GEOFENCE_RADII.AT_DOOR) {
         eventName = 'AT_DOOR';
         shouldReport = true;
-    } else if (distanceMeters < GEOFENCE_RADII.PARKING) {
+    } else if (straightLineMeters < GEOFENCE_RADII.PARKING) {
         eventName = 'PARKING';
         shouldReport = true;
-    } else if (distanceMeters < GEOFENCE_RADII.FIVE_MIN_OUT || ttaSeconds < 300) {
+    } else if (straightLineMeters < GEOFENCE_RADII.FIVE_MIN_OUT || ttaSeconds < 300) {
         eventName = '5_MIN_OUT';
         shouldReport = true;
     }
 
-    // Suppress if this event is lower priority than one we've already fired
+    // Cascade Suppression: prevent lower-priority events after a higher-priority one has fired
     // e.g., if AT_DOOR already fired, don't fire PARKING or 5_MIN_OUT
-    if (shouldReport && eventName in EVENT_PRIORITY) {
+    // NOTE: HEARTBEAT and LOCATION_UPDATE are intentionally NOT in EVENT_PRIORITY,
+    // so they bypass this check entirely — this is correct because heartbeats
+    // should always be sent regardless of which geofence events have fired.
+    const isGeofenceEvent = eventName in EVENT_PRIORITY;
+    if (shouldReport && isGeofenceEvent) {
         const eventPriority = EVENT_PRIORITY[eventName];
         if (eventPriority < trackingState.highestFiredPriority) {
             console.log(`[Location] Suppressed ${eventName} (priority ${eventPriority} < ${trackingState.highestFiredPriority})`);
