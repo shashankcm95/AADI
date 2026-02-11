@@ -394,8 +394,7 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
 
     // 1. Calculate Distance & Smooth Speed
     const straightLineMeters = calculateDistance(latitude, longitude, restaurant.latitude, restaurant.longitude);
-    // Apply circuity factor: road distance ≈ 1.4x straight-line (Haversine)
-    const distanceMeters = straightLineMeters * CONFIG.CIRCUITY_FACTOR;
+    const distanceMeters = applyCircuity(straightLineMeters);
 
     // Kalman-lite smoothing: weighted average (70% new, 30% old)
     const rawSpeed = (speed && speed > 0) ? speed : CONFIG.SPEED_FALLBACK;
@@ -404,21 +403,11 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
         : (rawSpeed * 0.7) + (trackingState.currentSpeed * 0.3);
 
     // 2. Bearing/Direction Check
-    // Verify user is approaching the restaurant, not driving away.
-    // Uses dot product of movement vector · restaurant vector.
-    // Positive = approaching, Negative = receding.
-    let isApproaching = true; // Assume approaching on first fix
-    if (trackingState.lastLat !== null && trackingState.lastLon !== null) {
-        // Movement vector (user's travel direction)
-        const dxMove = latitude - trackingState.lastLat;
-        const dyMove = longitude - trackingState.lastLon;
-        // Restaurant vector (direction to restaurant from current position)
-        const dxTarget = restaurant.latitude - latitude;
-        const dyTarget = restaurant.longitude - longitude;
-        // Dot product: positive if vectors point in the same general direction
-        const dot = (dxMove * dxTarget) + (dyMove * dyTarget);
-        isApproaching = dot >= 0;
-    }
+    const approaching = isUserApproaching(
+        latitude, longitude,
+        trackingState.lastLat, trackingState.lastLon,
+        restaurant.latitude, restaurant.longitude
+    );
     trackingState.lastLat = latitude;
     trackingState.lastLon = longitude;
 
@@ -427,10 +416,7 @@ async function processLocationUpdate(location: any, restaurant: RestaurantLocati
     let ttaSeconds = distanceMeters / effectiveSpeed;
 
     // If user is moving AWAY from restaurant, inflate TTA to prevent false zone transitions
-    // We use the raw straight-line distance for geofence radius checks below
-    if (!isApproaching && trackingState.lastLocationTs !== 0) {
-        // User is receding: use a pessimistic TTA (double it)
-        // This prevents false 5_MIN_OUT events when driving past the restaurant
+    if (!approaching && trackingState.lastLocationTs !== 0) {
         ttaSeconds = ttaSeconds * 2;
         console.log(`[Location] User moving AWAY from restaurant, inflated TTA: ${Math.round(ttaSeconds)}s`);
     }
@@ -591,6 +577,43 @@ export async function getCurrentLocation(): Promise<{ latitude: number; longitud
         console.error('Failed to get current location:', error);
         return null;
     }
+}
+
+/**
+ * Apply circuity factor to convert straight-line distance to approximate road distance.
+ * Road networks are typically ~1.4x the Haversine distance (Ballou et al.).
+ */
+export function applyCircuity(straightLineMeters: number): number {
+    return straightLineMeters * CONFIG.CIRCUITY_FACTOR;
+}
+
+/**
+ * Determine if the user is approaching the restaurant using a dot product of:
+ *   movement vector (previous → current position) · target vector (current → restaurant)
+ * 
+ * Returns true (approaching) if:
+ *   - No previous position exists (first GPS fix). This is safe because the first fix
+ *     only sets the initial zone — no events fire until the second fix confirms direction.
+ *     Worst case: one extra poll at the "wrong" interval, corrected 5s later.
+ *   - The dot product is >= 0 (vectors point in the same general direction)
+ */
+export function isUserApproaching(
+    currentLat: number, currentLon: number,
+    prevLat: number | null, prevLon: number | null,
+    restaurantLat: number, restaurantLon: number,
+): boolean {
+    // First fix: no prior position, assume approaching (see docstring for rationale)
+    if (prevLat === null || prevLon === null) return true;
+
+    // Movement vector (user's travel direction)
+    const dxMove = currentLat - prevLat;
+    const dyMove = currentLon - prevLon;
+    // Target vector (direction to restaurant from current position)
+    const dxTarget = restaurantLat - currentLat;
+    const dyTarget = restaurantLon - currentLon;
+    // Dot product: positive = approaching, negative = receding
+    const dot = (dxMove * dxTarget) + (dyMove * dyTarget);
+    return dot >= 0;
 }
 
 /**
