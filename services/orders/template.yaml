@@ -10,6 +10,10 @@ Parameters:
   UserPoolClientId:
     Type: String
     Description: Cognito User Pool Client ID
+  RestaurantConfigTableName:
+    Type: String
+    Description: Name of the RestaurantConfigTable from the restaurants stack (cross-service read)
+    Default: ""
 
 Globals:
   Function:
@@ -107,6 +111,7 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           CAPACITY_TABLE: !Ref CapacityTable
           IDEMPOTENCY_TABLE: !Ref IdempotencyTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTableName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
@@ -114,6 +119,8 @@ Resources:
             TableName: !Ref CapacityTable
         - DynamoDBCrudPolicy:
             TableName: !Ref IdempotencyTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantConfigTableName
       Events:
         CreateOrder:
           Type: HttpApi

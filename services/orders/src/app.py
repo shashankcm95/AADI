@@ -12,6 +12,7 @@ from boto3.dynamodb.conditions import Key
 # Lambda runs this as main, so relative imports fail
 import engine
 import models
+import capacity
 from dynamo_apply import build_update_item_kwargs
 from errors import NotFoundError, InvalidStateError, ValidationError, ExpiredError
 
@@ -33,7 +34,12 @@ def make_response(status_code, body):
 # Initialize DynamoDB resources
 dynamodb = boto3.resource('dynamodb')
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
+CAPACITY_TABLE = os.environ.get('CAPACITY_TABLE')
+RESTAURANT_CONFIG_TABLE = os.environ.get('RESTAURANT_CONFIG_TABLE')
+
 orders_table = dynamodb.Table(ORDERS_TABLE) if ORDERS_TABLE else None
+capacity_table = dynamodb.Table(CAPACITY_TABLE) if CAPACITY_TABLE else None
+config_table = dynamodb.Table(RESTAURANT_CONFIG_TABLE) if RESTAURANT_CONFIG_TABLE else None
 
 def decimal_default(obj):
     if isinstance(obj, Decimal):
@@ -248,8 +254,29 @@ def update_vicinity(order_id, event):
     
     now = int(time.time())
     
-    # Run domain logic
-    plan = engine.decide_arrival_update(session, vicinity_event, now)
+    # --- Capacity-gated path for 5_MIN_OUT ---
+    # When a customer is 5 minutes out, check if the restaurant has capacity.
+    # Other events (PARKING, AT_DOOR, EXIT_VICINITY) bypass capacity checks.
+    if vicinity_event == '5_MIN_OUT' and capacity_table:
+        destination_id = session.get('destination_id', session.get('restaurant_id'))
+        cap_result = capacity.check_and_reserve_for_arrival(
+            capacity_table=capacity_table,
+            config_table=config_table,
+            destination_id=destination_id,
+            now=now,
+        )
+        
+        plan = engine.decide_vicinity_update(
+            session=session,
+            vicinity=True,
+            now=now,
+            window_seconds=cap_result['window_seconds'],
+            window_start=cap_result['window_start'],
+            reserved_capacity=cap_result['reserved'],
+        )
+    else:
+        # Non-capacity events: PARKING, AT_DOOR, EXIT_VICINITY
+        plan = engine.decide_arrival_update(session, vicinity_event, now)
     
     # Apply updates
     if plan.response.get('error'):
@@ -283,6 +310,26 @@ def add_tip(order_id, event):
         'body': json.dumps({'success': True})
     }
 
+
+def _release_capacity_slot(session: Dict[str, Any]) -> None:
+    """
+    Release a capacity slot if one was reserved for this session.
+    Safe to call even if no slot was reserved (no-ops gracefully).
+    """
+    if not capacity_table:
+        return
+
+    window_start = session.get('capacity_window_start')
+    if window_start is None:
+        return  # No capacity slot was ever reserved
+
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    capacity.release_slot(
+        table=capacity_table,
+        destination_id=destination_id,
+        window_start=int(window_start),
+    )
+
 def update_order_status(order_id, event):
     if not orders_table:
         return {'statusCode': 500}
@@ -292,7 +339,13 @@ def update_order_status(order_id, event):
     
     if not new_status:
         return {'statusCode': 400, 'body': json.dumps({'error': 'Missing status'})}
-        
+
+    # Fetch session first so we can release capacity on completion
+    resp = orders_table.get_item(Key={'order_id': order_id})
+    session = resp.get('Item')
+    if not session:
+        raise NotFoundError()
+
     try:
         orders_table.update_item(
             Key={'order_id': order_id},
@@ -301,6 +354,11 @@ def update_order_status(order_id, event):
             ExpressionAttributeValues={':s': new_status},
             ConditionExpression="attribute_exists(order_id)"
         )
+
+        # Release capacity slot when order is completed
+        if new_status in ('COMPLETED', models.STATUS_COMPLETED):
+            _release_capacity_slot(session)
+
         return {
             'statusCode': 200,
             'body': json.dumps({'success': True, 'status': new_status})
@@ -326,6 +384,9 @@ def cancel_order(order_id):
     kwargs = build_update_item_kwargs(order_id, plan)
     if kwargs:
         orders_table.update_item(**kwargs)
+
+    # Release capacity slot if one was reserved
+    _release_capacity_slot(session)
 
     return {
         'statusCode': 200,
