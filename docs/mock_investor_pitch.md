@@ -1,3 +1,4 @@
+```markdown
 # Mock Investor Simulation: The "Arrive" Pitch
 
 **Date:** 2026-02-10 (Updated)  
@@ -77,3 +78,4 @@ The tech risk is WebSocket latency for the KDS (Kitchen Display). We currently p
 1.  **Demo Day:** Deploy with seeded restaurants, run full prepaid + pay-at-restaurant flows for investor video.
 2.  **WAF:** Enable Web Application Firewall as recommended in the Security Audit.
 3.  **Load Test:** Validate DynamoDB capacity under concurrent sessions.
+```

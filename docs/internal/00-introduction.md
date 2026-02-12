@@ -1,3 +1,4 @@
+```markdown
 # Arrive – System Introduction
 
 ## What Arrive Is
@@ -93,31 +94,54 @@ These are deferred to future versions once the core model proves reliable.
 
 ---
 
-## What This Documentation Covers
+## Documentation Philosophy
 
-This documentation explains:
+This documentation is structured to answer **four different questions**, each in its own place:
 
-* How the system is structured
-* How orders move through the system
-* How capacity is enforced
-* How APIs are expected to behave
+1. **What is the system and why does it exist?**
+   → Introduction & System Overview
 
-It is written to be:
+2. **How does the system work internally?**
+   → Order lifecycle, capacity model, data model
 
-* Easy to onboard new contributors
-* Safe to extend without breaking guarantees
-* Honest about trade-offs and limitations
+3. **How do I interact with the system?**
+   → API reference (endpoints, requests, responses)
+
+4. **How do I operate and extend it safely?**
+   → Operational notes, invariants, future considerations
 
 ---
 
-## Where to Go Next
+## Documentation Map
 
-* **02-repo-structure.md** → Learn how the repository is organized
-* **03-order-lifecycle.md** → Understand order states and transitions
-* **04-capacity-model.md** → Dive into the capacity enforcement logic
+**1. Context & Architecture**
+- **00-introduction.md** — Product intent & non-goals
+- **01-system-overview.md** — High-level architecture & request flow
+- **11-system-design.md** — Detailed v2.1 system design
+- **core-engine-contract.md** — Utility-agnostic core logic
+
+**2. Core Mechanics**
+- **03-order-lifecycle.md** — Order states & transitions (authoritative)
+- **07-capacity-and-throughput.md** — Capacity windows & reservation logic
+- **06-data-model.md** — DynamoDB schemas & access patterns
+
+**3. Interfaces & Code**
+- **02-repo-structure.md** — Codebase layout & ownership
+- **04-api-reference.md** — REST endpoints & contracts
+- **user_manual.md** — End-user usage guide
+- **guide_google_auth.md** — Auth setup guide
+
+**4. Operations & Reliability**
+- **08-error-handling-retries-idempotency.md** — Failure modes & guarantees
+- **09-operational-notes.md** — Deployment & runtime notes
+- **10-future-considerations.md** — Roadmap & trade-offs
 
 ---
 
 > If you are reading this to modify behavior, start with the order lifecycle.
 > If you are reading this to scale the system, start with the capacity model.
 
+**Version:** 2.1
+**Date:** 2026-02-12
+
+```

@@ -1,3 +1,4 @@
+```markdown
 03 — Order Lifecycle & State Machine
 
 This document defines the authoritative order state machine for Arrive.
@@ -225,8 +226,6 @@ Next Document
 
 Next we’ll document API Endpoints precisely:
 
-docs/04-api-reference.md
-
 Routes
 
 Request/response schemas
@@ -253,4 +252,11 @@ On the first successful call:
 - `receipt_mode` is upgraded to `HARD`
 - `received_at` is overwritten with the acknowledgement timestamp
 
+- `receipt_mode` is upgraded to `HARD`
+- `received_at` is overwritten with the acknowledgement timestamp
+
 Subsequent calls are idempotent and do not change timestamps.
+
+**Version:** 2.1
+**Date:** 2026-02-12
+```

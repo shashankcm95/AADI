@@ -1,3 +1,4 @@
+```markdown
 # System Design: Arrive API
 
 ## 1. Overview
@@ -33,7 +34,7 @@ graph TD
 
 ### Components
 - **API Gateway**: Entry point for all client requests.
-- **OrdersFunction**: Monolithic Lambda handling multiple routes via a unified router (`src_orders/app.py`).
+- **OrdersFunction**: Monolithic Lambda handling multiple routes via a unified router (`services/orders/src/app.py`).
   - Handles `POST /orders`, `POST /vicinity`, `GET /orders`, etc.
   - Enforces the capacity-gated dispatch logic.
 - **RestaurantsFunction**: Manages restaurant profiles and menus.
@@ -60,7 +61,6 @@ graph TD
 - `GET /v1/orders/{order_id}`
 - `POST /v1/orders/{order_id}/vicinity`
 - `POST /v1/restaurants/{restaurant_id}/orders/{order_id}/ack`
-
 
 ## 3. Data Model
 
@@ -124,7 +124,6 @@ The system supports two tiers of receipt reliability.
 - **Use Case**: High-assurance environments, SLA guarantees, or recovering from outages.
 - **Invariant**: `receipt_mode` can only transition `SOFT` -> `HARD`. Downgrades are never allowed.
 - **Note**: Hard receipt is **optional**. We do *not* block the customer workflow on this acknowledgment.
-
 
 ## 5. State Machine
 The order lifecycle is deterministic and enforced by the engine.
@@ -204,5 +203,4 @@ Key signals for operational health:
 -   **Future**:
     -   **Client**: JWT Authorizer via Cognito.
     -   **Restaurant**: API Keys or Mutual TLS for tablets.
-
-
+```

@@ -1,13 +1,14 @@
+```markdown
 # Arrive Platform: User Manual
 
-**Version:** 1.0  
-**Date:** 2026-02-04
+**Version:** 2.1  
+**Date:** 2026-02-12
 
 ---
 
 ## 🚀 Getting Started
 
-Arrive is designed to be easy to run for development. The platform consists of a **Transaction Engine**, **Geo Foundation**, and **Frontend Apps**.
+Arrive is designed to be easy to run for development. The platform consists of multiple services including **Orders**, **Restaurants**, **POS Integration**, **Kitchen**, and **Frontend Apps**.
 
 ### Prerequisites
 - Node.js > 18
@@ -50,7 +51,7 @@ npm run dev
 This will run parallel processes:
 - **Mock Server:** `http://localhost:3001` (Simulates Backend APIs)
 - **Customer Web:** `http://localhost:5173` (Ordering App)
-- **Admin Portal:** `http://localhost:5174` (Kitchen Display)
+- **Admin Portal:** `http://localhost:5174` (Admin Dashboard)
 - **iOS Bundler:** `http://localhost:8081` (React Native Metro)
 
 ---
@@ -65,7 +66,7 @@ This will run parallel processes:
 4.  **Checkout:** Enter payment details (Mocked).
 5.  **Track:** You will see a "Live Status" screen showing your order progress.
 
-### 2. Admin Portal (KDS)
+### 2. Admin Portal
 *The "Fulfillment" Experience*
 1.  Open `localhost:5174`.
 2.  **Login:** Enter PIN `1234`.
@@ -89,12 +90,11 @@ This will run parallel processes:
 
 ### Switching Domains
 The platform is domain-neutral. To switch from "Dining" to "Logistics":
-1.  Edit `shared/types/index.ts`.
-2.  Update the `alias` interfaces to match your new domain (e.g., `Restaurant` -> `Warehouse`).
-3.  Update the `mock-server/index.js` data to reflect new resource types.
+1.  Edit the domain-specific configurations in the services.
+2.  Update the mock data in `tools/mock-server/data/seed_restaurants.json` to reflect new resource types.
 
-### adding a Service
-1.  Create a folder in `services/engine/`.
+### Adding a Service
+1.  Create a folder in the appropriate service directory.
 2.  Add a `README.md`.
 3.  Add entry to `package.json` workspaces.
 
@@ -113,3 +113,4 @@ A: Run `python3 -m compileall services/` to verify Python syntax.
 
 ---
 **Support:** Contact the Platform Team.
+```

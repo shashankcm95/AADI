@@ -1,6 +1,7 @@
+```markdown
 08 — Error Handling, Retries & Idempotency
 
-This section defines how Arrive behaves under failure, retries, partial execution, and concurrency — and what guarantees the system provides to callers.
+This section defines how the system behaves under failure, retries, partial execution, and concurrency — and what guarantees the system provides to callers.
 
 This is critical for:
 
@@ -12,7 +13,7 @@ Long-term maintainability
 
 1. Design Principles
 
-Arrive follows four strict rules:
+The system follows four strict rules:
 
 Never double-book capacity
 
@@ -29,7 +30,7 @@ The system must converge to the same state
 No side effects may be duplicated
 
 2. Idempotency Model
-What Is Idempotent in Arrive?
+What Is Idempotent in the System?
 Operation	Idempotent?	Why
 Create order	❌	New order = new intent
 Update vicinity (true)	✅	State-guarded
@@ -41,7 +42,6 @@ Key Technique: Conditional Writes
 State transitions are guarded using DynamoDB conditions:
 
 Only transition if current status == expected status
-
 
 This prevents:
 
@@ -111,7 +111,7 @@ Result:
 
 4. Error Categories
 
-Arrive errors fall into four classes.
+Errors fall into four classes.
 
 4.1 Validation Errors (4xx)
 
@@ -125,7 +125,6 @@ Example:
     "message": "items must be a non-empty list"
   }
 }
-
 
 Characteristics:
 
@@ -148,7 +147,6 @@ Example:
   }
 }
 
-
 Characteristics:
 
 Safe failure
@@ -168,7 +166,6 @@ Example:
   }
 }
 
-
 Characteristics:
 
 Business-rule enforcement
@@ -184,7 +181,6 @@ Example:
 {
   "message": "Internal Server Error"
 }
-
 
 Characteristics:
 
@@ -205,7 +201,6 @@ Forbidden Transitions
 SENT_TO_RESTAURANT → PENDING
 SENT_TO_RESTAURANT → WAITING
 EXPIRED → ANY
-
 
 These are enforced via:
 
@@ -232,6 +227,7 @@ Lambda crash before update	No reservation
 Crash after reservation	Order retry detects state
 Duplicate call	Condition blocks
 TTL expiry	Capacity auto-released
+
 7. Observability & Debuggability
 
 Each failure path logs:
@@ -268,7 +264,11 @@ Display WAITING_FOR_CAPACITY honestly
 
 Summary
 
-Arrive is designed to fail safely.
+The system is designed to fail safely.
 Retries converge. States never regress. Capacity is never overbooked.
 
 This section defines the correctness contract of the system under stress.
+
+**Version:** 2.1
+**Date:** 2026-02-12
+```

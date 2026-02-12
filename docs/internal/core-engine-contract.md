@@ -1,4 +1,8 @@
+```markdown
 # Core Engine Contract
+
+**Version:** 2.1
+**Date:** 2026-02-12
 
 This document defines the **utility-agnostic core** of Arrive: a capacity-gated decision engine that transitions work items through a deterministic state machine based on eligibility signals and provider capacity.
 
@@ -143,4 +147,4 @@ These invariants must hold for all utilities:
 This mapping keeps v1 understandable while enabling later extraction into a true platform core.
 
 ---
-
+```

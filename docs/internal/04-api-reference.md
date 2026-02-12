@@ -1,6 +1,7 @@
-04 — API Reference (v1)
+```markdown
+04 — API Reference
 
-This document defines the public contract of the Arrive API.
+This document defines the public contract of the Arrive API (Version 2.1).
 
 All endpoints are:
 
@@ -228,3 +229,4 @@ Why each file exists
 Where new logic should go
 
 How to avoid a monolith
+```

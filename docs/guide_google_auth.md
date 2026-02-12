@@ -1,3 +1,4 @@
+```markdown
 # How to Setup Google OAuth for Arrive API
 
 This guide explains how to generate the `GoogleClientId` and `GoogleClientSecret` required for deployment, and how to finalize the configuration after deployment (The "Chicken & Egg" workflow).
@@ -61,4 +62,5 @@ This guide explains how to generate the `GoogleClientId` and `GoogleClientSecret
 **Q: Why "Web Application" type? We are building a Mobile App.**
 A: These credentials are for **Cognito itself** (a server-side entity) to talk to Google.
 *   **Hosted UI Flow**: Your mobile app opens a browser view (SFSafariViewController/Chrome Custom Tabs) to the Cognito URL. This uses the "Web" credentials perfectly and is the recommended secure pattern (RFC 8252).
-*   **Native SDK Flow**: If you later decide to use the native Google Sign-in SDKs, you will create separate iOS/Android Client IDs in Google Console and simply specificy them in the Cognito Identity Provider settings. You do **not** need to change the setup we made today; you just add to it.
+*   **Native SDK Flow**: If you later decide to use the native Google Sign-in SDKs, you will create separate iOS/Android Client IDs in Google Console and simply specify them in the Cognito Identity Provider settings. You do **not** need to change the setup we made today; you just add to it.
+```

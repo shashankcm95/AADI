@@ -1,6 +1,7 @@
+```markdown
 # Arrive Platform: System Design Document
 
-**Version:** 2.0  
+**Version:** 2.1  
 **Date:** 2026-02-10  
 **Status:** Production Ready
 
@@ -63,12 +64,7 @@ The system is built on four neutral pillars:
 
 ## 4. Microservices Breakdown
 
-### A. Geo Service (`services/geo`)
-**Role:** The Foundation. Stateless handling of space and time.
-- **Responsibilities:** ETA calculation, Geofence event processing, departure optimization.
-- **Tech:** Python, AWS Location Service.
-
-### B. Orders Service (`services/orders`)
+### A. Orders Service (`services/orders`)
 **Role:** The Brain. Manages the lifecycle of a Session.
 - **Responsibilities:** Session CRUD, state machine transitions, auto-firing based on proximity events, capacity management.
 - **Tech:** Python, DynamoDB (OrdersTable + CapacityTable + IdempotencyTable).
@@ -76,13 +72,13 @@ The system is built on four neutral pillars:
   - `OrdersTable` — Sessions with GSI on `restaurant_id+status` and `customer_id+created_at`.
   - `CapacityTable` — Windowed capacity tracking per restaurant.
 
-### C. POS Integration Service (`services/pos-integration`)
+### B. POS Integration Service (`services/pos-integration`)
 **Role:** The Bridge. Translates between POS systems and Arrive's domain format.
 - **Responsibilities:** Format mapping (Toast, Square, generic), menu sync, order push to POS, webhook processing.
 - **Auth:** Custom API key authentication (X-POS-API-Key header), not Cognito JWT.
 - **Tech:** Python, DynamoDB (PosApiKeysTable + PosWebhookLogsTable).
 
-### D. Restaurants Service (`services/restaurants`)
+### C. Restaurants Service (`services/restaurants`)
 **Role:** The Catalog. Serves restaurant and menu data from DynamoDB.
 - **Responsibilities:** List active restaurants, serve menus by version.
 - **Tech:** Python, DynamoDB (RestaurantsTable + MenusTable + RestaurantConfigTable).
@@ -108,24 +104,24 @@ The system is built on four neutral pillars:
 
 | App | Package | Tech | Purpose |
 |-----|---------|------|---------|
-| **Customer Web** | `customer-web` | React + Amplify | Web-based ordering with real-time order history |
-| **Admin Portal** | `admin-portal` | React | KDS, dashboards, restaurant management |
-| **Mobile App** | `mobile-ios` | React Native | Native experience with background GPS + conditional tip screen |
+| **Customer Web** | `packages/customer-web` | React + Vite | Web-based ordering with real-time order history |
+| **Admin Portal** | `packages/admin-portal` | React + Vite | KDS, dashboards, restaurant management |
+| **Mobile App** | `packages/mobile-ios` | React Native | Native experience with background GPS + conditional tip screen |
 
 ## 7. Configuration & Extensibility
 
 - **Domain Config:** The "Dining" domain is configured via `shared/types` aliases.
 - **New Industries:** To add "Medical Appointments", create a new frontend package and map `Session` → `Appointment`, `Destination` → `Clinic`, `Resource` → `Doctor`.
-- **New POS Systems:** Extend `pos_mapper.py` with a new format translator.
+- **New POS Systems:** Extend `services/pos-integration/src/pos_mapper.py` with a new format translator.
 
 ## 8. Development
 
 - **Monorepo:** Managed via Turborepo.
 - **Mock Server:** `tools/mock-server` provides full offline testing with POS routes.
-- **Seed Scripts:** `infrastructure/scripts/seed_test_data.sh` populates restaurants and menus.
-- **Wipe Script:** `infrastructure/scripts/wipe_tables.sh` clears all tables for fresh testing.
-- **Tests:** Unit tests for engine logic and POS mapper (8 tests passing).
+- **Seed Scripts:** `infrastructure/scripts/seed/menu_item.json` populates restaurants and menus.
+- **Tests:** Unit tests for engine logic and POS mapper are located in the respective `tests` directories.
 
 ---
 **Prepared by:** Agent Tau  
-**Updated by:** Antigravity Agent (v2.0 — POS Orchestration Pivot)
+**Updated by:** Antigravity Agent (v2.1 — POS Orchestration Pivot)
+```

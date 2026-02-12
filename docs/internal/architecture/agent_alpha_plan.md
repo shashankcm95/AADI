@@ -1,3 +1,4 @@
+```markdown
 # Agent Alpha: Geospatial Engine Plan
 
 ## Objective
@@ -13,16 +14,19 @@ Instead of changing `Order.status` (which tracks the Kitchen workflow), we will 
 *   `ARRIVAL_PARKING` (Trigger: "Toast Bun")
 *   `ARRIVAL_DOOR` (Trigger: "Plate")
 
-### 2. Interfaces (`src_orders/core/geo.py`)
+### 2. Interfaces (`services/orders/src/geo.py`)
 *   `GeoPort`: Interface to calculate ETA / Distance.
 
 ### 3. Engine Logic (`decide_arrival_update`)
-*   New decision function in `engine.py`.
+*   New decision function in `services/orders/src/engine.py`.
 *   Input: `current_order`, `event_type` (e.g., `GEO_ENTER_5_MIN`).
 *   Output: `UpdatePlan` that sets `arrival_status` and potentially auto-advances `Order.status` (e.g., WAITING -> SENT).
 
 ## Implementation Steps
-1.  Define `ArrivalStatus` constants in `models.py`.
+1.  Define `ArrivalStatus` constants in `services/orders/src/models.py`.
 2.  Update `Order` model to include `arrival_status`.
-3.  Create `decide_arrival_update` in `engine.py`.
+3.  Create `decide_arrival_update` in `services/orders/src/engine.py`.
 4.  Expose `POST /v1/orders/{id}/simulate_arrival` to allow detailed demo control.
+
+> **Note:** This document has been updated to reflect the current project structure and may differ from legacy versions.
+```

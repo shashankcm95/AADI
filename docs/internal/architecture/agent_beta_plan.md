@@ -1,3 +1,4 @@
+```markdown
 # Agent Beta: Kitchen Conductor Plan
 
 ## Objective
@@ -16,7 +17,7 @@ We need a way to measure kitchen stress.
 *   Fields: `active_tickets`, `avg_ticket_time`, `stress_level` (LOW, MED, HIGH).
 
 ## Implementation Steps
-### Backend (`src_orders`)
+### Backend (`services/orders`)
 1.  **Update `list_restaurant_orders`**: Add `group_by=lanes` parameter to pre-sort orders into lanes for the frontend.
 2.  **New Endpoint `GET /v1/restaurants/{id}/heartbeat`**: Returns the calculated stress level based on active capacity.
 3.  **Pacing Logic**: If `stress_level == HIGH`, `decide_vicinity_update` should add a "Throttle" delay (e.g. `suggested_start_at += 10 mins`).
@@ -24,3 +25,6 @@ We need a way to measure kitchen stress.
 ## Frontend (`admin-portal`)
 1.  **New View**: `KanbanBoard`.
 2.  **Sound Engine**: Play "Ding" on new order in Prep Lane.
+
+> **Note:** This document describes a legacy version of the system. Please refer to the current implementation files in the `services/orders` and `admin-portal` directories for the latest updates.
+```

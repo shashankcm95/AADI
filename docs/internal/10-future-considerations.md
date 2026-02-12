@@ -1,3 +1,4 @@
+```markdown
 10.1 Order Acknowledgement by Restaurant
 Problem
 
@@ -36,7 +37,7 @@ Cleans stale orders
 
 Implementation Options
 
-EventBridge scheduled Lambda
+AWS Lambda with EventBridge scheduling
 
 Step Functions
 
@@ -125,3 +126,7 @@ Real-time kitchen scheduling
 Full POS replacement
 
 Complex forecasting in v1
+
+**Version:** 2.1
+**Date:** 2026-02-12
+```

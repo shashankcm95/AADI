@@ -1,3 +1,4 @@
+```markdown
 # Arrive Platform
 
 > GPS-Powered Just-in-Time Kitchen Orchestration
@@ -7,21 +8,17 @@
 ```
 packages/          → Frontend Apps
   customer-web/    → React customer ordering
-  admin-portal/    → Kitchen Display System
+  admin-portal/    → Admin portal for managing operations
   mobile-ios/      → React Native iOS app
 
 services/          → Backend Microservices
   orders/          → Order lifecycle management
-  kitchen/         → KDS lanes & heartbeat
-  geo/             → ETA & geofencing
-  payments/        → Stripe integration
+  kitchen/         → Kitchen operations
+  restaurants/     → Restaurant data management
+  pos-integration/ → Point of Sale integration
 
-shared/            → Shared Code
-  types/           → TypeScript interfaces
-
-infrastructure/    → SAM templates, scripts
+infrastructure/    → SAM templates, scripts, and AWS infrastructure
 tools/             → Mock server, dev utilities
-docs/              → Documentation
 ```
 
 ## Quick Start
@@ -49,7 +46,7 @@ npm run dev:ios
 |---------|------|---------|
 | Mock Server | 3001 | Development API |
 | Customer Web | 5173 | Customer ordering |
-| Admin Portal | 5174 | Kitchen Display |
+| Admin Portal | 5174 | Admin operations |
 | iOS (Expo) | 8081 | Mobile app |
 
 ## Tech Stack
@@ -57,5 +54,4 @@ npm run dev:ios
 - **Frontend:** React, React Native, TypeScript
 - **Backend:** Python, AWS Lambda, DynamoDB
 - **Infrastructure:** AWS SAM, API Gateway
-- **Payments:** Stripe
-- **Geofencing:** AWS Location Service
+```

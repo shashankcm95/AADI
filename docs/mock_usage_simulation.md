@@ -1,10 +1,11 @@
+```markdown
 # Mock Usage Simulation: "The Perfect Dinner"
 
 **Date:** 2026-02-04
 **Scenario:** End-to-End Dining Experience (Order -> Travel -> Arrival -> Handoff)
 **Simulated Agents:**
 1.  **Chloe (Client Agent):** A hungry user with the iOS App. Driving ETA: 15 mins.
-2.  **Marco (Orchestrator Agent):** Expo/Manager at "Arrive Bistro", using the Admin Portal (KDS).
+2.  **Marco (Orchestrator Agent):** Expo/Manager at "Arrive Bistro", using the Admin Portal.
 3.  **Chef Ramsey (Sub-Agent):** Head Chef, looking at the Kitchen Display.
 
 ---
@@ -28,13 +29,13 @@
 ### 18:12 - The "Firing" Point 🔥
 **System:** Chloe is now 12 minutes away. `ETA (12m) == PrepTime (12m)`.
 **Event:** `SessionStatus` -> `SENT_TO_DESTINATION`.
-**Chef Ramsey (KDS):** *Ping!* A new specific ticket appears in the `INIT` (Prep) lane.
+**Chef Ramsey:** *Ping!* A new specific ticket appears in the `INIT` (Prep) lane.
 **Chef Ramsey:** "Fire 1 Truffle Burger!"
 **Marco:** "Perfect timing. We aren't swamped yet."
 
 ### 18:20 - The "5 Min Out" Alert ⚠️
 **System:** Chloe crosses the 1.5km geofence. `ArrivalStatus` -> `5_MIN_OUT`.
-**Marco (Admin Portal):** The ticket on the KDS starts pulsing/highlighting.
+**Marco (Admin Portal):** The ticket on the display starts pulsing/highlighting.
 **Chef Ramsey:** Burger is cooking. Moves ticket to `PROCESS` -> `FINALIZE`.
 **Marco:** "She's close. Ramsey, plate that burger now."
 
@@ -42,7 +43,7 @@
 **System:** Chloe enters the parking lot (`PARKING`).
 **Chef Ramsey:** Burger is plated and bagged. Status -> `READY`.
 **Chloe:** Walks in the door.
-**Marco:** Sees Chloe walking in. Looks at KDS. Ticket is Green (`READY`).
+**Marco:** Sees Chloe walking in. Looks at the display. Ticket is Green (`READY`).
 **Marco:** "Hi Chloe! Burger is right here."
 **Chloe:** "Wow, you didn't even have to look for it. And it's hot!"
 
@@ -66,7 +67,7 @@
 - **Visibility:** "Knowing she was '5 mins out' let me expedite the fries so they were fresh."
 
 **Change Requests:**
-- **Sound Alerts:** "The KDS needs a louder 'Chime' when the status goes to `5_MIN_OUT`. In a loud kitchen, the visual pulse isn't enough."
+- **Sound Alerts:** "The display needs a louder 'Chime' when the status goes to `5_MIN_OUT`. In a loud kitchen, the visual pulse isn't enough."
 - **Manual Override:** "One guy's GPS died and his order never fired. I needed a 'Fire Now' button earlier."
 
 ---
@@ -74,4 +75,5 @@
 ## 🚀 Action Items (Derived from Review)
 1.  **UX Copy Update:** Change `PENDING_NOT_SENT` user-facing label to "Order Confirmed & Scheduled".
 2.  **Feature:** Add "Force Fire" button to Admin Portal for manual override.
-3.  **Feature:** Add Audio Cues to KDS (Web Audio API) for arrival events.
+3.  **Feature:** Add Audio Cues to the display for arrival events.
+```

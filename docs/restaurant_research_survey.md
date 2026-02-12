@@ -1,3 +1,4 @@
+```markdown
 # Restaurant Operations Research Survey
 
 **Purpose:** Understand how your restaurant currently operates so we can configure the Arrive Platform to fit seamlessly into your workflow — timing food to the customer's arrival, not the other way around.
@@ -304,3 +305,4 @@
 
 *Survey Version 1.0 — Arrive Platform / AADI*  
 *Date: 2026-02-10*
+```

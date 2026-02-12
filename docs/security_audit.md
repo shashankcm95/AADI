@@ -1,3 +1,4 @@
+```markdown
 # Security Audit Report
 
 **Date:** 2026-02-04
@@ -39,7 +40,7 @@ This report details the findings of a static analysis and architectural security
 
 ### E. Security Misconfiguration (OWASP A05:2021)
 *Status: PASSED*
-- **Secret Management:** Secrets (`GoogleClientId`) are passed as SAM Parameters, not hardcoded.
+- **Secret Management:** Secrets are passed as SAM Parameters, not hardcoded.
 - **Dependencies:** `.gitignore` properly excludes `node_modules`, `.env`, and caches.
 
 ---
@@ -61,3 +62,4 @@ This report details the findings of a static analysis and architectural security
 
 ---
 **Signed:** Agent Psi
+```
