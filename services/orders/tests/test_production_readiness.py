@@ -147,3 +147,51 @@ class TestProductionReadiness:
 
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 409
+
+    def test_vicinity_rollback_on_update_failure(self, mock_tables):
+        """Verify capacity is released if order update fails."""
+        from unittest.mock import patch
+        
+        order_id = "ord_rollback"
+        # Mock session
+        mock_tables.orders_table.get_item.return_value = {
+            'Item': {
+                'order_id': order_id,
+                'status': 'PENDING_NOT_SENT',
+                'restaurant_id': 'rest_1', 
+                'customer_id': 'cust_123',
+                'expires_at': int(time.time()) + 300
+            }
+        }
+        
+        # Mock update failure
+        mock_tables.orders_table.update_item.side_effect = Exception("DB Fail")
+        
+        # Patch capacity module interacting with handlers.customer
+        # Since handlers.customer is imported in app.py, and we are running app.lambda_handler
+        # We need to patch where it is used.
+        with patch('handlers.customer.capacity') as mock_cap, \
+             patch('handlers.customer.db', mock_tables): # Ensure handler sees our mock tables
+            
+            # Setup reservation success
+            mock_cap.check_and_reserve_for_arrival.return_value = {
+                'reserved': True,
+                'window_start': 1000,
+                'window_seconds': 300
+            }
+            
+            event = _make_event(
+                'POST /v1/orders/{order_id}/vicinity',
+                body={'event': '5_MIN_OUT'},
+                path_params={'order_id': order_id}
+            )
+            
+            # Expect 500 because exception bubbles up
+            resp = app.lambda_handler(event, None)
+            assert resp['statusCode'] == 500
+            
+            # Verify release_slot was called
+            mock_cap.release_slot.assert_called_once()
+            args = mock_cap.release_slot.call_args
+            # args[0] is table, [1] is dest_id, [2] is window_start
+            assert args[0][2] == 1000

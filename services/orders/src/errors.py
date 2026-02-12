@@ -6,6 +6,9 @@ class AppError(Exception):
     def to_dict(self):
         return {"error": {"code": self.code, "message": self.message}}
 
+    def __str__(self):
+        return self.message
+
 
 class ValidationError(AppError):
     code = "VALIDATION"

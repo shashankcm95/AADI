@@ -48,8 +48,14 @@ class InMemoryTable:
         )
         self._cond_exc = ConditionalCheckFailedException
 
-    def put_item(self, Item):
+    def put_item(self, Item, ConditionExpression=None, **kwargs):
         key = Item[self.key_name]
+        
+        # Simple condition check for idempotency
+        if ConditionExpression and 'attribute_not_exists' in ConditionExpression:
+            if key in self.items:
+                 raise self._cond_exc("ConditionalCheckFailedException")
+
         self.items[key] = dict(Item)
 
     def get_item(self, Key):
@@ -186,8 +192,9 @@ class InMemoryTable:
 def tables():
     """Create in-memory tables and patch the module-level references."""
     orders = InMemoryTable('order_id')
-    cap = InMemoryTable('restaurant_id')
+    cap = InMemoryTable(('restaurant_id', 'window_start'))
     config = InMemoryTable('restaurant_id')
+    idempotency = InMemoryTable('idempotency_key')
 
     # Seed restaurant capacity config
     config.items['rest_abc'] = {
@@ -201,16 +208,19 @@ def tables():
     original_orders = db.orders_table
     original_cap = db.capacity_table
     original_config = db.config_table
+    original_idempotency = db.idempotency_table
 
     db.orders_table = orders
     db.capacity_table = cap
     db.config_table = config
+    db.idempotency_table = idempotency
 
-    yield {'orders': orders, 'capacity': cap, 'config': config}
+    yield {'orders': orders, 'capacity': cap, 'config': config, 'idempotency': idempotency}
 
     db.orders_table = original_orders
     db.capacity_table = original_cap
     db.config_table = original_config
+    db.idempotency_table = original_idempotency
 
 
 def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1'):
@@ -345,7 +355,16 @@ class TestHappyPathLifecycle:
         assert resp['statusCode'] == 200
         assert tables['orders'].items[order_id].get('tip_cents') == 500
 
-        # --- 10. Status: READY → COMPLETED (should release capacity slot) ---
+        # --- 10. Status: READY → FULFILLING ---
+        event = _make_event(
+            'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
+            body={'status': 'FULFILLING'},
+            path_params={'order_id': order_id, 'restaurant_id': 'rest_abc'}
+        )
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+
+        # --- 11. Status: FULFILLING → COMPLETED (should release capacity slot) ---
         event = _make_event(
             'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
             body={'status': 'COMPLETED'},
@@ -416,13 +435,15 @@ class TestCapacityGatingFlow:
         assert body1['status'] == 'SENT_TO_DESTINATION'
 
         # Complete it (releases the capacity slot)
-        event = _make_event(
-            'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
-            body={'status': 'COMPLETED'},
-            path_params={'order_id': oid1, 'restaurant_id': 'rest_abc'}
-        )
-        resp = app.lambda_handler(event, None)
-        assert resp['statusCode'] == 200
+        # Must walk through states: SENT -> IN_PROGRESS -> READY -> FULFILLING -> COMPLETED
+        for status in ('IN_PROGRESS', 'READY', 'FULFILLING', 'COMPLETED'):
+            event = _make_event(
+                'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
+                body={'status': status},
+                path_params={'order_id': oid1, 'restaurant_id': 'rest_abc'}
+            )
+            resp = app.lambda_handler(event, None)
+            assert resp['statusCode'] == 200
 
         # New order should now get through
         oid2, body2 = self._create_and_fire(tables)

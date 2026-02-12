@@ -94,6 +94,7 @@ def decide_vicinity_update(
     # blocked
     suggested_start_at = window_start + window_seconds
     return UpdatePlan(
+        condition_allowed_statuses=(STATUS_PENDING, STATUS_WAITING),
         set_fields={
             "status": STATUS_WAITING,
             "vicinity": True,

@@ -1,6 +1,12 @@
-import pytest
+import os
+import sys
 import json
-from src import app
+import pytest
+
+# Add src to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+import app
 
 def test_restaurants_health_check():
     event = {
@@ -11,7 +17,7 @@ def test_restaurants_health_check():
     body = json.loads(response['body'])
     assert body['status'] == 'healthy'
 
-def test_restaurants_list():
+def test_restaurants_list(mock_tables):
     event = {
         'routeKey': 'GET /v1/restaurants'
     }
