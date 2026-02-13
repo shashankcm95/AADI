@@ -11,6 +11,7 @@ import AdminDashboard from './AdminDashboard'
 interface Restaurant {
     restaurant_id: string;
     name: string;
+    active?: boolean;
 }
 
 interface User {
@@ -106,20 +107,22 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                     // If Super Admin and nothing selected, pick first
                     setSelectedRestaurant(rests[0].restaurant_id)
                 }
-
-                // Auto-Activation Logic for First Login
-                if (_assignedRestaurantId && rests.length > 0) {
-                    const myRestaurant = rests.find((r: any) => r.restaurant_id === _assignedRestaurantId)
-                    if (myRestaurant && !myRestaurant.active) {
-                        console.log("First login detected (Restaurant Inactive). Activating...")
-                        activateRestaurant(_assignedRestaurantId)
-                    }
-                }
             }
         } catch (err) {
             console.error('Failed to fetch restaurants:', err)
         }
     }
+
+    // Auto-Activation: Run when we have BOTH the restaurant list and the assigned ID
+    useEffect(() => {
+        if (_assignedRestaurantId && restaurants.length > 0) {
+            const myRestaurant = restaurants.find(r => r.restaurant_id === _assignedRestaurantId)
+            if (myRestaurant && !myRestaurant.active) {
+                console.log("First login detected (Restaurant Inactive). Activating...")
+                activateRestaurant(_assignedRestaurantId)
+            }
+        }
+    }, [_assignedRestaurantId, restaurants])
 
     async function activateRestaurant(id: string) {
         try {
@@ -259,6 +262,21 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                     </div>
                 </div>
             </header>
+
+            {/* Inactive Warning & Manual Activation */}
+            {restaurants.find(r => r.restaurant_id === selectedRestaurant)?.active === false && (
+                <div className="warning-banner" style={{ background: '#f59e0b', color: 'black', padding: '1rem', textAlign: 'center', marginBottom: '1rem' }}>
+                    <strong>⚠️ Your restaurant is currently Inactive.</strong> Customers cannot see it.
+                    <button
+                        onClick={() => selectedRestaurant && activateRestaurant(selectedRestaurant)}
+                        className="btn btn-small"
+                        style={{ marginLeft: '1rem', background: 'white', color: 'black', border: 'none' }}
+                    >
+                        🚀 Activate Now
+                    </button>
+                    {error && <div style={{ color: 'red', marginTop: '0.5rem' }}>{error}</div>}
+                </div>
+            )}
 
             {/* Restaurant Picker */}
             <section className="restaurant-picker">

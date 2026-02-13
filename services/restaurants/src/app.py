@@ -240,6 +240,8 @@ def update_restaurant(event, restaurant_id):
                 # If `new_location` is None, `location` remains old (which might be None or old coord).
                 pass
         
+        active = body.get('active')
+        
         # Update DynamoDB
         update_expr = "SET #n = :n, contact_email = :e, street = :s, city = :c, #st = :st, zip = :z, address = :addr, #l = :l, updated_at = :u"
         expr_attr_names = {
@@ -258,6 +260,10 @@ def update_restaurant(event, restaurant_id):
             ':l': location,
             ':u': int(time.time())
         }
+
+        if active is not None:
+             update_expr += ", active = :a"
+             expr_attr_values[':a'] = active
         
         restaurants_table.update_item(
             Key={'restaurant_id': restaurant_id},
