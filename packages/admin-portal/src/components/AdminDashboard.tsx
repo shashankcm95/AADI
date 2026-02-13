@@ -102,6 +102,30 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         }
     }
 
+    async function handleActivate(restaurantId: string) {
+        if (!confirm("Are you sure you want to activate this restaurant?")) return;
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ active: true })
+            })
+
+            if (res.ok) {
+                if (token) fetchRestaurants(token)
+            } else {
+                alert("Failed to activate restaurant")
+            }
+        } catch (err) {
+            console.error("Activation failed:", err)
+            alert("Error activating restaurant")
+        }
+    }
+
     return (
         <div className="dashboard-container">
             <header className="dashboard-header">
@@ -161,6 +185,15 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                                         >
                                             Delete
                                         </button>
+                                        {!r.active && (
+                                            <button
+                                                onClick={() => handleActivate(r.restaurant_id)}
+                                                className="btn btn-small"
+                                                style={{ marginLeft: '0.5rem', background: '#e0f2fe', color: '#0284c7' }}
+                                            >
+                                                Activate
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
