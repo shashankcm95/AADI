@@ -31,6 +31,16 @@ Globals:
             issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}"
             audience:
               - !Ref UserPoolClientId
+    CorsConfiguration:
+      AllowOrigins:
+        - "*"
+      AllowHeaders:
+        - "Authorization"
+        - "Content-Type"
+      AllowMethods:
+        - "GET"
+        - "POST"
+        - "OPTIONS"
 
 Resources:
   OrdersTable:

@@ -3,9 +3,7 @@ import { signInWithRedirect, signOut, getCurrentUser, fetchAuthSession } from 'a
 import { Authenticator } from '@aws-amplify/ui-react'
 import '@aws-amplify/ui-react/styles.css'
 import './App.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-// Set VITE_API_BASE_URL in .env for each environment
+import { RESTAURANTS_API_URL, ORDERS_API_URL } from './config'
 
 function App() {
   return (
@@ -75,7 +73,7 @@ function MainAppContent({ user, signOut }) {
 
   async function fetchRestaurants() {
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
+      const res = await fetch(`${RESTAURANTS_API_URL}/v1/restaurants`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -93,7 +91,7 @@ function MainAppContent({ user, signOut }) {
 
   async function fetchMenu(restaurantId) {
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/menu`, {
+      const res = await fetch(`${RESTAURANTS_API_URL}/v1/restaurants/${restaurantId}/menu`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -111,7 +109,7 @@ function MainAppContent({ user, signOut }) {
 
   async function fetchMyOrders() {
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/orders`, {
+      const res = await fetch(`${ORDERS_API_URL}/v1/orders`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -129,7 +127,7 @@ function MainAppContent({ user, signOut }) {
     )
     for (const order of activeOrders) {
       try {
-        const res = await fetch(`${API_BASE_URL}/v1/orders/${order.order_id}`, {
+        const res = await fetch(`${ORDERS_API_URL}/v1/orders/${order.order_id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         if (res.ok) {
@@ -162,7 +160,7 @@ function MainAppContent({ user, signOut }) {
     setApiResponse({ loading: true })
 
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/orders`, {
+      const res = await fetch(`${ORDERS_API_URL}/v1/orders`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -198,7 +196,7 @@ function MainAppContent({ user, signOut }) {
     setApiResponse({ loading: true })
 
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/orders/${orderId}/vicinity`, {
+      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}/vicinity`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -225,7 +223,7 @@ function MainAppContent({ user, signOut }) {
     setApiResponse({ loading: true })
 
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/orders/${orderId}/cancel`, {
+      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}/cancel`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       })
@@ -248,7 +246,7 @@ function MainAppContent({ user, signOut }) {
     setApiResponse({ loading: true })
 
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/orders/${orderId}`, {
+      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       })
       const data = await res.json()
