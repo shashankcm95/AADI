@@ -27,6 +27,18 @@ Globals:
             issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}"
             audience:
               - !Ref UserPoolClientId
+    CorsConfiguration:
+      AllowOrigins:
+        - "*"
+      AllowHeaders:
+        - "Authorization"
+        - "Content-Type"
+      AllowMethods:
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "DELETE"
+        - "OPTIONS"
 
 Resources:
   RestaurantsTable:
@@ -76,12 +88,21 @@ Resources:
           RESTAURANTS_TABLE: !Ref RestaurantsTable
           MENUS_TABLE: !Ref MenusTable
           RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+          USER_POOL_ID: !Ref UserPoolId
       Policies:
-        - DynamoDBReadPolicy:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminSetUserAttributes
+                - cognito-idp:ListUsers
+                - cognito-idp:AdminDeleteUser
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+        - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantsTable
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref MenusTable
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantConfigTable
       Events:
         ListRestaurants:
@@ -89,6 +110,21 @@ Resources:
           Properties:
             Path: /v1/restaurants
             Method: GET
+        CreateRestaurant:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants
+            Method: POST
+        UpdateRestaurant:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}
+            Method: PUT
+        DeleteRestaurant:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}
+            Method: DELETE
         GetMenu:
           Type: HttpApi
           Properties:
@@ -104,3 +140,11 @@ Outputs:
   RestaurantsApi:
     Description: "API Gateway endpoint URL for Restaurants Service"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  RestaurantsTableName:
+    Description: "Restaurants DynamoDB Table Name"
+    Value: !Ref RestaurantsTable
+
+  RestaurantConfigTableName:
+    Description: "Restaurant Config DynamoDB Table Name"
+    Value: !Ref RestaurantConfigTable
