@@ -177,11 +177,11 @@ Resources:
             MetricName: RateLimit
             SampledRequestsEnabled: true
 
-  WebAclAssociation:
-    Type: AWS::WAFv2::WebACLAssociation
-    Properties:
-      ResourceArn: !Sub "arn:aws:apigateway:${AWS::Region}::/apis/${MyApi}/stages/Prod"
-      WebACLArn: !GetAtt AppWebAcl.Arn
+#   WebAclAssociation:
+#     Type: AWS::WAFv2::WebACLAssociation
+#     Properties:
+#       ResourceArn: !Sub "arn:aws:apigateway:${AWS::Region}::/apis/${MyApi}/stages/Prod"
+#       WebACLArn: !GetAtt AppWebAcl.Arn
 
   # -------------------------------------------------------------------------
   # API & Functions
@@ -302,9 +302,9 @@ Resources:
         DefaultRootObject: index.html
         Origins:
           - Id: CustomerWebOrigin
-            DomainName: !Select [2, !Split ["/", !GetAtt CustomerWebBucket.WebsiteURL]]
-            CustomOriginConfig:
-              OriginProtocolPolicy: http-only
+            DomainName: !GetAtt CustomerWebBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CustomerWebCloudFrontOAI}"
         DefaultCacheBehavior:
           TargetOriginId: CustomerWebOrigin
           ViewerProtocolPolicy: redirect-to-https
@@ -323,9 +323,9 @@ Resources:
         DefaultRootObject: index.html
         Origins:
           - Id: AdminPortalOrigin
-            DomainName: !Select [2, !Split ["/", !GetAtt AdminPortalBucket.WebsiteURL]]
-            CustomOriginConfig:
-              OriginProtocolPolicy: http-only
+            DomainName: !GetAtt AdminPortalBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${AdminPortalCloudFrontOAI}"
         DefaultCacheBehavior:
           TargetOriginId: AdminPortalOrigin
           ViewerProtocolPolicy: redirect-to-https
@@ -360,4 +360,12 @@ Outputs:
   AdminPortalURL:
     Description: "CloudFront URL for Admin Portal"
     Value: !Sub "https://${AdminPortalDistribution.DomainName}"
+
+  UserPoolId:
+    Description: "Cognito User Pool ID"
+    Value: !Ref UserPool
+
+  UserPoolClientId:
+    Description: "Cognito User Pool Client ID"
+    Value: !Ref UserPoolClient
 

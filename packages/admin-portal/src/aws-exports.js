@@ -3,8 +3,8 @@ const redirectUrl = window.location.origin + '/';
 const awsConfig = {
     Auth: {
         Cognito: {
-            userPoolId: 'us-east-1_Ecbkc63rh',
-            userPoolClientId: '7o2lsi769hlr63c05krmo5u6rv',
+            userPoolId: 'us-east-1_SzP2GXCMA',
+            userPoolClientId: 'prg3mh9b9ai8trd33s9ls1c',
             loginWith: {
                 oauth: {
                     domain: 'arrive-dev-auth-561764227438.auth.us-east-1.amazoncognito.com',
@@ -18,6 +18,6 @@ const awsConfig = {
     },
 };
 
-export const API_BASE_URL = 'https://f7mqfaxh8i.execute-api.us-east-1.amazonaws.com';
+export const API_BASE_URL = 'https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com';
 
 export default awsConfig;
