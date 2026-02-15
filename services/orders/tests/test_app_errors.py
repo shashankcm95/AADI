@@ -1,7 +1,17 @@
 
 import json
+import os
+import sys
 import pytest
 from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.modules.pop('app', None)
+sys.modules.pop('handlers', None)
+for _loaded in list(sys.modules):
+    if _loaded.startswith('handlers.'):
+        sys.modules.pop(_loaded, None)
+
 import app
 import db
 from decimal import Decimal
@@ -9,9 +19,19 @@ from models import Session, OrderStatus
 
 def test_handler_json_error():
     # Force an error in a handler to test the app.py catch-all
-    with patch('app.create_order') as mock_create:
+    with patch.object(app, 'create_order') as mock_create:
         mock_create.side_effect = Exception("Boom")
-        event = {'routeKey': 'POST /v1/orders', 'body': '{}'}
+        event = {
+            'routeKey': 'POST /v1/orders',
+            'body': '{}',
+            'requestContext': {
+                'authorizer': {
+                    'jwt': {
+                        'claims': {'sub': 'cust_1', 'custom:role': 'customer'}
+                    }
+                }
+            }
+        }
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 500
         assert 'Internal server error' in resp['body']

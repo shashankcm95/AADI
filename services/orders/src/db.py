@@ -8,7 +8,7 @@ import os
 import json
 import boto3
 from decimal import Decimal
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import capacity
 
@@ -60,21 +60,39 @@ def make_response(status_code, body):
     }
 
 
+def get_auth_claims(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract auth claims from API Gateway event (HTTP API v2 or REST v1)."""
+    try:
+        return event['requestContext']['authorizer']['jwt']['claims']
+    except (KeyError, TypeError):
+        try:
+            return event['requestContext']['authorizer']['claims']
+        except (KeyError, TypeError):
+            return {}
+
+
+def get_user_role(event: Dict[str, Any], default: str = "") -> str:
+    """
+    Return normalized role from claims.
+    Defaults to empty role for fail-closed authorization handling.
+    """
+    claims = get_auth_claims(event)
+    return claims.get('custom:role') or claims.get('role') or default
+
+
+def get_assigned_restaurant_id(event: Dict[str, Any]) -> Optional[str]:
+    """Return the restaurant id bound to a restaurant_admin account, if present."""
+    claims = get_auth_claims(event)
+    return claims.get('custom:restaurant_id') or claims.get('restaurant_id')
+
+
 def get_customer_id(event):
     """
     Extract customer ID from Cognito auth claims.
     Falls back to 'cust_demo' only if auth is missing (local testing).
     """
-    try:
-        # HTTP API (v2) format
-        return event['requestContext']['authorizer']['jwt']['claims']['sub']
-    except (KeyError, TypeError):
-        try:
-            # REST API (v1) format or other authorizers
-            return event['requestContext']['authorizer']['claims']['sub']
-        except (KeyError, TypeError):
-            print("WARNING: No auth context found. Using 'cust_demo'.")
-            return "cust_demo"
+    claims = get_auth_claims(event)
+    return claims.get('sub')
 
 
 def release_capacity_slot(session: Dict[str, Any]) -> None:

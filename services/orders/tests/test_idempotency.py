@@ -1,12 +1,18 @@
 
 import json
+import importlib
 import time
 import pytest
 import sys
 import os
 
 # Import app logic
-sys.path.append(os.path.join(os.path.dirname(__file__), '../src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
+sys.modules.pop('app', None)
+sys.modules.pop('handlers', None)
+for _loaded in list(sys.modules):
+    if _loaded.startswith('handlers.'):
+        sys.modules.pop(_loaded, None)
 import app
 import db
 
@@ -72,6 +78,12 @@ class InMemoryTable:
 
 @pytest.fixture
 def mock_tables():
+    global app, db
+    for module_name in ("app", "db", "handlers", "handlers.customer", "handlers.restaurant"):
+        sys.modules.pop(module_name, None)
+    app = importlib.import_module("app")
+    db = importlib.import_module("db")
+
     orders = InMemoryTable('order_id')
     idemp = InMemoryTable('idempotency_key')
     
@@ -93,7 +105,7 @@ def _make_event(body=None, headers=None):
         'body': json.dumps(body) if body else None,
         'headers': headers or {},
         'requestContext': {
-            'authorizer': {'jwt': {'claims': {'sub': 'cust_1'}}}
+            'authorizer': {'jwt': {'claims': {'sub': 'cust_1', 'custom:role': 'customer'}}}
         }
     }
 

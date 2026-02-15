@@ -1,7 +1,7 @@
 """
 Customer-facing order handlers.
 
-Handles: create, get, list, vicinity, tip, cancel.
+Handles: create, get, list, vicinity, cancel.
 """
 import json
 import time
@@ -15,6 +15,7 @@ import capacity
 import db
 from dynamo_apply import build_update_item_kwargs
 from errors import NotFoundError
+from models import PAYMENT_MODE_AT_RESTAURANT
 
 
 def create_order(event):
@@ -58,7 +59,14 @@ def create_order(event):
         body = json.loads(event.get('body', '{}'))
         restaurant_id = body.get('restaurant_id')
         items = body.get('items', [])
-        payment_mode = body.get('payment_mode', 'PAY_AT_RESTAURANT')
+        payment_mode = body.get('payment_mode', PAYMENT_MODE_AT_RESTAURANT)
+
+        # Product scope: only pay-at-restaurant flow is supported.
+        if payment_mode != PAYMENT_MODE_AT_RESTAURANT:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'Only PAY_AT_RESTAURANT is supported'})
+            }
 
 
         # Validate
@@ -85,7 +93,7 @@ def create_order(event):
             now=now,
             expires_at=now + 3600,  # 1 hour expiry
             ttl=now + (90 * 24 * 60 * 60), # 90 days retention,
-            payment_mode='PAY_AT_RESTAURANT'
+            payment_mode=PAYMENT_MODE_AT_RESTAURANT
         )
 
         # Save to DynamoDB

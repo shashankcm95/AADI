@@ -10,7 +10,6 @@ Routes tested:
   GET  /v1/orders/{order_id}                             → get_order
   GET  /v1/orders                                        → list_customer_orders
   POST /v1/orders/{order_id}/vicinity                    → update_vicinity
-  POST /v1/orders/{order_id}/tip                         → add_tip
   POST /v1/orders/{order_id}/cancel                      → cancel_order
   GET  /v1/restaurants/{restaurant_id}/orders             → list_restaurant_orders
   POST /v1/restaurants/{rid}/orders/{oid}/ack             → ack_order
@@ -18,9 +17,22 @@ Routes tested:
 """
 
 import json
+import importlib
+import os
+import sys
 import pytest
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.modules.pop('app', None)
+sys.modules.pop('handlers', None)
+for _loaded in list(sys.modules):
+    if _loaded.startswith('handlers.'):
+        sys.modules.pop(_loaded, None)
+
+import app
+import db
 
 
 # =============================================================================
@@ -191,6 +203,12 @@ class InMemoryTable:
 @pytest.fixture
 def tables():
     """Create in-memory tables and patch the module-level references."""
+    global app, db
+    for module_name in ("app", "db", "handlers", "handlers.customer", "handlers.restaurant"):
+        sys.modules.pop(module_name, None)
+    app = importlib.import_module("app")
+    db = importlib.import_module("db")
+
     orders = InMemoryTable('order_id')
     cap = InMemoryTable(('restaurant_id', 'window_start'))
     config = InMemoryTable('restaurant_id')
@@ -203,8 +221,6 @@ def tables():
         'capacity_window_seconds': 300,
         'active_menu_version': 'v1',
     }
-
-    import db
     original_orders = db.orders_table
     original_cap = db.capacity_table
     original_config = db.config_table
@@ -223,15 +239,24 @@ def tables():
     db.idempotency_table = original_idempotency
 
 
-def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1'):
+def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1', role=None):
     """Build a minimal API Gateway v2 event."""
+    path_params = path_params or {}
+    # Use role defaults that mirror production route ownership.
+    if role is None:
+        role = 'restaurant_admin' if '/v1/restaurants/' in route_key else 'customer'
+
+    claims = {'sub': customer_id, 'custom:role': role}
+    if role == 'restaurant_admin':
+        claims['custom:restaurant_id'] = path_params.get('restaurant_id', 'rest_abc')
+
     event = {
         'routeKey': route_key,
-        'pathParameters': path_params or {},
+        'pathParameters': path_params,
         'requestContext': {
             'authorizer': {
                 'jwt': {
-                    'claims': {'sub': customer_id}
+                    'claims': claims
                 }
             }
         },
@@ -249,12 +274,10 @@ class TestRouteDispatch:
     """Verify every route key dispatches to the correct handler."""
 
     def test_unknown_route_returns_404(self, tables):
-        import app
         resp = app.lambda_handler({'routeKey': 'DELETE /v1/widget'}, None)
         assert resp['statusCode'] == 404
 
     def test_missing_order_returns_404(self, tables):
-        import app
         event = _make_event('GET /v1/orders/{order_id}', path_params={'order_id': 'nope'})
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 404
@@ -267,11 +290,10 @@ class TestRouteDispatch:
 class TestHappyPathLifecycle:
     """
     Tests the complete order lifecycle:
-      Create → Get → Vicinity(5_MIN_OUT) → Ack → Status transitions → Tip → Complete
+      Create → Get → Vicinity(5_MIN_OUT) → Ack → Status transitions → Complete
     """
 
     def test_full_lifecycle(self, tables):
-        import app
 
         # --- 1. Create Order ---
         event = _make_event('POST /v1/orders', body={
@@ -381,7 +403,6 @@ class TestCapacityGatingFlow:
 
     def _create_and_fire(self, tables):
         """Helper: create an order and push it through 5_MIN_OUT."""
-        import app
 
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
@@ -418,7 +439,6 @@ class TestCapacityGatingFlow:
 
     def test_complete_releases_slot(self, tables):
         """After completing an order, the slot should be freed."""
-        import app
 
         tables['config'].items['rest_abc']['max_concurrent_orders'] = 1
 
@@ -456,7 +476,6 @@ class TestVicinityNonCapacityEvents:
 
     def _create_sent_order(self, tables):
         """Create an order and push it to SENT."""
-        import app
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
             'items': [{'id': 'salad', 'qty': 1}],
@@ -472,7 +491,6 @@ class TestVicinityNonCapacityEvents:
         return oid
 
     def test_parking_event(self, tables):
-        import app
         oid = self._create_sent_order(tables)
 
         event = _make_event('POST /v1/orders/{order_id}/vicinity',
@@ -484,7 +502,6 @@ class TestVicinityNonCapacityEvents:
         assert body.get('arrival_status') == 'PARKING' or 'status' in body
 
     def test_at_door_event(self, tables):
-        import app
         oid = self._create_sent_order(tables)
 
         event = _make_event('POST /v1/orders/{order_id}/vicinity',
@@ -494,7 +511,6 @@ class TestVicinityNonCapacityEvents:
         assert resp['statusCode'] == 200
 
     def test_exit_vicinity_event(self, tables):
-        import app
         oid = self._create_sent_order(tables)
 
         # Move to FULFILLING first so EXIT can auto-complete
@@ -507,7 +523,6 @@ class TestVicinityNonCapacityEvents:
         assert resp['statusCode'] == 200
 
     def test_unknown_event_returns_error(self, tables):
-        import app
         oid = self._create_sent_order(tables)
 
         event = _make_event('POST /v1/orders/{order_id}/vicinity',
@@ -524,7 +539,6 @@ class TestVicinityNonCapacityEvents:
 
 class TestCancelFlow:
     def test_cancel_pending_order(self, tables):
-        import app
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
             'items': [{'id': 'soup', 'qty': 1}],
@@ -540,7 +554,6 @@ class TestCancelFlow:
         assert body['status'] == 'CANCELED'
 
     def test_cancel_nonexistent_returns_404(self, tables):
-        import app
         event = _make_event('POST /v1/orders/{order_id}/cancel',
                             path_params={'order_id': 'ord_doesnotexist'})
         resp = app.lambda_handler(event, None)
@@ -553,7 +566,6 @@ class TestCancelFlow:
 
 class TestErrorPaths:
     def test_create_order_empty_items_returns_400(self, tables):
-        import app
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
             'items': [],
@@ -562,7 +574,6 @@ class TestErrorPaths:
         assert resp['statusCode'] == 400
 
     def test_create_order_invalid_item_returns_400(self, tables):
-        import app
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
             'items': [{'qty': 1}],  # missing item_id
@@ -571,14 +582,12 @@ class TestErrorPaths:
         assert resp['statusCode'] == 400
 
     def test_get_nonexistent_order_returns_404(self, tables):
-        import app
         event = _make_event('GET /v1/orders/{order_id}',
                             path_params={'order_id': 'ord_ghost'})
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 404
 
     def test_status_update_missing_status_returns_400(self, tables):
-        import app
         # Create an order first
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
@@ -596,7 +605,6 @@ class TestErrorPaths:
         assert resp['statusCode'] == 400
 
     def test_create_order_nonexistent_restaurant_returns_400(self, tables):
-        import app
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_ghost',
             'items': [{'id': 'pizza', 'qty': 1}],
@@ -613,7 +621,6 @@ class TestErrorPaths:
 
 class TestAckFlow:
     def test_ack_sent_order(self, tables):
-        import app
 
         # Create + send
         event = _make_event('POST /v1/orders', body={
@@ -640,7 +647,6 @@ class TestAckFlow:
         assert body.get('receipt_mode') == 'HARD'
 
     def test_ack_wrong_restaurant_returns_404(self, tables):
-        import app
 
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
@@ -665,5 +671,5 @@ class TestAckFlow:
 
 
 # =============================================================================
-# Tip Flow (REMOVED)
+# Removed Flow Notes (Kept for historical context)
 # =============================================================================

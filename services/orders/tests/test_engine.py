@@ -30,7 +30,7 @@ from models import (
     STATUS_CANCELED, STATUS_IN_PROGRESS, STATUS_READY,
     STATUS_FULFILLING, STATUS_COMPLETED,
     RECEIPT_SOFT, RECEIPT_HARD,
-    PAYMENT_MODE_PREPAID, PAYMENT_MODE_AT_RESTAURANT,
+    PAYMENT_MODE_AT_RESTAURANT,
 )
 from errors import NotFoundError, InvalidStateError, ValidationError, ExpiredError
 
@@ -334,18 +334,6 @@ class TestCreateSessionModel:
         assert model["receipt_mode"] == RECEIPT_SOFT  # default
         assert model["payment_mode"] == PAYMENT_MODE_AT_RESTAURANT  # default
         assert model["arrive_fee_cents"] > 0
-
-    def test_prepaid_mode(self):
-        model = create_session_model(
-            session_id="s2",
-            destination_id="r1",
-            resources=[{"id": "a", "qty": 1, "price_cents": 1000, "work_units": 1}],
-            customer_id="c1",
-            now=NOW,
-            expires_at=NOW + 3600,
-            payment_mode=PAYMENT_MODE_PREPAID,
-        )
-        assert model["payment_mode"] == PAYMENT_MODE_PREPAID
 
     def test_fee_calculation_integrated(self):
         """Verify that arrive_fee_cents matches calculate_arrive_fee output."""

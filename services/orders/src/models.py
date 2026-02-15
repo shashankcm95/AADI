@@ -117,8 +117,8 @@ class Session:
     received_by_destination: Optional[bool] = None # Was received_by_restaurant
     received_at: Optional[int] = None
     
-    # Payment Mode (dual flow)
-    payment_mode: Optional[str] = None  # PREPAID or PAY_AT_RESTAURANT
+    # Payment mode (current scope: pay at restaurant)
+    payment_mode: Optional[str] = None
     pos_payment_ref: Optional[str] = None  # Reference from POS system
     
     # Arrive Fee

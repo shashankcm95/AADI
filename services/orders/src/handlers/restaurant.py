@@ -71,9 +71,12 @@ def ack_order(order_id, restaurant_id):
     }
 
 
-def update_order_status(order_id, event):
+def update_order_status(order_id, restaurant_id, event):
     if not db.orders_table:
         return {'statusCode': 500}
+
+    if not restaurant_id:
+        return {'statusCode': 400, 'body': json.dumps({'error': 'Missing restaurant_id'})}
 
     body = json.loads(event.get('body', '{}'))
     new_status = body.get('status')
@@ -92,16 +95,10 @@ def update_order_status(order_id, event):
     # Check expiry
     engine.ensure_not_expired(session, now)
 
-    # Use engine to validate transition and generate update plan
-    # Destination ID is required but implicit here (restaurant already auth'd)
-    # Ideally should pass restaurant_id from auth context, but using session's dest ID is safe
-    # because this route is protected by IAM/Cognito anyway (verifying restaurant owns it is handled by auth layer or implicit)
-    # The pure function requires destination_id to match session's dest_id
-    destination_id = session.get('destination_id', session.get('restaurant_id'))
-    
+    # Enforce destination ownership in engine decision path.
     plan = engine.decide_destination_status_update(
         session=session,
-        destination_id=destination_id,
+        destination_id=restaurant_id,
         new_status=new_status,
         now=now
     )

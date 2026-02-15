@@ -1,6 +1,8 @@
 
 import pytest
 import json
+import os
+import sys
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
 
@@ -8,6 +10,13 @@ from decimal import Decimal
 import logging
 # Suppress logging during tests
 logging.getLogger().setLevel(logging.CRITICAL)
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.modules.pop('app', None)
+sys.modules.pop('handlers', None)
+for _loaded in list(sys.modules):
+    if _loaded.startswith('handlers.'):
+        sys.modules.pop(_loaded, None)
 
 import app
 from models import Session, _maybe_int
@@ -21,8 +30,17 @@ def test_router_exceptions():
     
     # helper
     def _test_exc(exc, expected_code):
-        with patch('app.create_order', side_effect=exc):
-            event = {'routeKey': 'POST /v1/orders'}
+        with patch.object(app, 'create_order', side_effect=exc):
+            event = {
+                'routeKey': 'POST /v1/orders',
+                'requestContext': {
+                    'authorizer': {
+                        'jwt': {
+                            'claims': {'sub': 'cust_1', 'custom:role': 'customer'}
+                        }
+                    }
+                }
+            }
             resp = app.lambda_handler(event, None)
             assert resp['statusCode'] == expected_code
             
