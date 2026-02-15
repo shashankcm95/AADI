@@ -1,13 +1,13 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
+import {
+    ORDERS_API_BASE_URL,
+    RESTAURANTS_API_BASE_URL,
+} from '../config';
 
 /**
  * API Service
  * Agent Kappa: Backend communication
  */
-
-// API Base URL — set via environment config per build target
-// For physical device testing, use your Mac's IP instead of localhost
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://f7mqfaxh8i.execute-api.us-east-1.amazonaws.com';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
     try {
@@ -60,7 +60,7 @@ export interface Restaurant {
  */
 export async function getRestaurants(): Promise<Restaurant[]> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/restaurants`, {
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/restaurants`, {
         headers: { ...headers }
     });
     if (!response.ok) {
@@ -90,14 +90,22 @@ export async function getRestaurant(restaurantId: string): Promise<Restaurant> {
  */
 export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem[]> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/menu`, {
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/restaurants/${restaurantId}/menu`, {
         headers: { ...headers }
     });
     if (!response.ok) {
         throw new Error('Failed to fetch menu');
     }
     const data = await response.json();
-    return data.items || [];
+    const rawItems = data.items || data.menu?.items || [];
+    return rawItems.map((item: any) => ({
+        id: String(item.id || item.menu_item_id || item.sku || ''),
+        name: item.name || 'Menu Item',
+        price_cents: typeof item.price_cents === 'number'
+            ? item.price_cents
+            : Math.round(Number(item.price || 0) * 100),
+        qty: typeof item.qty === 'number' && item.qty > 0 ? item.qty : 1,
+    }));
 }
 
 /**
@@ -109,7 +117,7 @@ export async function createOrder(
     customerName: string
 ): Promise<Order> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/orders`, {
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -136,7 +144,7 @@ export async function createOrder(
  */
 export async function getOrder(orderId: string): Promise<Order> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/orders/${orderId}`, {
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders/${orderId}`, {
         headers: { ...headers }
     });
 
@@ -155,13 +163,13 @@ export async function sendArrivalEvent(
     event: string
 ): Promise<{ status: string }> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/orders/${orderId}/vicinity`, {
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders/${orderId}/vicinity`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             ...headers
         },
-        body: JSON.stringify({ vicinity: true, event }),
+        body: JSON.stringify({ event }),
     });
 
     if (!response.ok) {
@@ -178,7 +186,7 @@ export async function sendArrivalEvent(
  */
 export async function getMyOrders(): Promise<Order[]> {
     const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/orders`, {
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders`, {
         headers: { ...headers }
     });
     if (!response.ok) {
