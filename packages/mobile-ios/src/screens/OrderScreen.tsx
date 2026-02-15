@@ -37,10 +37,9 @@ const ARRIVAL_LABELS: { [key: string]: string } = {
 
 interface Props {
     route: any;
-    navigation: any;
 }
 
-export default function OrderScreen({ route, navigation }: Props) {
+export default function OrderScreen({ route }: Props) {
     const { orderId } = route.params;
     const [order, setOrder] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -55,7 +54,7 @@ export default function OrderScreen({ route, navigation }: Props) {
 
         const interval = setInterval(() => {
             if (mounted) fetchOrder();
-        }, 2000); // Poll every 2s
+        }, 5000); // Poll every 5s
 
         return () => {
             mounted = false;
@@ -72,43 +71,36 @@ export default function OrderScreen({ route, navigation }: Props) {
 
             // Manage Location Tracking based on status
             const activeStatuses = ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'];
-            const isCompleted = ['COMPLETED', 'CANCELLED', 'DECLINED'].includes(data.status);
+            const isCompleted = ['COMPLETED', 'CANCELED', 'DECLINED', 'EXPIRED'].includes(data.status);
 
             if (activeStatuses.includes(data.status)) {
-                // Fetch real restaurant coordinates
-                let targetLat = 30.2672;  // Fallback: Austin, TX
-                let targetLon = -97.7431;
                 try {
                     const restaurant = await getRestaurant(data.restaurant_id);
-                    if (restaurant.latitude && restaurant.longitude) {
-                        targetLat = restaurant.latitude;
-                        targetLon = restaurant.longitude;
+                    const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
+                    if (hasCoordinates) {
+                        startLocationTracking(
+                            {
+                                latitude: Number(restaurant.latitude),
+                                longitude: Number(restaurant.longitude),
+                                restaurantId: data.restaurant_id
+                            },
+                            orderId,
+                            (event, _orderId, meta) => {
+                                console.log(`[OrderScreen] Event: ${event} Meta:`, meta);
+                                if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
+                                    sendArrival(event);
+                                }
+                            }
+                        );
+                    } else {
+                        stopLocationTracking();
+                        console.warn('[OrderScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
                     }
                 } catch (err) {
-                    console.warn('[OrderScreen] Could not fetch restaurant coords, using fallback:', err);
+                    stopLocationTracking();
+                    console.warn('[OrderScreen] Could not fetch restaurant coordinates:', err);
                 }
-
-                startLocationTracking(
-                    {
-                        latitude: targetLat,
-                        longitude: targetLon,
-                        restaurantId: data.restaurant_id
-                    },
-                    orderId,
-                    (event, oid, meta) => {
-                        console.log(`[OrderScreen] Event: ${event} Meta:`, meta);
-                        // Forward significant events to backend
-                        if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
-                            simulateArrival(event);
-                        }
-                    }
-                );
             } else if (isCompleted) {
-                stopLocationTracking();
-            }
-
-            // If completed, just stop tracking
-            if (data.status === 'COMPLETED') {
                 stopLocationTracking();
             }
         } catch (error) {
@@ -116,7 +108,7 @@ export default function OrderScreen({ route, navigation }: Props) {
         }
     };
 
-    const simulateArrival = async (event: string) => {
+    const sendArrival = async (event: string) => {
         try {
             await sendArrivalEvent(orderId, event);
             fetchOrder();
@@ -164,20 +156,19 @@ export default function OrderScreen({ route, navigation }: Props) {
                 </Text>
             </View>
 
-            {/* Simulation Controls (for demo) */}
-            {order?.status === 'PENDING_NOT_SENT' && (
+            {['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(order?.status) && (
                 <View style={styles.simControls}>
-                    <Text style={styles.simTitle}>📍 Simulate Arrival</Text>
+                    <Text style={styles.simTitle}>📍 Arrival Update</Text>
                     <View style={styles.simButtons}>
                         <TouchableOpacity
                             style={styles.simButton}
-                            onPress={() => simulateArrival('5_MIN_OUT')}
+                            onPress={() => sendArrival('5_MIN_OUT')}
                         >
                             <Text style={styles.simButtonText}>5 Min Out</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={styles.simButton}
-                            onPress={() => simulateArrival('AT_DOOR')}
+                            onPress={() => sendArrival('AT_DOOR')}
                         >
                             <Text style={styles.simButtonText}>I'm Here</Text>
                         </TouchableOpacity>

@@ -1,6 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
-import { StyleSheet, SafeAreaView, ImageBackground } from 'react-native';
+import { StyleSheet, SafeAreaView } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { theme } from './src/theme';
@@ -10,8 +9,6 @@ import LoginScreen from './src/screens/LoginScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import MenuScreen from './src/screens/MenuScreen';
 import OrderScreen from './src/screens/OrderScreen';
-
-import DepartureScreen from './src/screens/DepartureScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -27,8 +24,6 @@ const navTheme = {
 };
 
 export default function App() {
-    const [currentOrder, setCurrentOrder] = useState<any>(null);
-
     return (
         <NavigationContainer theme={navTheme}>
             <SafeAreaView style={styles.container}>
@@ -54,30 +49,15 @@ export default function App() {
                     />
                     <Stack.Screen
                         name="Menu"
+                        component={MenuScreen}
                         options={({ route }: any) => ({
-                            title: route.params?.restaurant?.name || 'Menu'
+                            title: route.params?.restaurant?.name || 'Menu',
                         })}
-                    >
-                        {(props) => (
-                            <MenuScreen
-                                {...props}
-                                onOrderPlaced={(order: any) => setCurrentOrder(order)}
-                            />
-                        )}
-                    </Stack.Screen>
+                    />
                     <Stack.Screen
                         name="Order"
                         component={OrderScreen}
                         options={{ title: 'Your Order' }}
-                    />
-
-                    <Stack.Screen
-                        name="Departure"
-                        component={DepartureScreen}
-                        options={{
-                            title: 'Perfect Timing',
-                            presentation: 'modal'
-                        }}
                     />
                 </Stack.Navigator>
             </SafeAreaView>

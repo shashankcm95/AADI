@@ -10,7 +10,7 @@ import {
     Platform,
     ActivityIndicator,
 } from 'react-native';
-import { signIn } from 'aws-amplify/auth';
+import { fetchAuthSession, signIn, signOut } from 'aws-amplify/auth';
 import { theme } from '../theme';
 
 interface Props {
@@ -36,6 +36,32 @@ export default function LoginScreen({ navigation }: Props) {
             });
 
             if (isSignedIn) {
+                const session = await fetchAuthSession();
+                const claims = session.tokens?.idToken?.payload || {};
+                const role = String(claims['custom:role'] || '');
+                const groups = claims['cognito:groups'];
+                const normalizedGroups = Array.isArray(groups)
+                    ? groups.map(String)
+                    : typeof groups === 'string'
+                        ? [groups]
+                        : [];
+
+                const isCustomerAppBlockedRole = (
+                    role === 'admin' ||
+                    role === 'restaurant_admin' ||
+                    normalizedGroups.includes('admin') ||
+                    normalizedGroups.includes('restaurant_admin')
+                );
+
+                if (isCustomerAppBlockedRole) {
+                    await signOut();
+                    Alert.alert(
+                        'Access Denied',
+                        'This account is for restaurant/admin use. Please sign in from the admin portal.'
+                    );
+                    return;
+                }
+
                 navigation.navigate('Home', {
                     customerName: email.split('@')[0],
                 });
@@ -96,10 +122,6 @@ export default function LoginScreen({ navigation }: Props) {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.testCreds}>
-                    <Text style={styles.hint}>Test Credentials:</Text>
-                    <Text style={styles.hintMono}>qa_user@aadi.com / Password123!</Text>
-                </View>
             </View>
         </KeyboardAvoidingView>
     );
@@ -190,21 +212,6 @@ const styles = StyleSheet.create({
     buttonText: {
         color: '#fff',
         fontSize: 18,
-        fontWeight: '600',
-    },
-    testCreds: {
-        marginTop: 40,
-        alignItems: 'center',
-    },
-    hint: {
-        color: theme.colors.textMuted,
-        fontSize: 14,
-    },
-    hintMono: {
-        fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-        color: theme.colors.teal3,
-        marginTop: 4,
-        fontSize: 14,
         fontWeight: '600',
     },
 });

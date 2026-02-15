@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, ActivityIndicator, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { theme } from '../theme';
 import { PeacockHeader } from '../components/ui/PeacockHeader';
 import { SearchBar } from '../components/ui/SearchBar';
@@ -9,7 +8,7 @@ import { PromoBannerCard } from '../components/ui/PromoBannerCard';
 import { RestaurantCard } from '../components/ui/RestaurantCard';
 import { getRestaurants, Restaurant } from '../services/api';
 
-// Dummy Categories (Backend doesn't have categories yet)
+// UI-only category chips for local filtering.
 const CATEGORIES = [
     { id: '1', label: 'All' },
     { id: '2', label: 'Burgers' },
@@ -40,17 +39,25 @@ export const HomeScreen: React.FC = ({ navigation }: any) => {
         }
     };
 
-    const filteredRestaurants = restaurants.filter(r =>
-        r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.cuisine.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const selectedCategoryLabel = CATEGORIES.find((cat) => cat.id === selectedCategory)?.label || 'All';
+
+    const filteredRestaurants = restaurants.filter((r) => {
+        const matchesSearch = (
+            r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            r.cuisine.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        const matchesCategory = (
+            selectedCategoryLabel === 'All' ||
+            r.cuisine.toLowerCase().includes(selectedCategoryLabel.toLowerCase())
+        );
+        return matchesSearch && matchesCategory;
+    });
 
     return (
         <View style={styles.container}>
             {/* Header Area */}
             <PeacockHeader
                 title="AADI"
-                onProfilePress={() => navigation?.navigate('Profile')}
             />
 
             <View style={styles.body}>
@@ -108,7 +115,7 @@ export const HomeScreen: React.FC = ({ navigation }: any) => {
                                     cuisine={rest.cuisine}
                                     rating={rest.rating}
                                     priceTier={rest.price_tier || 2}
-                                    deliveryTime="20-30 min" // Mock for now
+                                    deliveryTime="Live status"
                                     emoji={rest.emoji}
                                     onPress={() => navigation?.navigate('Menu', {
                                         restaurant: rest

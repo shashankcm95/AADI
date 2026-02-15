@@ -12,33 +12,36 @@ import {
     Alert,
     ActivityIndicator,
 } from 'react-native';
-import { createOrder, getRestaurantMenu } from '../services/api';
+import { createOrder, getRestaurantMenu, Restaurant } from '../services/api';
 import { startLocationTracking, requestPermissions } from '../services/location';
 import { theme } from '../theme';
-
-// Default restaurant location (Austin, TX) for GPS tracking
-const DEFAULT_COORDS = { latitude: 30.2672, longitude: -97.7431 };
 
 interface Props {
     navigation: any;
     route: any;
-    onOrderPlaced: (order: any) => void;
 }
 
-export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) {
+export default function MenuScreen({ navigation, route }: Props) {
     const [cart, setCart] = useState<any[]>([]);
     const [menuItems, setMenuItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Get restaurant and customer from navigation params
-    const restaurant = route.params?.restaurant || { restaurant_id: 'rst_demo_001', name: 'AADI Bistro', emoji: '🍔' };
+    const restaurant: Restaurant | undefined = route.params?.restaurant;
     const customerName = route.params?.customerName || 'Guest';
 
     useEffect(() => {
+        if (!restaurant?.restaurant_id) {
+            Alert.alert('Restaurant Missing', 'Please select a restaurant to continue.');
+            navigation.goBack();
+            return;
+        }
         loadMenu();
-    }, []);
+    }, [restaurant?.restaurant_id]);
 
     const loadMenu = async () => {
+        if (!restaurant?.restaurant_id) {
+            return;
+        }
         try {
             const items = await getRestaurantMenu(restaurant.restaurant_id);
             setMenuItems(items);
@@ -70,13 +73,12 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
         }
 
         try {
-            // console.log('[MenuScreen] Starting order placement...');
+            if (!restaurant?.restaurant_id) {
+                Alert.alert('Restaurant Missing', 'Please select a restaurant to continue.');
+                return;
+            }
 
-            // Create order FIRST - this is the critical path
-            // console.log('[MenuScreen] Calling createOrder API...');
             const order = await createOrder(restaurant.restaurant_id, cart, customerName);
-            // console.log('[MenuScreen] Order created successfully:', order.order_id);
-            onOrderPlaced(order);
 
             // Navigate to order screen
             navigation.navigate('Order', { orderId: order.order_id });
@@ -86,11 +88,20 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
             try {
                 const hasPermission = await requestPermissions();
                 if (hasPermission) {
-                    startLocationTracking(
-                        { latitude: DEFAULT_COORDS.latitude, longitude: DEFAULT_COORDS.longitude, restaurantId: restaurant.restaurant_id },
-                        order.order_id,
-                        (event, orderId) => { }
-                    );
+                    const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
+                    if (hasCoordinates) {
+                        startLocationTracking(
+                            {
+                                latitude: Number(restaurant.latitude),
+                                longitude: Number(restaurant.longitude),
+                                restaurantId: restaurant.restaurant_id,
+                            },
+                            order.order_id,
+                            () => { }
+                        );
+                    } else {
+                        console.warn('[MenuScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
+                    }
                 }
             } catch (locErr) {
                 console.warn('[MenuScreen] Location tracking skipped:', locErr);
@@ -113,6 +124,14 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
             </TouchableOpacity>
         </View>
     );
+
+    if (!restaurant?.restaurant_id) {
+        return (
+            <View style={styles.center}>
+                <Text style={styles.emptyText}>Restaurant not selected</Text>
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>
