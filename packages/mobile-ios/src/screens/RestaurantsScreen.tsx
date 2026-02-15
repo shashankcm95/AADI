@@ -54,7 +54,13 @@ export default function RestaurantsScreen({ navigation, route }: Props) {
             <Text style={styles.emoji}>{item.emoji}</Text>
             <View style={styles.info}>
                 <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.cuisine}>{item.cuisine} • {item.address}</Text>
+                <Text style={styles.cuisine}>
+                    {item.cuisine} • {'$'.repeat(item.price_tier || 1)} • {item.address}
+                </Text>
+                {/* Optional: Display tags if available handled in a robust way */}
+                {item.tags && item.tags.length > 0 && (
+                    <Text style={styles.tags}>{item.tags.join(', ')}</Text>
+                )}
                 <View style={styles.ratingRow}>
                     <Text style={styles.star}>⭐</Text>
                     <Text style={styles.rating}>{item.rating}</Text>
@@ -143,6 +149,12 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: theme.colors.textMuted,
         marginBottom: 6,
+    },
+    tags: {
+        fontSize: 12,
+        color: theme.colors.primary,
+        marginBottom: 4,
+        fontWeight: '500',
     },
     ratingRow: {
         flexDirection: 'row',

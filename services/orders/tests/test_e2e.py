@@ -347,14 +347,6 @@ class TestHappyPathLifecycle:
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
 
-        # --- 9. Add Tip ---
-        event = _make_event('POST /v1/orders/{order_id}/tip',
-                            body={'tip_cents': 500},
-                            path_params={'order_id': order_id})
-        resp = app.lambda_handler(event, None)
-        assert resp['statusCode'] == 200
-        assert tables['orders'].items[order_id].get('tip_cents') == 500
-
         # --- 10. Status: READY → FULFILLING ---
         event = _make_event(
             'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
@@ -603,6 +595,17 @@ class TestErrorPaths:
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 400
 
+    def test_create_order_nonexistent_restaurant_returns_400(self, tables):
+        import app
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_ghost',
+            'items': [{'id': 'pizza', 'qty': 1}],
+        })
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 400
+        body = json.loads(resp['body'])
+        assert 'not found' in body.get('error', '')
+
 
 # =============================================================================
 # Ack Flow (Soft → Hard)
@@ -662,23 +665,5 @@ class TestAckFlow:
 
 
 # =============================================================================
-# Tip Flow
+# Tip Flow (REMOVED)
 # =============================================================================
-
-class TestTipFlow:
-    def test_add_tip_to_order(self, tables):
-        import app
-
-        event = _make_event('POST /v1/orders', body={
-            'restaurant_id': 'rest_abc',
-            'items': [{'id': 'wine', 'qty': 1}],
-        })
-        resp = app.lambda_handler(event, None)
-        oid = json.loads(resp['body'])['order_id']
-
-        event = _make_event('POST /v1/orders/{order_id}/tip',
-                            body={'tip_cents': 1200},
-                            path_params={'order_id': oid})
-        resp = app.lambda_handler(event, None)
-        assert resp['statusCode'] == 200
-        assert tables['orders'].items[oid]['tip_cents'] == 1200

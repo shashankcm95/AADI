@@ -51,6 +51,8 @@ export interface Restaurant {
     address: string;
     latitude?: number;
     longitude?: number;
+    price_tier?: number; // 1-4
+    tags?: string[];
 }
 
 /**
@@ -81,6 +83,21 @@ export async function getRestaurant(restaurantId: string): Promise<Restaurant> {
         throw new Error('Restaurant not found');
     }
     return restaurant;
+}
+
+/**
+ * Get restaurant menu
+ */
+export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem[]> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/menu`, {
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to fetch menu');
+    }
+    const data = await response.json();
+    return data.items || [];
 }
 
 /**
@@ -154,29 +171,7 @@ export async function sendArrivalEvent(
     return response.json();
 }
 
-/**
- * Add tip to order
- */
-export async function addTip(
-    orderId: string,
-    tipCents: number
-): Promise<{ success: boolean }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/v1/orders/${orderId}/tip`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...headers
-        },
-        body: JSON.stringify({ tip_cents: tipCents }),
-    });
 
-    if (!response.ok) {
-        throw new Error('Failed to add tip');
-    }
-
-    return response.json();
-}
 
 /**
  * Get my orders (authenticated user's order history)

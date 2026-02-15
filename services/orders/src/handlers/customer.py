@@ -60,8 +60,17 @@ def create_order(event):
         items = body.get('items', [])
         payment_mode = body.get('payment_mode', 'PAY_AT_RESTAURANT')
 
+
         # Validate
         engine.validate_resources_payload(items)
+
+        # Integrity Check: Ensure restaurant exists
+        if db.config_table:
+            resp = db.config_table.get_item(Key={'restaurant_id': restaurant_id})
+            if 'Item' not in resp:
+                return {'statusCode': 400, 'body': json.dumps({'error': f'Restaurant {restaurant_id} not found'})}
+        else:
+             print("WARNING: Config table not configured, skipping integrity check")
 
         now = int(time.time())
         order_id = f"ord_{uuid.uuid4().hex[:16]}"
@@ -75,7 +84,8 @@ def create_order(event):
             customer_id=customer_id,
             now=now,
             expires_at=now + 3600,  # 1 hour expiry
-            payment_mode=payment_mode
+            ttl=now + (90 * 24 * 60 * 60), # 90 days retention,
+            payment_mode='PAY_AT_RESTAURANT'
         )
 
         # Save to DynamoDB
@@ -240,37 +250,6 @@ def update_vicinity(order_id, event, customer_id=None):
     return {
         'statusCode': 200,
         'body': json.dumps(plan.response, default=db.decimal_default)
-    }
-
-
-def add_tip(order_id, event, customer_id=None):
-    if not db.orders_table:
-        return {'statusCode': 500}
-
-    # Fetch and verify ownership before updating
-    resp = db.orders_table.get_item(Key={'order_id': order_id})
-    item = resp.get('Item')
-    if not item:
-        raise NotFoundError()
-    if customer_id and item.get('customer_id') != customer_id:
-        raise NotFoundError()
-
-    # Check expiry
-    now = int(time.time())
-    engine.ensure_not_expired(item, now)
-
-    body = json.loads(event.get('body', '{}'))
-    tip_cents = body.get('tip_cents', 0)
-
-    db.orders_table.update_item(
-        Key={'order_id': order_id},
-        UpdateExpression="SET tip_cents = :t",
-        ExpressionAttributeValues={':t': tip_cents}
-    )
-
-    return {
-        'statusCode': 200,
-        'body': json.dumps({'success': True})
     }
 
 

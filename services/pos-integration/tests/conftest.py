@@ -55,6 +55,23 @@ class InMemoryTable:
             items = [i for i in items if i.get('restaurant_id') == rid]
         return {'Items': items}
 
+    def query(self, IndexName=None, KeyConditionExpression=None, ExpressionAttributeValues=None, **kwargs):
+        # Mock query support for GSI_RestaurantStatus
+        items = list(self.items.values())
+        
+        # Parse simple key condition: restaurant_id = :rid
+        if 'restaurant_id = :rid' in KeyConditionExpression:
+             rid = ExpressionAttributeValues[':rid']
+             items = [i for i in items if i.get('restaurant_id') == rid]
+             
+             # Optional sort key filter: AND status = :status
+             if 'AND #s = :status' in KeyConditionExpression or 'AND status = :status' in KeyConditionExpression:
+                 status = ExpressionAttributeValues.get(':status')
+                 if status:
+                     items = [i for i in items if i.get('status') == status]
+
+        return {'Items': items, 'Count': len(items)}
+
     def update_item(self, Key, UpdateExpression, ExpressionAttributeValues=None, ConditionExpression=None, **kwargs):
         key = Key[self.key_name]
         item = self.items.get(key)

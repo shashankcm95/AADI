@@ -37,8 +37,18 @@ function MainAppContent({ user, signOut }) {
   async function fetchToken() {
     try {
       const session = await fetchAuthSession()
-      const idToken = session.tokens?.idToken?.toString()
-      setToken(idToken)
+      const idToken = session.tokens?.idToken
+      const payload = idToken?.payload || {}
+
+      // RBAC Check: Block Restaurant/Super Admins
+      const role = payload['custom:role']
+      if (role === 'admin' || role === 'restaurant_admin') {
+        alert("Access Denied: Please use the Administrator Portal for this account.")
+        signOut()
+        return
+      }
+
+      setToken(idToken?.toString())
     } catch (err) {
       console.log('Not signed in', err)
       setToken(null)
@@ -96,7 +106,17 @@ function MainAppContent({ user, signOut }) {
       })
       if (res.ok) {
         const data = await res.json()
-        setMenu(data.menu || {})
+        // Support both { items: [] } (new) and { menu: { items: [] } } (old/fallback)
+        // Support both { items: [] } (new) and { menu: { items: [] } } (old/fallback)
+        const rawItems = data.items || data.menu?.items || []
+        // Normalize items: Ensure price_cents exists (convert from price if needed)
+        const items = rawItems.map(item => ({
+          ...item,
+          price_cents: item.price_cents !== undefined
+            ? item.price_cents
+            : (item.price ? Math.round(Number(item.price) * 100) : 0)
+        }))
+        setMenu({ items })
       } else {
         setMenu({ items: [] }) // No menu configured
       }

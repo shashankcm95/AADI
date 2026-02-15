@@ -44,12 +44,12 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
     async function fetchRestaurants(authToken: string) {
         try {
-            console.log("Fetching restaurants with token...")
+            // console.log("Fetching restaurants with token...")
             const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
                 headers: { 'Authorization': `Bearer ${authToken}` }
             })
             const data = await res.json()
-            console.log("Restaurants API Response:", data)
+            // console.log("Restaurants API Response:", data)
             setRestaurants(data.restaurants || [])
         } catch (err) {
             console.error("API Error:", err)
@@ -102,8 +102,9 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         }
     }
 
-    async function handleActivate(restaurantId: string) {
-        if (!confirm("Are you sure you want to activate this restaurant?")) return;
+    async function handleToggleStatus(restaurantId: string, newStatus: boolean) {
+        const action = newStatus ? "activate" : "deactivate";
+        if (!confirm(`Are you sure you want to ${action} this restaurant?`)) return;
 
         try {
             const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}`, {
@@ -112,17 +113,17 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ active: true })
+                body: JSON.stringify({ active: newStatus })
             })
 
             if (res.ok) {
                 if (token) fetchRestaurants(token)
             } else {
-                alert("Failed to activate restaurant")
+                alert(`Failed to ${action} restaurant`)
             }
         } catch (err) {
-            console.error("Activation failed:", err)
-            alert("Error activating restaurant")
+            console.error(`${action} failed:`, err)
+            alert(`Error ${action}ing restaurant`)
         }
     }
 
@@ -185,13 +186,21 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                                         >
                                             Delete
                                         </button>
-                                        {!r.active && (
+                                        {!r.active ? (
                                             <button
-                                                onClick={() => handleActivate(r.restaurant_id)}
+                                                onClick={() => handleToggleStatus(r.restaurant_id, true)}
                                                 className="btn btn-small"
                                                 style={{ marginLeft: '0.5rem', background: '#e0f2fe', color: '#0284c7' }}
                                             >
                                                 Activate
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleToggleStatus(r.restaurant_id, false)}
+                                                className="btn btn-small"
+                                                style={{ marginLeft: '0.5rem', background: '#fee2e2', color: '#dc2626', borderColor: '#ef4444' }}
+                                            >
+                                                Deactivate
                                             </button>
                                         )}
                                     </td>

@@ -2,7 +2,7 @@
  * Menu Screen
  * Agent Kappa: Order placement flow
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -10,19 +10,11 @@ import {
     TouchableOpacity,
     StyleSheet,
     Alert,
+    ActivityIndicator,
 } from 'react-native';
-import { createOrder } from '../services/api';
+import { createOrder, getRestaurantMenu } from '../services/api';
 import { startLocationTracking, requestPermissions } from '../services/location';
 import { theme } from '../theme';
-
-// Demo menu items
-const MENU_ITEMS = [
-    { id: 'item_1', name: 'Signature Truffle Burger', price_cents: 1499, description: 'Wagyu beef, truffle aioli' },
-    { id: 'item_2', name: 'Spicy Rigatoni', price_cents: 1850, description: 'Vodka sauce, calabrian chili' },
-    { id: 'item_3', name: 'Crispy Brussels Sprouts', price_cents: 900, description: 'Honey balsamic glaze' },
-    { id: 'item_4', name: 'Tiramisu', price_cents: 800, description: 'Espresso, mascarpone' },
-    { id: 'item_5', name: 'Pinot Noir (Glass)', price_cents: 1200, description: 'Sonoma Coast, 2021' },
-];
 
 // Default restaurant location (Austin, TX) for GPS tracking
 const DEFAULT_COORDS = { latitude: 30.2672, longitude: -97.7431 };
@@ -35,10 +27,28 @@ interface Props {
 
 export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) {
     const [cart, setCart] = useState<any[]>([]);
+    const [menuItems, setMenuItems] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
     // Get restaurant and customer from navigation params
     const restaurant = route.params?.restaurant || { restaurant_id: 'rst_demo_001', name: 'AADI Bistro', emoji: '🍔' };
     const customerName = route.params?.customerName || 'Guest';
+
+    useEffect(() => {
+        loadMenu();
+    }, []);
+
+    const loadMenu = async () => {
+        try {
+            const items = await getRestaurantMenu(restaurant.restaurant_id);
+            setMenuItems(items);
+        } catch (error) {
+            console.error('Failed to load menu:', error);
+            Alert.alert('Error', 'Could not load menu');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const addToCart = (item: any) => {
         const existing = cart.find(c => c.id === item.id);
@@ -60,12 +70,12 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
         }
 
         try {
-            console.log('[MenuScreen] Starting order placement...');
+            // console.log('[MenuScreen] Starting order placement...');
 
             // Create order FIRST - this is the critical path
-            console.log('[MenuScreen] Calling createOrder API...');
+            // console.log('[MenuScreen] Calling createOrder API...');
             const order = await createOrder(restaurant.restaurant_id, cart, customerName);
-            console.log('[MenuScreen] Order created successfully:', order.order_id);
+            // console.log('[MenuScreen] Order created successfully:', order.order_id);
             onOrderPlaced(order);
 
             // Navigate to order screen
@@ -79,7 +89,7 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
                     startLocationTracking(
                         { latitude: DEFAULT_COORDS.latitude, longitude: DEFAULT_COORDS.longitude, restaurantId: restaurant.restaurant_id },
                         order.order_id,
-                        (event, orderId) => console.log(`Arrival event: ${event} for ${orderId}`)
+                        (event, orderId) => { }
                     );
                 }
             } catch (locErr) {
@@ -106,12 +116,19 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
 
     return (
         <View style={styles.container}>
-            <FlatList
-                data={MENU_ITEMS}
-                renderItem={renderMenuItem}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.list}
-            />
+            {loading ? (
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
+            ) : (
+                <FlatList
+                    data={menuItems}
+                    renderItem={renderMenuItem}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={styles.list}
+                    ListEmptyComponent={<Text style={styles.emptyText}>No items available</Text>}
+                />
+            )}
 
             {cart.length > 0 && (
                 <View style={styles.cartBar}>
@@ -129,6 +146,8 @@ export default function MenuScreen({ navigation, route, onOrderPlaced }: Props) 
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.colors.background },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    emptyText: { textAlign: 'center', marginTop: 40, color: theme.colors.textMuted, fontSize: 16 },
     list: { padding: 16 },
     menuItem: {
         ...theme.layout.card,

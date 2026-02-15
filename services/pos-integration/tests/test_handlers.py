@@ -30,6 +30,8 @@ def test_handle_create_order(mock_db):
     item = mock_db['orders'].items[order_id]
     assert item['restaurant_id'] == 'rest_1'
     assert item['total_cents'] == 2200
+    assert 'ttl' in item
+    assert item['ttl'] > 0
 
 def test_handle_list_orders(mock_db):
     """Verify listing orders with filtering."""

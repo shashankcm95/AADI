@@ -21,7 +21,8 @@
         },
         "NSLocationWhenInUseUsageDescription": "AADI needs your location to notify the restaurant when you're nearby.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "AADI uses background location to track your arrival and send updates to the kitchen."
-      }
+      },
+      "bundleIdentifier": "com.anonymous.aadi"
     },
     "android": {
       "adaptiveIcon": {

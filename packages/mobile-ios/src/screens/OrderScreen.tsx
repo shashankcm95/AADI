@@ -17,16 +17,22 @@ import { theme } from '../theme';
 const STATUS_LABELS: { [key: string]: { label: string; color: string; emoji: string } } = {
     'PENDING_NOT_SENT': { label: 'Order Confirmed', color: '#f59e0b', emoji: '📅' },
     'SENT_TO_DESTINATION': { label: 'Sent to kitchen', color: theme.colors.primary, emoji: '📨' },
+    'WAITING_FOR_CAPACITY': { label: 'In Queue', color: '#f59e0b', emoji: '⏳' },
     'IN_PROGRESS': { label: 'Being prepared', color: '#8b5cf6', emoji: '👨‍🍳' },
     'READY': { label: 'Ready for pickup', color: '#22c55e', emoji: '✅' },
     'FULFILLING': { label: 'Being served', color: '#3b82f6', emoji: '🍽️' },
     'COMPLETED': { label: 'Enjoy your meal!', color: theme.colors.primary, emoji: '🎉' },
+    'EXPIRED': { label: 'Order Expired', color: '#ef4444', emoji: '⚠️' },
+    'CANCELED': { label: 'Order Canceled', color: '#ef4444', emoji: '❌' },
+    'DECLINED': { label: 'Restaurant Declined', color: '#ef4444', emoji: '⛔' },
 };
 
 const ARRIVAL_LABELS: { [key: string]: string } = {
     '5_MIN_OUT': '📍 5 min away',
     'PARKING': '🅿️ Parking',
     'AT_DOOR': '🚪 At door',
+    'EXIT_VICINITY': '👋 Left vicinity',
+    'UNKNOWN': '📍 Tracking...',
 };
 
 interface Props {
@@ -101,11 +107,9 @@ export default function OrderScreen({ route, navigation }: Props) {
                 stopLocationTracking();
             }
 
-            // If completed, navigate based on payment mode
+            // If completed, just stop tracking
             if (data.status === 'COMPLETED') {
-                if (data.payment_mode === 'PREPAID') {
-                    navigation.navigate('Tip', { order: data });
-                }
+                stopLocationTracking();
             }
         } catch (error) {
             console.error('Failed to fetch order:', error);

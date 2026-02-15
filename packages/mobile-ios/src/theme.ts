@@ -2,92 +2,99 @@ import { ViewStyle, TextStyle, ImageStyle } from 'react-native';
 
 export const theme = {
     colors: {
-        background: '#FDFAF6', // Cream
-        primary: '#00695c', // Emerald
-        text: '#1E293B', // Dark Slate
-        textMuted: '#64748B',
-        accent: '#D4AF37', // Gold
-        teal: '#00C9A7',
-        coral: '#FFCCBC',
-        surface: 'rgba(255, 255, 255, 0.9)',
-        surfaceHighlight: '#ffffff',
+        // Brand Palette
+        white: '#FEFEFE',
+        offWhite: '#F7FBFA',
+        gold: '#E0DECD',
+
+        // Teals
+        teal1: '#73C3C5',
+        teal2: '#68B1C1',
+        teal3: '#53B8BA',
+
+        // Blues
+        blue1: '#6DA3B4',
+        blue2: '#4B99BA',
+        blue3: '#237CB5',
+        blue4: '#2162BA', // Primary Action
+        blue5: '#2A65BE',
+        blue6: '#2857C0',
+
+        // Semantic
+        background: '#F7FBFA',
+        surface: '#FEFEFE',
+        text: '#2162BA', // Primary Text (Blue 4)
+        textSecondary: '#546E7A',
+        border: 'rgba(33,98,186,0.12)',
+
+        // Legacy support (keep existing keys mapped to new values where possible)
+        primary: '#2162BA',
+        accent: '#E0DECD',
+        textMuted: '#546E7A',
         error: '#ef4444',
         success: '#22c55e',
-        cardShadow: 'rgba(0, 105, 92, 0.15)',
     },
     typography: {
-        // In React Native, we might need to load custom fonts or fall back to system serif/sans
         header: {
-            fontSize: 32,
-            fontWeight: '600' as const,
-            color: '#00695c',
-            fontFamily: 'System', // Ideally 'PlayfairDisplay' if linked
+            fontSize: 28,
+            fontWeight: '700' as const,
+            color: '#2162BA',
+            fontFamily: 'System',
         },
         subHeader: {
-            fontSize: 24,
-            fontWeight: '600' as const,
-            color: '#1E293B',
+            fontSize: 22,
+            fontWeight: '700' as const,
+            color: '#2162BA',
+        },
+        cardTitle: { // New H3
+            fontSize: 18,
+            fontWeight: '700' as const,
+            color: '#2162BA',
         },
         body: {
             fontSize: 16,
-            color: '#1E293B',
+            color: '#546E7A',
         },
         caption: {
-            fontSize: 14,
-            color: '#64748B',
+            fontSize: 12,
+            fontWeight: '500' as const,
+            color: '#546E7A',
         },
     },
     layout: {
+        spacing: {
+            xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32
+        },
+        radius: {
+            card: 18,
+            chip: 999,
+            input: 14,
+            button: 14,
+        },
+        shadows: {
+            card: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+                elevation: 4,
+            },
+            hero: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.10,
+                shadowRadius: 16,
+                elevation: 6,
+            }
+        },
         card: {
-            backgroundColor: 'rgba(255, 255, 255, 0.8)',
-            borderRadius: 24,
-            padding: 20,
-            shadowColor: 'rgba(0, 105, 92, 0.15)',
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.1,
-            shadowRadius: 20,
-            elevation: 5, // Android
-            marginBottom: 20,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.6)',
-        } as ViewStyle,
-        organicBorder: {
-            borderRadius: 24, // React Native doesn't support the crazy 4-value radius syntax easily without SVG
-            borderTopRightRadius: 40,
-            borderBottomLeftRadius: 30,
-        } as ViewStyle,
-        container: {
-            flex: 1,
-            backgroundColor: '#FDFAF6',
-            paddingHorizontal: 20,
-        } as ViewStyle,
-    },
-    components: {
-        buttonPrimary: {
-            backgroundColor: '#00695c',
-            paddingVertical: 16,
-            paddingHorizontal: 32,
-            borderRadius: 50,
-            alignItems: 'center',
+            backgroundColor: '#FEFEFE',
+            borderRadius: 18,
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.2,
-            shadowRadius: 8,
-        } as ViewStyle,
-        buttonText: {
-            color: '#ffffff',
-            fontSize: 18,
-            fontWeight: '700' as const,
-        } as TextStyle,
-        input: {
-            backgroundColor: 'rgba(255,255,255,0.8)',
-            borderRadius: 12,
-            padding: 16,
-            borderWidth: 1,
-            borderColor: '#ddd',
-            marginBottom: 16,
-            fontSize: 16,
-            color: '#1E293B',
-        } as TextStyle,
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            elevation: 4,
+        }
     }
 };

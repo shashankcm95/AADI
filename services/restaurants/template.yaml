@@ -48,9 +48,42 @@ Resources:
       AttributeDefinitions:
         - AttributeName: restaurant_id
           AttributeType: S
+        - AttributeName: is_active
+          AttributeType: S
+        - AttributeName: name
+          AttributeType: S
+        - AttributeName: cuisine
+          AttributeType: S
+        - AttributeName: price_tier
+          AttributeType: N
       KeySchema:
         - AttributeName: restaurant_id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_ActiveRestaurants
+          KeySchema:
+            - AttributeName: is_active
+              KeyType: HASH
+            - AttributeName: name
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI_Cuisine
+          KeySchema:
+            - AttributeName: cuisine
+              KeyType: HASH
+            - AttributeName: name
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI_PriceTier
+          KeySchema:
+            - AttributeName: price_tier
+              KeyType: HASH
+            - AttributeName: name
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
 
   RestaurantConfigTable:
     Type: AWS::DynamoDB::Table
@@ -130,6 +163,21 @@ Resources:
           Properties:
             Path: /v1/restaurants/{restaurant_id}/menu
             Method: GET
+        UpdateMenu:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/menu
+            Method: POST
+        GetConfig:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/config
+            Method: GET
+        UpdateConfig:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/config
+            Method: PUT
         HealthCheck:
           Type: HttpApi
           Properties:

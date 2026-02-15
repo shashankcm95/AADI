@@ -360,6 +360,14 @@ class TestCreateSessionModel:
         model = create_session_model("s4", "r1", resources, "c1", NOW, NOW + 3600)
         assert model["work_units_total"] == 8  # 4 * 2
 
+    def test_ttl_passed_through(self):
+        """Verify ttl is included in the model."""
+        ttl_val = NOW + 999
+        model = create_session_model(
+            "s5", "r1", [{"id": "x", "qty": 1}], "c1", NOW, NOW + 3600, ttl=ttl_val
+        )
+        assert model["ttl"] == ttl_val
+
 
 # =============================================================================
 # validate_resources_payload

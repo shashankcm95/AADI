@@ -36,7 +36,7 @@ export default function LoginScreen({ navigation }: Props) {
             });
 
             if (isSignedIn) {
-                navigation.navigate('Restaurants', {
+                navigation.navigate('Home', {
                     customerName: email.split('@')[0],
                 });
             } else {
@@ -66,7 +66,7 @@ export default function LoginScreen({ navigation }: Props) {
                     <TextInput
                         style={styles.input}
                         placeholder="user@example.com"
-                        placeholderTextColor={theme.colors.textMuted}
+                        placeholderTextColor={theme.colors.textSecondary}
                         value={email}
                         onChangeText={setEmail}
                         autoCapitalize="none"
@@ -77,7 +77,7 @@ export default function LoginScreen({ navigation }: Props) {
                     <TextInput
                         style={styles.input}
                         placeholder="••••••••"
-                        placeholderTextColor={theme.colors.textMuted}
+                        placeholderTextColor={theme.colors.textSecondary}
                         value={password}
                         onChangeText={setPassword}
                         secureTextEntry
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
         right: -100,
         width: 300,
         height: 300,
-        backgroundColor: theme.colors.teal,
+        backgroundColor: theme.colors.teal3,
         opacity: 0.1,
         borderRadius: 150,
     },
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     },
     hintMono: {
         fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-        color: theme.colors.teal,
+        color: theme.colors.teal3,
         marginTop: 4,
         fontSize: 14,
         fontWeight: '600',

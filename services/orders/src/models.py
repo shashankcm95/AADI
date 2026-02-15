@@ -29,8 +29,8 @@ class ArrivalStatus(StrEnum):
     EXIT_VICINITY = "EXIT_VICINITY"
 
 
+
 class PaymentMode(StrEnum):
-    PREPAID = "PREPAID"
     AT_RESTAURANT = "PAY_AT_RESTAURANT"
 
 
@@ -61,7 +61,7 @@ ARRIVAL_PARKING = ArrivalStatus.PARKING
 ARRIVAL_DOOR = ArrivalStatus.AT_DOOR
 ARRIVAL_EXIT = ArrivalStatus.EXIT_VICINITY
 
-PAYMENT_MODE_PREPAID = PaymentMode.PREPAID
+
 PAYMENT_MODE_AT_RESTAURANT = PaymentMode.AT_RESTAURANT
 
 STAGE_INIT = FulfillmentStage.INIT
@@ -88,6 +88,7 @@ class Session:
     destination_id: str     # Was restaurant_id
     status: str
     
+    # Timestamps
     # Timestamps
     created_at: int
     expires_at: int
@@ -122,6 +123,9 @@ class Session:
     
     # Arrive Fee
     arrive_fee_cents: int = 0
+    
+    # TTL
+    ttl: Optional[int] = None
 
     @staticmethod
     def from_ddb(item: Dict[str, Any]) -> "Session":
@@ -142,6 +146,7 @@ class Session:
             status=item["status"],
             created_at=int(item["created_at"]),
             expires_at=int(item["expires_at"]),
+            ttl=_maybe_int(item.get("ttl")),
             customer_id=item.get("customer_id", "guest"),
             customer_name=item.get("customer_name", "Guest"),
             resources=resources,

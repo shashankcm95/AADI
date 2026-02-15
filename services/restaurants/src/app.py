@@ -102,6 +102,35 @@ def lambda_handler(event, context):
     route_key = event.get('routeKey')
     path_params = event.get('pathParameters') or {}
 
+    # Global Access Check for Restaurant Admins
+    claims = get_user_claims(event)
+    role = claims.get('role')
+    restaurant_id = claims.get('restaurant_id')
+
+    # If user is a restaurant admin, ensure their restaurant is active
+    if role == 'restaurant_admin' and restaurant_id:
+        try:
+            resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
+            restaurant = resp.get('Item')
+            
+            # If restaurant not found or not active, deny access
+            # EXCEPTION: Allow GET /v1/restaurants (so they can see their status)
+            if restaurant and not restaurant.get('active', False):
+                # Allow read-only access to their own restaurant details to see "Inactive" status
+                allowed_routes = ['GET /v1/restaurants']
+                if route_key not in allowed_routes:
+                    print(f"Blocking access for inactive restaurant {restaurant_id}")
+                    return {
+                        'statusCode': 403,
+                        'headers': CORS_HEADERS,
+                        'body': json.dumps({'error': 'Restaurant is currently inactive/on-hold. Please contact support.'})
+                    }
+        except Exception as e:
+            print(f"Error checking restaurant status: {e}")
+            # Fail closed if DB error? Or allow and let downstream handle?
+            # Safer to fail closed for security/compliance.
+            return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Internal authorization error'})}
+
     try:
         if route_key == 'GET /v1/restaurants/health':
             return {
@@ -124,6 +153,15 @@ def lambda_handler(event, context):
 
         elif route_key == 'GET /v1/restaurants/{restaurant_id}/menu':
             return get_menu(path_params.get('restaurant_id'))
+
+        elif route_key == 'POST /v1/restaurants/{restaurant_id}/menu':
+            return update_menu(event, path_params.get('restaurant_id'))
+
+        elif route_key == 'GET /v1/restaurants/{restaurant_id}/config':
+            return get_config(event, path_params.get('restaurant_id'))
+
+        elif route_key == 'PUT /v1/restaurants/{restaurant_id}/config':
+            return update_config(event, path_params.get('restaurant_id'))
 
         return {
             'statusCode': 404,
@@ -156,8 +194,32 @@ def list_restaurants(event):
             item = resp.get('Item')
             items = [item] if item else []
         else:
-            # Admin (or others) sees all active restaurants
-            resp = restaurants_table.scan()
+        # Admin (or others) sees all active restaurants
+            # Check for filters
+            query_params = event.get('queryStringParameters') or {}
+            cuisine_filter = query_params.get('cuisine')
+            price_tier_filter = query_params.get('price_tier')
+
+            if cuisine_filter:
+                resp = restaurants_table.query(
+                    IndexName='GSI_Cuisine',
+                    KeyConditionExpression=Key('cuisine').eq(cuisine_filter)
+                )
+            elif price_tier_filter:
+                try:
+                    pt = int(price_tier_filter)
+                    resp = restaurants_table.query(
+                        IndexName='GSI_PriceTier',
+                        KeyConditionExpression=Key('price_tier').eq(pt)
+                    )
+                except ValueError:
+                    # Fallback or empty if invalid
+                    resp = {'Items': []}
+            else:
+                resp = restaurants_table.query(
+                    IndexName='GSI_ActiveRestaurants',
+                    KeyConditionExpression=Key('is_active').eq("1")
+                )
             items = resp.get('Items', [])
 
         return {
@@ -167,6 +229,91 @@ def list_restaurants(event):
         }
     except Exception as e:
         print(f"Scan Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def update_menu(event, restaurant_id):
+    """Update (Overwrite) the menu for a restaurant."""
+    if not menus_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Menus table not configured'})}
+
+    # RBAC Check
+    claims = get_user_claims(event)
+    user_role = claims.get('role')
+    user_restaurant_id = claims.get('restaurant_id')
+    
+    # Allow if Admin OR if Restaurant Admin updating their own restaurant
+    is_admin = user_role == 'admin'
+    is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
+    
+    if not (is_admin or is_owner):
+        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+
+    try:
+        body = json.loads(event.get('body', '{}'))
+        items = body.get('items', [])
+        
+        print(f"Received {len(items)} items for restaurant {restaurant_id}")
+        if len(items) > 0:
+            print(f"Sample Item: {items[0]}")
+        
+        if not isinstance(items, list):
+            return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Payload must contain an "items" list'})}
+
+        # Basic validation
+        cleaned_items = []
+        for item in items:
+            # Check for keys case-insensitively just in case, but frontend sends lowercase
+            # We expect 'name' and 'price'
+            
+            if not item.get('name') or item.get('price') is None:
+                print(f"Skipping item due to missing fields: {item}")
+                continue # Skip invalid items
+            
+            # Ensure price is number/string decimal
+            try:
+                # Handle price as string, strip '$', ',' and whitespace
+                price_str = str(item['price']).replace('$', '').replace(',', '').strip()
+                # Convert float to Decimal for DynamoDB
+                price = Decimal(price_str)
+                item['price'] = price
+                
+                # ALSO store price_cents (integer) for frontend/order service compatibility
+                # price is Decimal('5.99') -> float(5.99) -> 5.99 * 100 -> 599
+                item['price_cents'] = int(float(price) * 100)
+            except Exception as e:
+                print(f"Skipping key {item.get('name')} due to invalid price: {item.get('price')} - Error: {e}")
+                continue
+                
+            # Ensure ID exists
+            if not item.get('id'):
+                item['id'] = str(uuid.uuid4())
+
+            cleaned_items.append(item)
+            
+        print(f"Cleaned items count: {len(cleaned_items)}")
+
+        # Store in DynamoDB
+        # We use a fixed version 'latest' for the active menu
+        menu_item = {
+            'restaurant_id': restaurant_id,
+            'menu_version': 'latest',
+            'items': cleaned_items,
+            'updated_at': int(time.time()),
+            'updated_by': claims.get('username', 'unknown')
+        }
+        
+        menus_table.put_item(Item=menu_item)
+        
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'message': 'Menu updated successfully', 'count': len(cleaned_items)})
+        }
+            
+    except Exception as e:
+        print(f"Menu Update Error: {e}")
+        traceback.print_exc()
         return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
 
 
@@ -206,6 +353,12 @@ def update_restaurant(event, restaurant_id):
         city = body.get('city', existing_item.get('city', ''))
         state = body.get('state', existing_item.get('state', ''))
         zip_code = body.get('zip', existing_item.get('zip', ''))
+
+        # Metadata Updates
+        cuisine = body.get('cuisine')
+        price_tier = body.get('price_tier')
+        tags = body.get('tags')
+        rating = body.get('rating')
         
         # Check if address changed OR if location is missing (retry)
         should_geocode = (
@@ -242,8 +395,7 @@ def update_restaurant(event, restaurant_id):
         
         active = body.get('active')
         
-        # Update DynamoDB
-        update_expr = "SET #n = :n, contact_email = :e, street = :s, city = :c, #st = :st, zip = :z, address = :addr, #l = :l, updated_at = :u"
+        # Prepare Update Expression
         expr_attr_names = {
             '#n': 'name',
             '#st': 'state',
@@ -261,9 +413,36 @@ def update_restaurant(event, restaurant_id):
             ':u': int(time.time())
         }
 
+        # Construct expression to handle REMOVE safely
+        set_parts = ["#n = :n", "contact_email = :e", "street = :s", "city = :c", "#st = :st", "zip = :z", "address = :addr", "#l = :l", "updated_at = :u"]
+        remove_parts = []
+        
+        # New Metadata SET parts
+        if cuisine:
+            set_parts.append("cuisine = :cu")
+            expr_attr_values[':cu'] = cuisine
+        if price_tier is not None:
+            set_parts.append("price_tier = :pt")
+            expr_attr_values[':pt'] = int(price_tier)
+        if tags is not None:
+            set_parts.append("tags = :tg")
+            expr_attr_values[':tg'] = tags
+        if rating is not None:
+            set_parts.append("rating = :rt")
+            expr_attr_values[':rt'] = Decimal(str(rating))
+
         if active is not None:
-             update_expr += ", active = :a"
-             expr_attr_values[':a'] = active
+            set_parts.append("active = :a")
+            expr_attr_values[':a'] = active
+            if active is True:
+                set_parts.append("is_active = :ia")
+                expr_attr_values[':ia'] = "1"
+            else:
+                remove_parts.append("is_active")
+
+        update_expr = "SET " + ", ".join(set_parts)
+        if remove_parts:
+            update_expr += " REMOVE " + ", ".join(remove_parts)
         
         restaurants_table.update_item(
             Key={'restaurant_id': restaurant_id},
@@ -444,7 +623,12 @@ def create_restaurant(event):
             'contact_email': body.get('contact_email', ''),
             'active': False, # Default to inactive until first login/password change
             'created_at': timestamp,
-            'updated_at': timestamp
+            'updated_at': timestamp,
+            # Metadata Enhancements
+            'cuisine': body.get('cuisine', 'Other'),
+            'price_tier': int(body.get('price_tier', 1)), # 1-4
+            'tags': body.get('tags', []), # List of strings
+            'rating': Decimal(str(body.get('rating', '0.0')))
         }
 
         # Create Default Config Item
@@ -519,25 +703,129 @@ def get_menu(restaurant_id):
         return {'statusCode': 200, 'body': json.dumps({'menu': {'items': []}})}
 
     try:
-        # First, get the active menu version from config
-        active_version = 'v1'  # default
-        if config_table:
-            config_resp = config_table.get_item(Key={'restaurant_id': restaurant_id})
-            config = config_resp.get('Item', {})
-            active_version = config.get('active_menu_version', 'v1')
-
         # Now get the menu for that version
+        # For now, we only support 'latest' which is what update_menu writes
+        version = 'latest'
+        
         resp = menus_table.get_item(
-            Key={'restaurant_id': restaurant_id, 'menu_version': active_version}
+            Key={'restaurant_id': restaurant_id, 'menu_version': version}
         )
         item = resp.get('Item', {})
-        menu = item.get('menu', {'items': []})
+        # update_menu stores 'items' at the top level
+        items = item.get('items', [])
 
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
-            'body': json.dumps({'menu': menu}, default=decimal_default)
+            'body': json.dumps({'items': items}, default=decimal_default)
         }
     except Exception as e:
         print(f"Menu Error: {e}")
         return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': json.dumps({'menu': {'items': []}})}
+
+
+def get_config(event, restaurant_id):
+    """Get capacity configuration for a restaurant."""
+    if not config_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+
+    # RBAC Check (Allow Read if Admin or Owner)
+    claims = get_user_claims(event)
+    user_role = claims.get('role')
+    user_restaurant_id = claims.get('restaurant_id')
+    
+    is_admin = user_role == 'admin'
+    is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
+    
+    if not (is_admin or is_owner):
+        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+
+    try:
+        resp = config_table.get_item(Key={'restaurant_id': restaurant_id})
+        item = resp.get('Item', {})
+        config = item.get('configuration', {})
+        
+        # Merge with defaults/legacy if needed, but 'configuration' map is where we store it.
+        # Wait, the capacity.py reads top-level attributes from the item, NOT from a 'configuration' map?
+        # Let's check capacity.py again. 
+        # capacity.py: item.get("max_concurrent_orders", DEFAULT...)
+        # So we should store them at top level of the item, OR update capacity.py. 
+        # Updating app.py to validly read/write them at top level is safer for capacity.py compatibility.
+        # But 'create_restaurant' created a 'configuration' map?
+        # create_restaurant: 'configuration': {'operating_hours': ...}
+        # It seems we have mixed schema. capacity.py expects top-level. 
+        # We should expose them effectively.
+        
+        response_data = {
+            'max_concurrent_orders': int(item.get('max_concurrent_orders', 10)),
+            'capacity_window_seconds': int(item.get('capacity_window_seconds', 300)),
+            'operating_hours': config.get('operating_hours'),
+            'timezone': config.get('timezone')
+        }
+
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps(response_data, default=decimal_default)
+        }
+    except Exception as e:
+        print(f"Get Config Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def update_config(event, restaurant_id):
+    """Update capacity configuration."""
+    if not config_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+
+    # RBAC Check
+    claims = get_user_claims(event)
+    user_role = claims.get('role')
+    user_restaurant_id = claims.get('restaurant_id')
+    
+    is_admin = user_role == 'admin'
+    is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
+    
+    if not (is_admin or is_owner):
+        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+
+    try:
+        body = json.loads(event.get('body', '{}'))
+        
+        # We support updating specific fields
+        max_concurrent = body.get('max_concurrent_orders')
+        window_seconds = body.get('capacity_window_seconds')
+        
+        update_expr_parts = []
+        expr_values = {}
+        
+        if max_concurrent is not None:
+            update_expr_parts.append("max_concurrent_orders = :m")
+            expr_values[':m'] = int(max_concurrent)
+            
+        if window_seconds is not None:
+            update_expr_parts.append("capacity_window_seconds = :w")
+            expr_values[':w'] = int(window_seconds)
+            
+        if not update_expr_parts:
+             return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'No valid fields to update'})}
+             
+        # We also need to update updated_at
+        update_expr_parts.append("updated_at = :u")
+        expr_values[':u'] = int(time.time())
+
+        config_table.update_item(
+            Key={'restaurant_id': restaurant_id},
+            UpdateExpression="SET " + ", ".join(update_expr_parts),
+            ExpressionAttributeValues=expr_values
+        )
+        
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'message': 'Configuration updated'})
+        }
+
+    except Exception as e:
+        print(f"Update Config Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}

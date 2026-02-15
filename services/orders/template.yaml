@@ -78,6 +78,9 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   CapacityTable:
     Type: AWS::DynamoDB::Table
@@ -171,11 +174,6 @@ Resources:
           Type: HttpApi
           Properties:
             Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/status
-            Method: POST
-        AddTip:
-          Type: HttpApi
-          Properties:
-            Path: /v1/orders/{order_id}/tip
             Method: POST
 
 Outputs:

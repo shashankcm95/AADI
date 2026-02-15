@@ -35,6 +35,75 @@ class InMemoryTable:
             items = [i for i in items if i.get('active') == val]
         return {'Items': items}
 
+    def query(self, IndexName=None, KeyConditionExpression=None, ExpressionAttributeValues=None):
+        items = []
+        # Primitive query mock for GSI_ActiveRestaurants
+        if IndexName == 'GSI_ActiveRestaurants':
+             # Return all items where is_active == "1"
+             for item in self.items.values():
+                 if item.get('is_active') == "1":
+                     items.append(item)
+        elif IndexName == 'GSI_Cuisine':
+             target_val = None
+             if KeyConditionExpression:
+                 try:
+                     target_val = KeyConditionExpression._values[1]
+                 except:
+                     pass
+             
+             if target_val:
+                 for item in self.items.values():
+                     if item.get('cuisine') == target_val:
+                         items.append(item)
+                         
+        elif IndexName == 'GSI_PriceTier':
+             target_val = None
+             try:
+                 target_val = KeyConditionExpression._values[1]
+             except:
+                 pass
+                 
+             if target_val:
+                 for item in self.items.values():
+                     if item.get('price_tier') == target_val:
+                         items.append(item)
+        return {'Items': items}
+
+    def update_item(self, Key, UpdateExpression, ExpressionAttributeNames=None, ExpressionAttributeValues=None):
+        key = Key[self.key_name]
+        if key not in self.items:
+            self.items[key] = {self.key_name: key}
+        
+        item = self.items[key]
+        
+        # 1. Handle SET
+        if "SET" in UpdateExpression:
+            set_part = UpdateExpression.split("SET")[1].split("REMOVE")[0]
+            updates = set_part.split(",")
+            for update in updates:
+                parts = update.split("=")
+                if len(parts) == 2:
+                    k = parts[0].strip()
+                    v_placeholder = parts[1].strip()
+                    
+                    if ExpressionAttributeNames and k in ExpressionAttributeNames:
+                        k = ExpressionAttributeNames[k]
+                    
+                    if ExpressionAttributeValues and v_placeholder in ExpressionAttributeValues:
+                        val = ExpressionAttributeValues[v_placeholder]
+                        item[k] = val
+
+        # 2. Handle REMOVE
+        if "REMOVE" in UpdateExpression:
+            remove_part = UpdateExpression.split("REMOVE")[1]
+            removes = remove_part.split(",")
+            for remove in removes:
+                k = remove.strip()
+                if k in item:
+                    del item[k]
+                    
+        return {'Attributes': item}
+
 
 @pytest.fixture
 def mock_tables():

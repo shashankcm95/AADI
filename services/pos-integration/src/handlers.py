@@ -79,6 +79,7 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
         'arrive_fee_cents': arrive_fee,
         'created_at': now,
         'expires_at': now + 3600,
+        'ttl': now + (90 * 24 * 60 * 60), # 90 days retention
         'vicinity': False,
         'tip_cents': 0,
     }
@@ -109,11 +110,25 @@ def handle_list_orders(key_record: Dict[str, Any], query_params: Dict[str, str])
     if not orders_table:
         return {'statusCode': 200, 'body': json.dumps({'orders': []})}
 
-    # Scan for restaurant's orders (in production, use GSI on restaurant_id)
-    response = orders_table.scan(
-        FilterExpression='restaurant_id = :rid',
-        ExpressionAttributeValues={':rid': restaurant_id}
-    )
+    # Query using GSI_RestaurantStatus (efficient lookup)
+    key_condition = 'restaurant_id = :rid'
+    expr_values = {':rid': restaurant_id}
+    expr_names = {}
+    
+    if status_filter:
+        key_condition += ' AND #s = :status'
+        expr_values[':status'] = status_filter
+        expr_names['#s'] = 'status'
+    
+    query_kwargs = {
+        'IndexName': 'GSI_RestaurantStatus',
+        'KeyConditionExpression': key_condition,
+        'ExpressionAttributeValues': expr_values
+    }
+    if expr_names:
+        query_kwargs['ExpressionAttributeNames'] = expr_names
+
+    response = orders_table.query(**query_kwargs)
     
     orders = response.get('Items', [])
     

@@ -13,7 +13,6 @@ from handlers.customer import (
     get_order,
     list_customer_orders,
     update_vicinity,
-    add_tip,
     cancel_order,
 )
 from handlers.restaurant import (
@@ -49,9 +48,6 @@ def lambda_handler(event, context):
 
         elif route_key == 'POST /v1/orders/{order_id}/vicinity':
             return update_vicinity(path_params.get('order_id'), event, customer_id)
-
-        elif route_key == 'POST /v1/orders/{order_id}/tip':
-            return add_tip(path_params.get('order_id'), event, customer_id)
 
         elif route_key == 'POST /v1/orders/{order_id}/cancel':
             return cancel_order(path_params.get('order_id'), customer_id)

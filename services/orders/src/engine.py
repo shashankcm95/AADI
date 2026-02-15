@@ -14,7 +14,7 @@ from models import (
     RECEIPT_SOFT,
     RECEIPT_HARD,
     ARRIVAL_5_MIN,
-    PAYMENT_MODE_PREPAID,
+    ARRIVAL_5_MIN,
     PAYMENT_MODE_AT_RESTAURANT
 )
 
@@ -233,8 +233,9 @@ def decide_arrival_update(
     }
 
     # 2. Side Effects on Session Status (The "Conductor" Logic)
-    # If 5_MIN_OUT -> Ensure Session is SENT (Fire the Engine)
-    if new_arrival == "5_MIN_OUT":
+    # If 5_MIN_OUT, PARKING, or AT_DOOR -> Ensure Session is SENT (Fire the Engine)
+    # Rationale: If they are parking or at the door, they are certainly ready to be processed.
+    if new_arrival in ("5_MIN_OUT", "PARKING", "AT_DOOR"):
         current_status = session.get("status")
         if current_status in (STATUS_PENDING, STATUS_WAITING):
             set_fields["status"] = STATUS_SENT  # Force send
@@ -314,6 +315,7 @@ def create_session_model(
     customer_id: str,
     now: int,
     expires_at: int,
+    ttl: Optional[int] = None,
     receipt_mode: str = RECEIPT_SOFT,
     payment_mode: str = PAYMENT_MODE_AT_RESTAURANT,
 ) -> Dict[str, Any]:
@@ -347,4 +349,5 @@ def create_session_model(
         "work_units_total": work_units,
         "arrive_fee_cents": fee["total_fee"],
         "tip_cents": 0,
+        "ttl": ttl,
     }
