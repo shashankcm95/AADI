@@ -59,7 +59,7 @@ Tables Overview
 |----------------------|------------------------------|
 | PENDING_NOT_SENT     | Created but not eligible     |
 | WAITING_FOR_CAPACITY | Blocked by throughput        |
-| SENT_TO_RESTAURANT   | Accepted into kitchen        |
+| SENT_TO_DESTINATION   | Accepted into kitchen        |
 | EXPIRED              | TTL or business expiry       |
 
 Status is not derived. It is explicit and authoritative.

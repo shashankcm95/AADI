@@ -55,12 +55,11 @@ The system is built on four neutral pillars:
 | **Fulfillment** | The process of preparing the resource | `Kitchen` |
 
 ### States & Stages
-- **Session Status:** `PENDING_NOT_SENT` → `WAITING` → `SENT_TO_DESTINATION` → `IN_PROGRESS` → `READY` → `FULFILLING` → `COMPLETED`
+- **Session Status:** `PENDING_NOT_SENT` → `WAITING_FOR_CAPACITY` → `SENT_TO_DESTINATION` → `IN_PROGRESS` → `READY` → `FULFILLING` → `COMPLETED`
 - **Arrival Events:** `5_MIN_OUT` → `PARKING` → `AT_DOOR` → `EXIT_VICINITY`
 
 ### Payment Modes
-- **`PREPAID`** — Customer pays via Arrive at order placement. Conditional tip screen shown on exit.
-- **`PAY_AT_RESTAURANT`** — Customer pays at the table. Arrive only handles timing orchestration.
+- **`PAY_AT_RESTAURANT`** — Customer pays at the table. Arrive handles timing orchestration only.
 
 ## 4. Microservices Breakdown
 
@@ -106,7 +105,7 @@ The system is built on four neutral pillars:
 |-----|---------|------|---------|
 | **Customer Web** | `packages/customer-web` | React + Vite | Web-based ordering with real-time order history |
 | **Admin Portal** | `packages/admin-portal` | React + Vite | KDS, dashboards, restaurant management |
-| **Mobile App** | `packages/mobile-ios` | React Native | Native experience with background GPS + conditional tip screen |
+| **Mobile App** | `packages/mobile-ios` | React Native | Native experience with background GPS arrival tracking |
 
 ## 7. Configuration & Extensibility
 

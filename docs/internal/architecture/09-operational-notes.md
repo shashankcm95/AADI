@@ -110,7 +110,7 @@ What this means
 
 Guaranteed
 
-- An order is only marked SENT_TO_RESTAURANT if:
+- An order is only marked SENT_TO_DESTINATION if:
   - Customer is in vicinity
   - Capacity reservation succeeds
 - Orders past expires_at are rejected

@@ -155,7 +155,7 @@ AWS Lambda (OrdersFunction)
 
    If reservation succeeds:
 
-   - Order transitions to `SENT_TO_RESTAURANT`
+   - Order transitions to `SENT_TO_DESTINATION`
    - `sent_at` and `capacity_window_start` recorded
    - Order appears in restaurant queue
 

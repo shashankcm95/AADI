@@ -108,7 +108,7 @@ This happens via a single conditional update in the database.
 If the condition passes:
 
 - Capacity is reserved
-- Order transitions to `SENT_TO_RESTAURANT`
+- Order transitions to `SENT_TO_DESTINATION`
 
 If it fails:
 
@@ -126,7 +126,7 @@ If it fails:
 
 ### When Capacity Exists
 
-`PENDING_NOT_SENT → SENT_TO_RESTAURANT`
+`PENDING_NOT_SENT → SENT_TO_DESTINATION`
 
 Effects:
 

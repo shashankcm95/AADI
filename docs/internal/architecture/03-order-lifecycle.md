@@ -23,7 +23,7 @@ Order States (Authoritative)
 State	Meaning
 PENDING_NOT_SENT	Order exists but has not been sent to restaurant
 WAITING_FOR_CAPACITY	Customer is nearby, but restaurant is at capacity
-SENT_TO_RESTAURANT	Capacity reserved and order delivered to kitchen
+SENT_TO_DESTINATION	Capacity reserved and order delivered to kitchen
 EXPIRED	Order timed out before being sent
 State Diagram (Conceptual)
 PENDING_NOT_SENT
@@ -31,7 +31,7 @@ PENDING_NOT_SENT
       | vicinity = true
       v
  ┌────────────────────┐
- │ capacity available │───▶ SENT_TO_RESTAURANT
+ │ capacity available │───▶ SENT_TO_DESTINATION
  └────────────────────┘
       |
       | capacity full
@@ -55,7 +55,7 @@ vicinity = false
 
 Allowed transitions
 
-→ SENT_TO_RESTAURANT
+→ SENT_TO_DESTINATION
 
 → WAITING_FOR_CAPACITY
 
@@ -87,7 +87,7 @@ vicinity = true
 
 Allowed transitions
 
-→ SENT_TO_RESTAURANT (capacity frees up)
+→ SENT_TO_DESTINATION (capacity frees up)
 
 → EXPIRED
 
@@ -95,7 +95,7 @@ Important invariant
 
 No capacity is reserved while in this state.
 
-3. SENT_TO_RESTAURANT
+3. SENT_TO_DESTINATION
 
 Meaning
 
@@ -134,7 +134,7 @@ Allowed transitions
 None (terminal)
 
 Transition Rules (Formal)
-PENDING_NOT_SENT → SENT_TO_RESTAURANT
+PENDING_NOT_SENT → SENT_TO_DESTINATION
 
 Guards
 
@@ -171,7 +171,7 @@ Compute suggested_start_at
 
 Persist retry guidance
 
-WAITING_FOR_CAPACITY → SENT_TO_RESTAURANT
+WAITING_FOR_CAPACITY → SENT_TO_DESTINATION
 
 Guards
 
@@ -241,7 +241,7 @@ Error semantics
 
 Idempotency guarantees
 
-When an order is dispatched (`PENDING_NOT_SENT → SENT_TO_RESTAURANT`), the system sets:
+When an order is dispatched (`PENDING_NOT_SENT → SENT_TO_DESTINATION`), the system sets:
 
 - `received_by_restaurant = true`
 - `received_at = sent_at`

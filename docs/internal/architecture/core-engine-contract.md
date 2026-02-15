@@ -99,7 +99,7 @@ When eligibility becomes true, the engine yields exactly one outcome:
 States:
 - `CREATED`  (maps to `PENDING_NOT_SENT`)
 - `WAITING`  (maps to `WAITING_FOR_CAPACITY`)
-- `DISPATCHED` (maps to `SENT_TO_RESTAURANT`)
+- `DISPATCHED` (maps to `SENT_TO_DESTINATION`)
 - `EXPIRED`
 
 Allowed transitions:

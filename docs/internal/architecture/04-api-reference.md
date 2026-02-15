@@ -95,14 +95,14 @@ Request Body
 
 Behavior Summary
 Current State	Capacity	Resulting State
-PENDING_NOT_SENT	Available	SENT_TO_RESTAURANT
+PENDING_NOT_SENT	Available	SENT_TO_DESTINATION
 PENDING_NOT_SENT	Full	WAITING_FOR_CAPACITY
-WAITING_FOR_CAPACITY	Available	SENT_TO_RESTAURANT
+WAITING_FOR_CAPACITY	Available	SENT_TO_DESTINATION
 Any	Expired	EXPIRED
 Success — Sent to Restaurant
 {
   "order_id": "ord_abc123",
-  "status": "SENT_TO_RESTAURANT",
+  "status": "SENT_TO_DESTINATION",
   "vicinity": true
 }
 
@@ -154,16 +154,16 @@ status	yes	Order status to filter
 
 Example:
 
-/v1/restaurants/rst_001/orders?status=SENT_TO_RESTAURANT
+/v1/restaurants/rst_001/orders?status=SENT_TO_DESTINATION
 
 Success Response — 200 OK
 {
   "restaurant_id": "rst_001",
-  "status": "SENT_TO_RESTAURANT",
+  "status": "SENT_TO_DESTINATION",
   "orders": [
     {
       "order_id": "ord_abc123",
-      "status": "SENT_TO_RESTAURANT",
+      "status": "SENT_TO_DESTINATION",
       "created_at": 1768020554,
       "sent_at": 1768020602,
       "capacity_window_start": 1768020600,
@@ -209,7 +209,7 @@ to `HARD` and sets `received_at` to the time the restaurant acknowledged.
 
 404 NOT_FOUND if order doesn't exist or restaurant mismatch
 
-409 INVALID_STATE if order is not in SENT_TO_RESTAURANT
+409 INVALID_STATE if order is not in SENT_TO_DESTINATION
 
 Sorting Rules
 

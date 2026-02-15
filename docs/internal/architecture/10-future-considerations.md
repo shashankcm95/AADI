@@ -4,7 +4,7 @@ Problem
 
 Currently:
 
-Order is considered SENT_TO_RESTAURANT once capacity is reserved
+Order is considered SENT_TO_DESTINATION once capacity is reserved
 
 Options
 
@@ -29,7 +29,7 @@ Add hard-ack only for high-volume restaurants
 
 Introduce a worker that:
 
-Promotes WAITING_FOR_CAPACITY → SENT_TO_RESTAURANT
+Promotes WAITING_FOR_CAPACITY → SENT_TO_DESTINATION
 
 Releases expired capacity
 
