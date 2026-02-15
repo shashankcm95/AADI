@@ -2,12 +2,14 @@ import pytest
 import json
 import time
 import os
+import sys
 
 # Note: conftest.py fixtures are automatically available
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.modules.pop("app", None)
+import app
 
 def test_get_config_defaults(mock_tables):
-    import app
-    
     # 1. Setup - Mock tables are already injected into app by the fixture
     config_table = mock_tables['config']
     
@@ -43,8 +45,6 @@ def test_get_config_defaults(mock_tables):
     assert body["operating_hours"] == "9-5"
 
 def test_update_config_and_get(mock_tables):
-    import app
-    
     config_table = mock_tables['config']
      
     config_table.put_item(Item={
@@ -97,8 +97,6 @@ def test_update_config_and_get(mock_tables):
     assert body["capacity_window_seconds"] == 600
 
 def test_update_config_rbac_denial(mock_tables):
-    import app
-    
     event = {
         "body": "{}",
         "requestContext": {

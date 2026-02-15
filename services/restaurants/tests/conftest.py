@@ -2,10 +2,15 @@
 import pytest
 import os
 import sys
+import importlib
 from unittest.mock import MagicMock
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+# Avoid cross-service module collisions when running full-repo pytest.
+for module_name in ("app",):
+    sys.modules.pop(module_name, None)
 
 import app
 
@@ -116,12 +121,20 @@ def mock_tables():
     restaurants.items['r2'] = {'restaurant_id': 'r2', 'name': 'Rest 2', 'active': True}
     restaurants.items['r3'] = {'restaurant_id': 'r3', 'name': 'Rest 3', 'active': True}
 
-    # Patch modules
-    app.restaurants_table = restaurants
-    app.menus_table = menus
-    app.config_table = config
+    # Patch every visible `app` module reference used by tests.
+    module_candidates = {app, importlib.import_module("app")}
+    original_state = {}
+    for module in module_candidates:
+        original_state[module] = (
+            getattr(module, "restaurants_table", None),
+            getattr(module, "menus_table", None),
+            getattr(module, "config_table", None),
+        )
+        module.restaurants_table = restaurants
+        module.menus_table = menus
+        module.config_table = config
     
     yield {'restaurants': restaurants, 'menus': menus, 'config': config}
     
-    # No cleanup needed as we modified the module variables directly and they will be reset next run or we can reset them if needed. 
-    # But for now this is sufficient.
+    for module, state in original_state.items():
+        module.restaurants_table, module.menus_table, module.config_table = state

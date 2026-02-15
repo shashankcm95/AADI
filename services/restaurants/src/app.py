@@ -82,7 +82,6 @@ def geocode_address(street, city, state, zip_code):
     # or fail. Let's return None to be safe.
     print(f"Geocoding failed for all attempts: {full_address}")
     return None
-    return None
 
 
 def get_user_claims(event):
@@ -571,31 +570,6 @@ def create_restaurant(event):
                 # But let's log and continue to allow creation if check flakes.
                 pass
 
-        # Check if user already exists (Prevent Duplicates)
-        contact_email = body.get('contact_email')
-        if contact_email and USER_POOL_ID:
-            try:
-                # We use list_users because admin_get_user throws if not found, 
-                # and list_users is cleaner for "check existence"
-                filter_str = f"email = \"{contact_email}\""
-                response = cognito.list_users(
-                    UserPoolId=USER_POOL_ID,
-                    Filter=filter_str,
-                    Limit=1
-                )
-                if response.get('Users'):
-                    print(f"User {contact_email} already exists. Blocking creation.")
-                    return {
-                        'statusCode': 409, 
-                        'headers': CORS_HEADERS, 
-                        'body': json.dumps({'error': f"User with email {contact_email} already exists. Please use a new email or delete the existing user."})
-                    }
-            except Exception as e:
-                print(f"Pre-check user existence failed: {e}")
-                # We continue? Or fail? Best to fail safe if we can't check.
-                # But let's log and continue to allow creation if check flakes.
-                pass
-
         # Generate a unique ID
         restaurant_id = str(uuid.uuid4())
         timestamp = int(time.time())
@@ -634,7 +608,9 @@ def create_restaurant(event):
         # Create Default Config Item
         config_item = {
             'restaurant_id': restaurant_id,
-            'active_menu_version': 'v1',
+            'active_menu_version': 'latest',
+            'max_concurrent_orders': 10,
+            'capacity_window_seconds': 300,
             'configuration': {
                 'operating_hours': body.get('operating_hours', '9:00-22:00'),
                 'timezone': body.get('timezone', 'UTC')
