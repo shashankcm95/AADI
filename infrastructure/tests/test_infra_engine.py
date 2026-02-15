@@ -3,8 +3,12 @@ import os
 import pytest
 from unittest.mock import MagicMock
 
-# Add src_orders to path so we can import engine
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src_orders')))
+# Reuse orders engine for shared behavior checks
+sys.path.append(
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '../../services/orders/src')
+    )
+)
 
 import engine
 from models import (

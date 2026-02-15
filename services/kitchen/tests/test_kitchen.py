@@ -1,6 +1,12 @@
 import pytest
 import json
-from src import app
+import os
+import importlib.util
+
+APP_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/app.py'))
+spec = importlib.util.spec_from_file_location("kitchen_app", APP_PATH)
+app = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(app)
 
 def test_kitchen_health_check():
     event = {
