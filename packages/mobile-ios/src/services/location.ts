@@ -249,7 +249,7 @@ export async function requestPermissions(): Promise<boolean> {
     if (fgStatus !== 'granted') return false;
 
     const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-    return bgStatus === 'granted' || fgStatus === 'granted';
+    return bgStatus === 'granted';
 }
 
 /**

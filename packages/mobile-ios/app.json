@@ -16,11 +16,14 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true,
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsLocalNetworking": true
         },
         "NSLocationWhenInUseUsageDescription": "AADI needs your location to notify the restaurant when you're nearby.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "AADI uses background location to track your arrival and send updates to the kitchen."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "AADI uses background location to track your arrival and send updates to the kitchen.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       },
       "bundleIdentifier": "com.anonymous.aadi"
     },
