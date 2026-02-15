@@ -28,9 +28,8 @@ The core is a domain-neutral engine. A "Session" is a transaction. A "Destinatio
 
 **Vic:** You said you're not a payment processor. Why not? Seems like leaving money on the table.
 
-**Cody:** It's actually the opposite. Not touching payment data eliminates PCI compliance scope, reduces our liability to near zero, and cuts months from our go-to-market. We offer two flows:
-1.  **Prepaid** — the customer pays through their existing POS integration, we just orchestrate timing. We show a conditional tip screen when they leave.
-2.  **Pay at the restaurant** — they pay at the table. We only handle the timing.
+**Cody:** It's actually the opposite. Not touching payment data eliminates PCI compliance scope, reduces our liability to near zero, and cuts months from our go-to-market. We support one payment flow today:
+1.  **Pay at the restaurant** — they pay at the table. We only handle the timing.
 
 The restaurant's POS system processes all payments. We're infrastructure, not a middleman.
 
@@ -75,7 +74,7 @@ The tech risk is WebSocket latency for the KDS (Kitchen Display). We currently p
 **✅ INVEST.** The architecture is enterprise-grade from Day 1. The orchestration-not-payments positioning is smart defensibility. The POS integration moat compounds over time.
 
 ### Cody's Action Items (Next Steps)
-1.  **Demo Day:** Deploy with seeded restaurants, run full prepaid + pay-at-restaurant flows for investor video.
+1.  **Demo Day:** Deploy with seeded restaurants and run full pay-at-restaurant flow for investor video.
 2.  **WAF:** Enable Web Application Firewall as recommended in the Security Audit.
 3.  **Load Test:** Validate DynamoDB capacity under concurrent sessions.
 ```

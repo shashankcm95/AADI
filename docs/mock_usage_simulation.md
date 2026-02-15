@@ -47,7 +47,7 @@
 **Marco:** "Hi Chloe! Burger is right here."
 **Chloe:** "Wow, you didn't even have to look for it. And it's hot!"
 
-**System:** Geofence `EXIT` triggers payment capture and tip prompt.
+**System:** Geofence `EXIT` closes active tracking and lifecycle telemetry.
 
 ---
 
@@ -56,7 +56,7 @@
 ### 👤 Chloe (The Client)
 **Liked:**
 - **The Magic:** "It felt like magic that the food was ready exactly when I walked in. No waiting in the lobby with 10 other delivery drivers."
-- **The Tip:** "The 'Exit Tip' notification was cool. I didn't have to fumble with the machine while holding the bag."
+- **The Exit Signal:** "The exit notification was useful. It confirmed the trip had ended cleanly."
 
 **Change Requests:**
 - **Status Anxiety:** "When I first ordered, the 'Waiting for you to leave' status made me nervous. Did the restaurant get it? Maybe change the copy to 'Order Confirmed - We'll start cooking when you head over'."
