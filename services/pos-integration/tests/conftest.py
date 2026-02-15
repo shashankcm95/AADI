@@ -3,10 +3,15 @@ import pytest
 import os
 import sys
 import json
+import importlib
 from unittest.mock import MagicMock
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+# Avoid cross-service module collisions when running full-repo pytest.
+for module_name in ("app", "handlers", "auth", "pos_mapper"):
+    sys.modules.pop(module_name, None)
 
 import app
 import handlers
@@ -111,32 +116,34 @@ class InMemoryTable:
 
 @pytest.fixture
 def mock_db():
+    active_handlers = importlib.import_module("handlers")
+
     orders = InMemoryTable('order_id')
     menus = InMemoryTable('restaurant_id')
     webhooks = InMemoryTable('webhook_id')
 
     # Patch modules
-    local_orders = handlers.orders_table
-    local_menus = handlers.menus_table
-    local_hooks = handlers.webhook_logs_table
-    local_dynamodb = handlers.dynamodb
+    local_orders = active_handlers.orders_table
+    local_menus = active_handlers.menus_table
+    local_hooks = active_handlers.webhook_logs_table
+    local_dynamodb = active_handlers.dynamodb
     
     # Create a mock for the dynamo resource to host the exception class
     mock_ddb_resource = MagicMock()
     # Ensure the exception class matches what InMemoryTable raises
     mock_ddb_resource.meta.client.exceptions.ConditionalCheckFailedException = ConditionalCheckFailedException
     
-    handlers.orders_table = orders
-    handlers.menus_table = menus
-    handlers.webhook_logs_table = webhooks
-    handlers.dynamodb = mock_ddb_resource
+    active_handlers.orders_table = orders
+    active_handlers.menus_table = menus
+    active_handlers.webhook_logs_table = webhooks
+    active_handlers.dynamodb = mock_ddb_resource
     
     yield {'orders': orders, 'menus': menus, 'webhooks': webhooks}
     
-    handlers.orders_table = local_orders
-    handlers.menus_table = local_menus
-    handlers.webhook_logs_table = local_hooks
-    handlers.dynamodb = local_dynamodb
+    active_handlers.orders_table = local_orders
+    active_handlers.menus_table = local_menus
+    active_handlers.webhook_logs_table = local_hooks
+    active_handlers.dynamodb = local_dynamodb
 
 @pytest.fixture
 def mock_auth():

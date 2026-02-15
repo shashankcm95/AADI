@@ -17,6 +17,9 @@ from pos_mapper import pos_order_to_session, session_to_pos_order, pos_menu_to_r
 
 dynamodb = boto3.resource('dynamodb')
 
+PAYMENT_MODE_AT_RESTAURANT = "PAY_AT_RESTAURANT"
+POS_MENU_SYNC_ENABLED = os.environ.get("POS_MENU_SYNC_ENABLED", "false").lower() == "true"
+
 # Table references (cross-service, passed via environment)
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE', '')
 MENUS_TABLE = os.environ.get('MENUS_TABLE', '')
@@ -35,11 +38,17 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
     """
     POS → Arrive: Create a new order from POS data.
     
-    The POS pushes an order when a customer has prepaid or placed an order
-    that should be tracked by Arrive's timing engine.
+    The POS pushes an order that should be tracked by Arrive's timing engine.
     """
     pos_system = key_record.get('pos_system', 'generic')
     restaurant_id = key_record['restaurant_id']
+
+    requested_payment_mode = body.get("payment_mode")
+    if requested_payment_mode and requested_payment_mode != PAYMENT_MODE_AT_RESTAURANT:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Only PAY_AT_RESTAURANT is supported"}),
+        }
     
     # Translate POS format → Arrive format
     session_data = pos_order_to_session(body, pos_system)
@@ -71,7 +80,7 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
         'items': session_data.get('items', []),
         'status': 'PENDING_NOT_SENT',
         'arrival_status': None,
-        'payment_mode': body.get('payment_mode', 'PAY_AT_RESTAURANT'),
+        'payment_mode': PAYMENT_MODE_AT_RESTAURANT,
         'pos_order_ref': session_data.get('pos_order_ref', ''),
         'pos_system': pos_system,
         'total_cents': total_cents,
@@ -81,7 +90,6 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
         'expires_at': now + 3600,
         'ttl': now + (90 * 24 * 60 * 60), # 90 days retention
         'vicinity': False,
-        'tip_cents': 0,
     }
 
     if orders_table:
@@ -158,7 +166,8 @@ def handle_update_status(order_id: str, body: Dict[str, Any], key_record: Dict[s
         'READY': 'READY',
         'PICKED_UP': 'FULFILLING',
         'COMPLETED': 'COMPLETED',
-        'CANCELLED': 'CANCELLED',
+        'CANCELED': 'CANCELED',
+        'CANCELLED': 'CANCELED',
         # Also accept Arrive-native statuses
         'IN_PROGRESS': 'IN_PROGRESS',
         'FULFILLING': 'FULFILLING',
@@ -180,7 +189,7 @@ def handle_update_status(order_id: str, body: Dict[str, Any], key_record: Dict[s
         expr_names = {'#s': 'status'}
         
         # Add completed_at for terminal states
-        if arrive_status in ('COMPLETED', 'CANCELLED'):
+        if arrive_status in ('COMPLETED', 'CANCELED'):
             update_expr += ', completed_at = :now'
 
         try:
@@ -246,7 +255,9 @@ def handle_get_menu(key_record: Dict[str, Any]) -> Dict[str, Any]:
         return {'statusCode': 200, 'body': json.dumps({'menu': [], 'restaurant_id': restaurant_id})}
 
     try:
-        response = menus_table.get_item(Key={'restaurant_id': restaurant_id})
+        response = menus_table.get_item(
+            Key={'restaurant_id': restaurant_id, 'menu_version': 'latest'}
+        )
         item = response.get('Item', {})
         menu_items = item.get('items', [])
     except Exception:
@@ -261,9 +272,15 @@ def handle_get_menu(key_record: Dict[str, Any]) -> Dict[str, Any]:
 def handle_sync_menu(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[str, Any]:
     """
     POS → Arrive: Push menu updates from POS to Arrive.
-    
-    The POS is the source of truth for the menu.
     """
+    if not POS_MENU_SYNC_ENABLED:
+        return {
+            "statusCode": 409,
+            "body": json.dumps(
+                {"error": "POS menu sync is disabled; use restaurant admin CSV ingestion"}
+            ),
+        }
+
     restaurant_id = key_record['restaurant_id']
     pos_system = key_record.get('pos_system', 'generic')
     
@@ -273,6 +290,7 @@ def handle_sync_menu(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[s
     if menus_table:
         menus_table.put_item(Item={
             'restaurant_id': restaurant_id,
+            'menu_version': 'latest',
             'items': resources,
             'synced_at': int(time.time()),
             'pos_system': pos_system,

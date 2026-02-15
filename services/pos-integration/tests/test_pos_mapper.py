@@ -81,7 +81,7 @@ def test_session_to_pos_order():
         'items': [{'name': 'Salad', 'qty': 1, 'price_cents': 899, 'id': 'item1'}],
         'total_cents': 899,
         'arrive_fee_cents': 18,
-        'payment_mode': 'PREPAID',
+        'payment_mode': 'PAY_AT_RESTAURANT',
         'created_at': 1700000000,
         'vicinity': True,
     }
@@ -89,7 +89,7 @@ def test_session_to_pos_order():
     assert result['arrive_order_id'] == 'ord_001'
     assert result['status'] == 'SENT_TO_DESTINATION'
     assert result['arrive_fee_cents'] == 18
-    assert result['payment_mode'] == 'PREPAID'
+    assert result['payment_mode'] == 'PAY_AT_RESTAURANT'
     assert result['vicinity'] is True
     assert len(result['items']) == 1
 

@@ -1,14 +1,21 @@
 
 import json
+import os
+import sys
 import pytest
 from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.modules.pop("app", None)
+sys.modules.pop("handlers", None)
+
 import app
 
 @pytest.fixture
 def mock_auth_module():
     """Patch the auth module functions."""
-    with patch('app.authenticate_request') as mock_auth, \
-         patch('app.require_permission') as mock_perm:
+    with patch.object(app, 'authenticate_request') as mock_auth, \
+         patch.object(app, 'require_permission') as mock_perm:
         yield mock_auth, mock_perm
 
 def test_routes_create_order(mock_auth_module, mock_db):
@@ -25,7 +32,7 @@ def test_routes_create_order(mock_auth_module, mock_db):
     }
     
     # Mock handler to isolate routing/auth logic
-    with patch('app.handle_create_order') as mock_handler:
+    with patch.object(app, 'handle_create_order') as mock_handler:
         mock_handler.return_value = {'statusCode': 201, 'body': '{}'}
         
         resp = app.lambda_handler(event, None)

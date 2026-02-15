@@ -33,6 +33,18 @@ def test_handle_create_order(mock_db):
     assert 'ttl' in item
     assert item['ttl'] > 0
 
+
+def test_handle_create_order_rejects_non_pay_at_restaurant(mock_db):
+    pos_body = {
+        'items': [{'name': 'Burger', 'price_cents': 1000, 'qty': 1}],
+        'pos_order_ref': 'POS-124',
+        'payment_mode': 'PREPAID',
+    }
+    key_record = {'restaurant_id': 'rest_1', 'pos_system': 'generic'}
+
+    resp = handlers.handle_create_order(pos_body, key_record)
+    assert resp['statusCode'] == 400
+
 def test_handle_list_orders(mock_db):
     """Verify listing orders with filtering."""
     # Seed data
@@ -95,15 +107,33 @@ def test_handle_sync_menu(mock_db):
     """Verify menu sync."""
     key_record = {'restaurant_id': 'rest_1', 'pos_system': 'clover'}
     body = {'items': [{'id': 'm1', 'name': 'Pizza', 'price': 1500}]}
-    
-    resp = handlers.handle_sync_menu(body, key_record)
-    assert resp['statusCode'] == 200
-    
-    # Verify DB
-    item = mock_db['menus'].items['rest_1']
-    assert item['pos_system'] == 'clover'
-    assert len(item['items']) == 1
-    assert item['items'][0]['name'] == 'Pizza'
+
+    prev = handlers.POS_MENU_SYNC_ENABLED
+    handlers.POS_MENU_SYNC_ENABLED = True
+    try:
+        resp = handlers.handle_sync_menu(body, key_record)
+        assert resp['statusCode'] == 200
+
+        # Verify DB
+        item = mock_db['menus'].items['rest_1']
+        assert item['pos_system'] == 'clover'
+        assert len(item['items']) == 1
+        assert item['items'][0]['name'] == 'Pizza'
+    finally:
+        handlers.POS_MENU_SYNC_ENABLED = prev
+
+
+def test_handle_sync_menu_disabled_returns_409(mock_db):
+    key_record = {'restaurant_id': 'rest_1', 'pos_system': 'clover'}
+    body = {'items': [{'id': 'm1', 'name': 'Pizza', 'price': 1500}]}
+
+    prev = handlers.POS_MENU_SYNC_ENABLED
+    handlers.POS_MENU_SYNC_ENABLED = False
+    try:
+        resp = handlers.handle_sync_menu(body, key_record)
+        assert resp['statusCode'] == 409
+    finally:
+        handlers.POS_MENU_SYNC_ENABLED = prev
 
 def test_handle_webhook(mock_db):
     """Verify webhook routing and idempotency."""
