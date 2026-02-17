@@ -111,6 +111,43 @@ Resources:
         - AttributeName: menu_version
           KeyType: RANGE
 
+  FavoritesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: restaurant_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: restaurant_id
+          KeyType: RANGE
+
+  RestaurantImagesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+
   RestaurantsFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -121,6 +158,9 @@ Resources:
           RESTAURANTS_TABLE: !Ref RestaurantsTable
           MENUS_TABLE: !Ref MenusTable
           RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+          FAVORITES_TABLE: !Ref FavoritesTable
+          RESTAURANT_IMAGES_BUCKET: !Ref RestaurantImagesBucket
+          IMAGE_URL_TTL_SECONDS: 3600
           USER_POOL_ID: !Ref UserPoolId
       Policies:
         - Statement:
@@ -131,12 +171,19 @@ Resources:
                 - cognito-idp:ListUsers
                 - cognito-idp:AdminDeleteUser
               Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "${RestaurantImagesBucket.Arn}/*"
         - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref MenusTable
         - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantConfigTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FavoritesTable
       Events:
         ListRestaurants:
           Type: HttpApi
@@ -183,6 +230,26 @@ Resources:
           Properties:
             Path: /v1/restaurants/health
             Method: GET
+        ListFavorites:
+          Type: HttpApi
+          Properties:
+            Path: /v1/favorites
+            Method: GET
+        PutFavorite:
+          Type: HttpApi
+          Properties:
+            Path: /v1/favorites/{restaurant_id}
+            Method: PUT
+        DeleteFavorite:
+          Type: HttpApi
+          Properties:
+            Path: /v1/favorites/{restaurant_id}
+            Method: DELETE
+        CreateRestaurantImageUploadUrl:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}/images/upload-url
+            Method: POST
 
 Outputs:
   RestaurantsApi:
@@ -196,3 +263,11 @@ Outputs:
   RestaurantConfigTableName:
     Description: "Restaurant Config DynamoDB Table Name"
     Value: !Ref RestaurantConfigTable
+
+  FavoritesTableName:
+    Description: "Favorites DynamoDB Table Name"
+    Value: !Ref FavoritesTable
+
+  RestaurantImagesBucketName:
+    Description: "S3 bucket for restaurant media uploads"
+    Value: !Ref RestaurantImagesBucket

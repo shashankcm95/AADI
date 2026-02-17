@@ -7,7 +7,7 @@ import time
 import urllib.request
 import urllib.parse
 from decimal import Decimal
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr, Key
 
 # Initialize DynamoDB resources
 dynamodb = boto3.resource('dynamodb')
@@ -16,11 +16,20 @@ cognito = boto3.client('cognito-idp')
 RESTAURANTS_TABLE = os.environ.get('RESTAURANTS_TABLE')
 MENUS_TABLE = os.environ.get('MENUS_TABLE')
 RESTAURANT_CONFIG_TABLE = os.environ.get('RESTAURANT_CONFIG_TABLE')
+FAVORITES_TABLE = os.environ.get('FAVORITES_TABLE')
+RESTAURANT_IMAGES_BUCKET = os.environ.get('RESTAURANT_IMAGES_BUCKET')
 USER_POOL_ID = os.environ.get('USER_POOL_ID')
+
+try:
+    IMAGE_URL_TTL_SECONDS = int(os.environ.get('IMAGE_URL_TTL_SECONDS', '3600'))
+except (TypeError, ValueError):
+    IMAGE_URL_TTL_SECONDS = 3600
 
 restaurants_table = dynamodb.Table(RESTAURANTS_TABLE) if RESTAURANTS_TABLE else None
 menus_table = dynamodb.Table(MENUS_TABLE) if MENUS_TABLE else None
 config_table = dynamodb.Table(RESTAURANT_CONFIG_TABLE) if RESTAURANT_CONFIG_TABLE else None
+favorites_table = dynamodb.Table(FAVORITES_TABLE) if FAVORITES_TABLE else None
+s3_client = boto3.client('s3')
 
 
 def decimal_default(obj):
@@ -84,13 +93,98 @@ def geocode_address(street, city, state, zip_code):
     return None
 
 
+def _extract_s3_object_key(value):
+    candidate = str(value or '').strip()
+    if not candidate:
+        return ''
+
+    if candidate.startswith('s3://'):
+        no_scheme = candidate[len('s3://'):]
+        parts = no_scheme.split('/', 1)
+        return parts[1] if len(parts) == 2 else ''
+
+    if 'amazonaws.com/' in candidate:
+        return candidate.split('amazonaws.com/', 1)[1].split('?', 1)[0].lstrip('/')
+
+    return candidate.lstrip('/')
+
+
+def _normalize_restaurant_image_keys(raw_keys, restaurant_id):
+    if raw_keys is None:
+        return None
+
+    if not isinstance(raw_keys, list):
+        raise ValueError('restaurant_image_keys must be a list')
+
+    prefix = f"restaurants/{restaurant_id}/"
+    normalized = []
+
+    for entry in raw_keys:
+        key = _extract_s3_object_key(entry)
+        if not key:
+            continue
+        if not key.startswith(prefix):
+            raise ValueError('All restaurant_image_keys must belong to this restaurant')
+        if key not in normalized:
+            normalized.append(key)
+
+    if len(normalized) > 5:
+        raise ValueError('A maximum of 5 restaurant images is allowed')
+
+    return normalized
+
+
+def _build_image_url(object_key, expires_in=IMAGE_URL_TTL_SECONDS):
+    if not object_key or not RESTAURANT_IMAGES_BUCKET:
+        return None
+
+    try:
+        return s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': RESTAURANT_IMAGES_BUCKET,
+                'Key': object_key,
+            },
+            ExpiresIn=max(60, int(expires_in)),
+        )
+    except Exception as e:
+        print(f"Failed to generate image URL for {object_key}: {e}")
+        return None
+
+
+def _decorate_restaurant_response(item):
+    if not isinstance(item, dict):
+        return item
+
+    response_item = dict(item)
+    raw_keys = response_item.get('restaurant_image_keys')
+    image_keys = raw_keys if isinstance(raw_keys, list) else []
+
+    image_urls = []
+    for key in image_keys[:5]:
+        url = _build_image_url(_extract_s3_object_key(key))
+        if url:
+            image_urls.append(url)
+
+    response_item['restaurant_images'] = image_urls
+    if image_urls:
+        if not response_item.get('image_url'):
+            response_item['image_url'] = image_urls[0]
+        if len(image_urls) > 1 and not response_item.get('banner_image_url'):
+            response_item['banner_image_url'] = image_urls[1]
+
+    return response_item
+
+
 def get_user_claims(event):
     """Extract user claims from the event."""
     try:
         claims = event['requestContext']['authorizer']['jwt']['claims']
         return {
-            'role': claims.get('custom:role'),
-            'restaurant_id': claims.get('custom:restaurant_id')
+            'role': claims.get('custom:role') or claims.get('role'),
+            'restaurant_id': claims.get('custom:restaurant_id') or claims.get('restaurant_id'),
+            'customer_id': claims.get('sub'),
+            'username': claims.get('cognito:username') or claims.get('username')
         }
     except (KeyError, TypeError):
         return {}
@@ -106,7 +200,11 @@ def lambda_handler(event, context):
     role = claims.get('role')
     restaurant_id = claims.get('restaurant_id')
 
-    # If user is a restaurant admin, ensure their restaurant is active
+    # If user is a restaurant admin, ensure their restaurant is active.
+    # Inactive restaurant admins are allowed to:
+    #   1) GET /v1/restaurants (so they can view current status)
+    #   2) PUT /v1/restaurants/{restaurant_id} with {"active": true}
+    #      so first-login activation can succeed.
     if role == 'restaurant_admin' and restaurant_id:
         try:
             resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
@@ -115,10 +213,20 @@ def lambda_handler(event, context):
             # If restaurant not found or not active, deny access
             # EXCEPTION: Allow GET /v1/restaurants (so they can see their status)
             if restaurant and not restaurant.get('active', False):
-                # Allow read-only access to their own restaurant details to see "Inactive" status
-                allowed_routes = ['GET /v1/restaurants']
-                if route_key not in allowed_routes:
-                    print(f"Blocking access for inactive restaurant {restaurant_id}")
+                allow_request = route_key == 'GET /v1/restaurants'
+
+                if not allow_request and route_key == 'PUT /v1/restaurants/{restaurant_id}':
+                    target_restaurant_id = path_params.get('restaurant_id')
+                    if target_restaurant_id == restaurant_id:
+                        try:
+                            body = json.loads(event.get('body', '{}'))
+                        except Exception:
+                            body = {}
+                        # Only allow self-activation while inactive.
+                        allow_request = body.get('active') is True
+
+                if not allow_request:
+                    print(f"Blocking access for inactive restaurant {restaurant_id} on route {route_key}")
                     return {
                         'statusCode': 403,
                         'headers': CORS_HEADERS,
@@ -162,6 +270,18 @@ def lambda_handler(event, context):
         elif route_key == 'PUT /v1/restaurants/{restaurant_id}/config':
             return update_config(event, path_params.get('restaurant_id'))
 
+        elif route_key == 'POST /v1/restaurants/{restaurant_id}/images/upload-url':
+            return create_image_upload_url(event, path_params.get('restaurant_id'))
+
+        elif route_key == 'GET /v1/favorites':
+            return list_favorites(event)
+
+        elif route_key == 'PUT /v1/favorites/{restaurant_id}':
+            return add_favorite(event, path_params.get('restaurant_id'))
+
+        elif route_key == 'DELETE /v1/favorites/{restaurant_id}':
+            return remove_favorite(event, path_params.get('restaurant_id'))
+
         return {
             'statusCode': 404,
             'headers': CORS_HEADERS,
@@ -193,17 +313,26 @@ def list_restaurants(event):
             item = resp.get('Item')
             items = [item] if item else []
         else:
-        # Admin (or others) sees all active restaurants
-            # Check for filters
             query_params = event.get('queryStringParameters') or {}
             cuisine_filter = query_params.get('cuisine')
             price_tier_filter = query_params.get('price_tier')
 
-            if cuisine_filter:
+            # Super-admin sees all restaurants by default (active + inactive),
+            # because the admin portal needs to manage both states.
+            if role == 'admin' and not cuisine_filter and not price_tier_filter:
+                scan_resp = restaurants_table.scan()
+                items = scan_resp.get('Items', [])
+                while 'LastEvaluatedKey' in scan_resp:
+                    scan_resp = restaurants_table.scan(
+                        ExclusiveStartKey=scan_resp['LastEvaluatedKey']
+                    )
+                    items.extend(scan_resp.get('Items', []))
+            elif cuisine_filter:
                 resp = restaurants_table.query(
                     IndexName='GSI_Cuisine',
                     KeyConditionExpression=Key('cuisine').eq(cuisine_filter)
                 )
+                items = resp.get('Items', [])
             elif price_tier_filter:
                 try:
                     pt = int(price_tier_filter)
@@ -214,21 +343,225 @@ def list_restaurants(event):
                 except ValueError:
                     # Fallback or empty if invalid
                     resp = {'Items': []}
+                items = resp.get('Items', [])
             else:
+                # Customer/other roles: only active restaurants.
                 resp = restaurants_table.query(
                     IndexName='GSI_ActiveRestaurants',
                     KeyConditionExpression=Key('is_active').eq("1")
                 )
-            items = resp.get('Items', [])
+                items = resp.get('Items', [])
+
+                # Backward-compatibility path:
+                # some legacy records only have `active: true` and no `is_active`,
+                # so they won't appear in GSI_ActiveRestaurants.
+                if not items:
+                    scan_resp = restaurants_table.scan(
+                        FilterExpression=Attr('active').eq(True)
+                    )
+                    items = scan_resp.get('Items', [])
+                    while 'LastEvaluatedKey' in scan_resp:
+                        scan_resp = restaurants_table.scan(
+                            FilterExpression=Attr('active').eq(True),
+                            ExclusiveStartKey=scan_resp['LastEvaluatedKey']
+                        )
+                        items.extend(scan_resp.get('Items', []))
+
+        response_items = [_decorate_restaurant_response(item) for item in items]
 
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
-            'body': json.dumps({'restaurants': items}, default=decimal_default)
+            'body': json.dumps({'restaurants': response_items}, default=decimal_default)
         }
     except Exception as e:
         print(f"Scan Error: {e}")
         return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def _require_customer(event):
+    claims = get_user_claims(event)
+    customer_id = claims.get('customer_id')
+    role = claims.get('role')
+
+    if not customer_id:
+        return None, {'statusCode': 401, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Unauthorized'})}
+
+    if role != 'customer':
+        return None, {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+
+    return customer_id, None
+
+
+def list_favorites(event):
+    """List favorite restaurants for the authenticated customer."""
+    if not favorites_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+
+    customer_id, err = _require_customer(event)
+    if err:
+        return err
+
+    try:
+        resp = favorites_table.query(
+            KeyConditionExpression=Key('customer_id').eq(customer_id)
+        )
+        items = resp.get('Items', [])
+
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'favorites': items}, default=decimal_default)
+        }
+    except Exception as e:
+        print(f"List Favorites Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def add_favorite(event, restaurant_id):
+    """Add one restaurant to the authenticated customer's favorites."""
+    if not favorites_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+
+    if not restaurant_id:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+
+    customer_id, err = _require_customer(event)
+    if err:
+        return err
+
+    try:
+        if restaurants_table:
+            restaurant = restaurants_table.get_item(Key={'restaurant_id': restaurant_id}).get('Item')
+            if not restaurant:
+                return {'statusCode': 404, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant not found'})}
+
+        item = {
+            'customer_id': customer_id,
+            'restaurant_id': restaurant_id,
+            'created_at': int(time.time()),
+        }
+        favorites_table.put_item(Item=item)
+
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'favorite': item}, default=decimal_default)
+        }
+    except Exception as e:
+        print(f"Add Favorite Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def remove_favorite(event, restaurant_id):
+    """Remove one restaurant from the authenticated customer's favorites."""
+    if not favorites_table:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+
+    if not restaurant_id:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+
+    customer_id, err = _require_customer(event)
+    if err:
+        return err
+
+    try:
+        favorites_table.delete_item(
+            Key={
+                'customer_id': customer_id,
+                'restaurant_id': restaurant_id
+            }
+        )
+        return {
+            'statusCode': 200,
+            'headers': CORS_HEADERS,
+            'body': json.dumps({'removed': True})
+        }
+    except Exception as e:
+        print(f"Remove Favorite Error: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+
+
+def _is_admin_or_owner(claims, restaurant_id):
+    role = claims.get('role')
+    user_restaurant_id = claims.get('restaurant_id')
+    return role == 'admin' or (role == 'restaurant_admin' and user_restaurant_id == restaurant_id)
+
+
+def create_image_upload_url(event, restaurant_id):
+    """Generate a short-lived pre-signed S3 URL for restaurant image uploads."""
+    if not restaurant_id:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+
+    claims = get_user_claims(event)
+    if not _is_admin_or_owner(claims, restaurant_id):
+        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+
+    if not RESTAURANT_IMAGES_BUCKET:
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Image bucket not configured'})}
+
+    restaurant_record = None
+    if restaurants_table:
+        resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
+        restaurant_record = resp.get('Item')
+        if not restaurant_record:
+            return {'statusCode': 404, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant not found'})}
+
+    try:
+        body = json.loads(event.get('body', '{}'))
+    except Exception:
+        body = {}
+
+    file_name = str(body.get('file_name') or 'upload.jpg').strip()
+    content_type = str(body.get('content_type') or '').strip().lower()
+    if not content_type.startswith('image/'):
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'content_type must be an image/* MIME type'})}
+
+    existing_image_keys = []
+    if isinstance(restaurant_record, dict):
+        existing_image_keys = restaurant_record.get('restaurant_image_keys') or []
+    if isinstance(existing_image_keys, list) and len(existing_image_keys) >= 5:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'A maximum of 5 restaurant images is allowed'})}
+
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'):
+        ext_by_type = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/webp': '.webp',
+            'image/gif': '.gif',
+            'image/heic': '.heic',
+            'image/heif': '.heif',
+        }
+        ext = ext_by_type.get(content_type, '.jpg')
+
+    object_key = f"restaurants/{restaurant_id}/{uuid.uuid4().hex}{ext}"
+    upload_ttl_seconds = 900
+
+    try:
+        upload_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': RESTAURANT_IMAGES_BUCKET,
+                'Key': object_key,
+                'ContentType': content_type,
+            },
+            ExpiresIn=upload_ttl_seconds,
+        )
+    except Exception as e:
+        print(f"Failed to generate upload URL: {e}")
+        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Failed to generate upload URL'})}
+
+    return {
+        'statusCode': 200,
+        'headers': CORS_HEADERS,
+        'body': json.dumps({
+            'upload_url': upload_url,
+            'object_key': object_key,
+            'preview_url': _build_image_url(object_key),
+            'expires_in_seconds': upload_ttl_seconds,
+        }),
+    }
 
 
 def update_menu(event, restaurant_id):
@@ -358,6 +691,13 @@ def update_restaurant(event, restaurant_id):
         price_tier = body.get('price_tier')
         tags = body.get('tags')
         rating = body.get('rating')
+        raw_image_keys = None
+        if 'restaurant_image_keys' in body:
+            raw_image_keys = body.get('restaurant_image_keys')
+        elif 'restaurant_images' in body:
+            raw_image_keys = body.get('restaurant_images')
+
+        restaurant_image_keys = _normalize_restaurant_image_keys(raw_image_keys, restaurant_id)
         
         # Check if address changed OR if location is missing (retry)
         should_geocode = (
@@ -429,6 +769,9 @@ def update_restaurant(event, restaurant_id):
         if rating is not None:
             set_parts.append("rating = :rt")
             expr_attr_values[':rt'] = Decimal(str(rating))
+        if restaurant_image_keys is not None:
+            set_parts.append("restaurant_image_keys = :rik")
+            expr_attr_values[':rik'] = restaurant_image_keys
 
         if active is not None:
             set_parts.append("active = :a")
@@ -462,6 +805,8 @@ def update_restaurant(event, restaurant_id):
             }, default=decimal_default)
         }
         
+    except ValueError as ve:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(ve)})}
     except Exception as e:
         print(f"Update Error: {e}")
         return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
@@ -574,6 +919,17 @@ def create_restaurant(event):
         restaurant_id = str(uuid.uuid4())
         timestamp = int(time.time())
 
+        raw_image_keys = None
+        if 'restaurant_image_keys' in body:
+            raw_image_keys = body.get('restaurant_image_keys')
+        elif 'restaurant_images' in body:
+            raw_image_keys = body.get('restaurant_images')
+
+        restaurant_image_keys = _normalize_restaurant_image_keys(
+            raw_image_keys if raw_image_keys is not None else [],
+            restaurant_id
+        )
+
         # Address & Geocoding
         street = body.get('street', '')
         city = body.get('city', '')
@@ -602,7 +958,8 @@ def create_restaurant(event):
             'cuisine': body.get('cuisine', 'Other'),
             'price_tier': int(body.get('price_tier', 1)), # 1-4
             'tags': body.get('tags', []), # List of strings
-            'rating': Decimal(str(body.get('rating', '0.0')))
+            'rating': Decimal(str(body.get('rating', '0.0'))),
+            'restaurant_image_keys': restaurant_image_keys,
         }
 
         # Create Default Config Item
@@ -668,6 +1025,8 @@ def create_restaurant(event):
             }, default=decimal_default)
         }
 
+    except ValueError as ve:
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(ve)})}
     except Exception as e:
         print(f"Create Error: {e}")
         return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}

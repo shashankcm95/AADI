@@ -222,6 +222,14 @@ Resources:
                 - cognito-idp:AdminUpdateUserAttributes
               Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
 
+  PostConfirmationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PostConfirmationFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
   # Restaurants/Menus Resources moved to services/restaurants/template.yaml
 
   # Orders Resources moved to services/orders/template.yaml
@@ -385,4 +393,3 @@ Outputs:
   UserPoolClientId:
     Description: "Cognito User Pool Client ID"
     Value: !Ref UserPoolClient
-
