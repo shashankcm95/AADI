@@ -3,6 +3,10 @@ const awsConfig = {
         Cognito: {
             userPoolId: 'us-east-1_SzP2GXCMA',
             userPoolClientId: 'prg3mh9b9ai8trd33s9ls1c',
+            signUpVerificationMethod: 'code',
+            loginWith: {
+                email: true,
+            },
         },
     },
 };

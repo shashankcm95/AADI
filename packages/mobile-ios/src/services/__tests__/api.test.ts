@@ -1,4 +1,12 @@
-import { getRestaurants, createOrder, OrderItem } from '../api';
+import {
+    addFavorite,
+    clearAuthHeaderCache,
+    createOrder,
+    getFavorites,
+    getRestaurants,
+    OrderItem,
+    removeFavorite,
+} from '../api';
 
 // Mock fetch
 global.fetch = jest.fn();
@@ -13,6 +21,7 @@ jest.mock('aws-amplify/auth', () => ({
 describe('API Service', () => {
     beforeEach(() => {
         (global.fetch as jest.Mock).mockClear();
+        clearAuthHeaderCache();
     });
 
     it('getRestaurants fetches and returns data', async () => {
@@ -52,6 +61,55 @@ describe('API Service', () => {
                     items,
                     customer_name: 'John',
                 }),
+            })
+        );
+    });
+
+    it('getFavorites fetches and returns data', async () => {
+        const mockFavorites = [{ customer_id: 'cust_1', restaurant_id: 'rest_1' }];
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ favorites: mockFavorites }),
+        });
+
+        const result = await getFavorites();
+        expect(result).toEqual(mockFavorites);
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/v1/favorites'),
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer mock-token' }),
+            })
+        );
+    });
+
+    it('addFavorite sends PUT to favorites endpoint', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({}),
+        });
+
+        await addFavorite('rest_1');
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/v1/favorites/rest_1'),
+            expect.objectContaining({
+                method: 'PUT',
+            })
+        );
+    });
+
+    it('removeFavorite sends DELETE to favorites endpoint', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({}),
+        });
+
+        await removeFavorite('rest_1');
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/v1/favorites/rest_1'),
+            expect.objectContaining({
+                method: 'DELETE',
             })
         );
     });

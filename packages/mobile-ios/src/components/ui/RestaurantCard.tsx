@@ -1,57 +1,150 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import React, { useMemo, useRef } from 'react';
+import {
+    View,
+    Text,
+    TouchableOpacity,
+    StyleSheet,
+    Image,
+    ImageSourcePropType,
+    Animated,
+    GestureResponderEvent,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../../theme';
+
+type CardLayout = 'grid' | 'list';
 
 interface Props {
     name: string;
-    cuisine: string;
+    image?: ImageSourcePropType;
     rating: number;
-    priceTier?: number;
-    deliveryTime?: string;
+    ratingCount?: number;
+    deliveryTime: string;
+    deliveryFee?: string;
+    tags?: string[];
+    isFavorite?: boolean;
+    onFavoriteToggle?: () => void;
     onPress: () => void;
-    imagePlaceholderColor?: string; // Fallback since we don't have real images
+    layout?: CardLayout;
+    cuisine?: string;
+    priceTier?: number;
     emoji?: string;
 }
 
 export const RestaurantCard: React.FC<Props> = ({
     name,
-    cuisine,
+    image,
     rating,
-    priceTier = 2,
-    deliveryTime = '20-30 min',
+    ratingCount = 90,
+    deliveryTime,
+    deliveryFee,
+    tags,
+    isFavorite = false,
+    onFavoriteToggle,
     onPress,
-    imagePlaceholderColor = theme.colors.offWhite,
-    emoji = '🍽️'
+    layout = 'grid',
+    cuisine,
+    priceTier = 2,
+    emoji = '🍽️',
 }) => {
+    const favoriteScale = useRef(new Animated.Value(1)).current;
+
+    const ratingLabel = useMemo(() => {
+        if (!Number.isFinite(rating)) {
+            return '-';
+        }
+        return rating.toFixed(1).replace(/\.0$/, '');
+    }, [rating]);
+
+    const metaTags = useMemo(() => {
+        if (tags && tags.length > 0) {
+            return tags;
+        }
+        return cuisine ? [cuisine] : ['Cuisine'];
+    }, [tags, cuisine]);
+
+    const priceLabel = '$'.repeat(Math.min(Math.max(priceTier, 1), 4));
+
+    const onFavoritePress = () => {
+        if (!onFavoriteToggle) {
+            return;
+        }
+        Animated.sequence([
+            Animated.timing(favoriteScale, {
+                toValue: 1.15,
+                duration: 90,
+                useNativeDriver: true,
+            }),
+            Animated.spring(favoriteScale, {
+                toValue: 1,
+                useNativeDriver: true,
+                speed: 18,
+                bounciness: 10,
+            }),
+        ]).start();
+
+        onFavoriteToggle();
+    };
+
+    const onFavoritePressWithStop = (event: GestureResponderEvent) => {
+        event.stopPropagation();
+        onFavoritePress();
+    };
+
+    const isList = layout === 'list';
+
     return (
-        <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.container}>
-            {/* Image Area */}
-            <View style={[styles.imageArea, { backgroundColor: imagePlaceholderColor }]}>
-                <Text style={{ fontSize: 40 }}>{emoji}</Text>
+        <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={onPress}
+            style={[styles.cardContainer, isList && styles.listContainer]}
+            testID="restaurant-card"
+        >
+            <View style={[styles.imageWrap, isList && styles.listImageWrap]}>
+                {image ? (
+                    <Image source={image} style={styles.image} resizeMode="cover" />
+                ) : (
+                    <LinearGradient
+                        colors={theme.gradients.secondary}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={[styles.image, styles.imageFallback]}
+                    >
+                        <Text style={styles.emoji}>{emoji}</Text>
+                    </LinearGradient>
+                )}
 
-                {/* Favorite Heart Placeholder */}
-                <View style={styles.favoriteButton}>
-                    <Text>♡</Text>
+                <View style={styles.cuisineBadge}>
+                    <Text style={styles.cuisineBadgeText} numberOfLines={1}>
+                        {emoji} {cuisine || 'Kitchen'}
+                    </Text>
                 </View>
 
-                {/* Promo Tag (Optional) */}
-                <View style={styles.promoTag}>
-                    <Text style={styles.promoText}>Free Delivery</Text>
-                </View>
+                <Animated.View style={[styles.favoriteButton, { transform: [{ scale: favoriteScale }] }]}>
+                    <TouchableOpacity onPress={onFavoritePressWithStop} accessibilityRole="button" testID="favorite-toggle">
+                        <Text style={styles.favoriteText}>{isFavorite ? '♥' : '♡'}</Text>
+                    </TouchableOpacity>
+                </Animated.View>
             </View>
 
-            {/* Content Area */}
-            <View style={styles.content}>
+            <View style={[styles.content, isList && styles.listContent]}>
                 <View style={styles.headerRow}>
-                    <Text style={styles.name} numberOfLines={1}>{name}</Text>
-                    <View style={styles.ratingContainer}>
-                        <Text style={styles.ratingText}>{rating}</Text>
+                    <Text style={styles.name} numberOfLines={1}>
+                        {name}
+                    </Text>
+                    <View style={styles.ratingRow}>
                         <Text style={styles.star}>★</Text>
+                        <Text style={styles.ratingValue}>{ratingLabel}</Text>
+                        <Text style={styles.ratingCount}>{ratingCount}+</Text>
                     </View>
                 </View>
 
-                <Text style={styles.meta}>
-                    {'$'.repeat(priceTier)} • {cuisine} • {deliveryTime}
+                <Text style={styles.metaLine} numberOfLines={1}>
+                    {priceLabel} • {metaTags.join(' • ')} • {deliveryTime}
+                </Text>
+
+                <Text style={styles.feeLine} numberOfLines={1}>
+                    {deliveryFee || '$0 delivery fee'}
                 </Text>
             </View>
         </TouchableOpacity>
@@ -59,87 +152,133 @@ export const RestaurantCard: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-    container: {
-        backgroundColor: theme.colors.white,
-        borderRadius: theme.layout.radius.card,
-        marginBottom: theme.layout.spacing.lg,
-        // Card Shadow
-        shadowColor: theme.layout.shadows.card.shadowColor,
-        shadowOffset: theme.layout.shadows.card.shadowOffset,
-        shadowOpacity: theme.layout.shadows.card.shadowOpacity,
-        shadowRadius: theme.layout.shadows.card.shadowRadius,
-        elevation: theme.layout.shadows.card.elevation,
+    cardContainer: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.radii.card,
+        overflow: 'hidden',
+        shadowColor: theme.shadows.card.shadowColor,
+        shadowOffset: theme.shadows.card.shadowOffset,
+        shadowOpacity: theme.shadows.card.shadowOpacity,
+        shadowRadius: theme.shadows.card.shadowRadius,
+        elevation: theme.shadows.card.elevation,
     },
-    imageArea: {
-        height: 160,
-        borderTopLeftRadius: theme.layout.radius.card,
-        borderTopRightRadius: theme.layout.radius.card,
-        justifyContent: 'center',
-        alignItems: 'center',
+    listContainer: {
+        flexDirection: 'row',
+        minHeight: 140,
+    },
+    imageWrap: {
         position: 'relative',
+        height: 164,
+    },
+    listImageWrap: {
+        width: 132,
+        height: '100%',
+    },
+    image: {
+        width: '100%',
+        height: '100%',
+    },
+    imageFallback: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emoji: {
+        fontSize: 42,
+    },
+    cuisineBadge: {
+        position: 'absolute',
+        left: theme.spacing.sm,
+        top: theme.spacing.sm,
+        maxWidth: '70%',
+        backgroundColor: theme.colors.glassSurface,
+        borderRadius: theme.radii.chip,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing.sm,
+        paddingVertical: theme.spacing.xs,
+    },
+    cuisineBadgeText: {
+        ...theme.typography.caption,
+        color: theme.colors.text,
+        fontWeight: '700',
     },
     favoriteButton: {
         position: 'absolute',
-        top: 12,
-        right: 12,
+        top: theme.spacing.sm,
+        right: theme.spacing.sm,
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: 'rgba(255,255,255,0.8)',
+        backgroundColor: theme.colors.glassSurface,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    promoTag: {
-        position: 'absolute',
-        top: 12,
-        left: 12,
-        backgroundColor: theme.colors.teal3,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 4,
-    },
-    promoText: {
-        color: theme.colors.white,
-        fontSize: 10,
-        fontWeight: '700',
-        textTransform: 'uppercase',
+    favoriteText: {
+        color: theme.colors.text,
+        fontSize: 17,
+        lineHeight: 20,
     },
     content: {
-        padding: 12,
+        paddingHorizontal: theme.spacing.md,
+        paddingTop: theme.spacing.md,
+        paddingBottom: theme.spacing.lg,
+    },
+    listContent: {
+        flex: 1,
     },
     headerRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 4,
+        marginBottom: theme.spacing.xs,
+        gap: theme.spacing.sm,
     },
     name: {
-        fontSize: 16,
-        fontWeight: '700',
+        ...theme.typography.h3,
         color: theme.colors.text,
         flex: 1,
-        marginRight: 8,
     },
-    ratingContainer: {
+    ratingRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        borderRadius: theme.radii.chip,
         backgroundColor: theme.colors.offWhite,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 12,
-    },
-    ratingText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: theme.colors.text,
-        marginRight: 2,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingHorizontal: theme.spacing.sm,
+        paddingVertical: theme.spacing.xs,
     },
     star: {
-        fontSize: 10,
+        fontSize: 11,
         color: theme.colors.gold,
+        marginRight: 2,
     },
-    meta: {
-        fontSize: 14,
+    ratingValue: {
+        ...theme.typography.caption,
+        color: theme.colors.text,
+        fontWeight: '700',
+        marginRight: 4,
+    },
+    ratingCount: {
+        ...theme.typography.caption,
         color: theme.colors.textSecondary,
-    }
+    },
+    metaLine: {
+        ...theme.typography.bodySm,
+        color: theme.colors.textSecondary,
+        marginBottom: theme.spacing.xs,
+    },
+    feeLine: {
+        ...theme.typography.caption,
+        color: theme.colors.text,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        alignSelf: 'flex-start',
+        borderRadius: theme.radii.chip,
+        paddingHorizontal: theme.spacing.sm,
+        paddingVertical: theme.spacing.xs,
+        overflow: 'hidden',
+    },
 });

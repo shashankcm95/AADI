@@ -9,19 +9,50 @@ import {
  * Agent Kappa: Backend communication
  */
 
+let cachedAuthToken: string | null = null;
+let cachedAuthTokenExpiryMs = 0;
+
+export function clearAuthHeaderCache(): void {
+    cachedAuthToken = null;
+    cachedAuthTokenExpiryMs = 0;
+}
+
 async function getAuthHeaders(): Promise<Record<string, string>> {
+    if (cachedAuthToken && Date.now() < cachedAuthTokenExpiryMs) {
+        return {
+            Authorization: `Bearer ${cachedAuthToken}`,
+        };
+    }
+
     try {
         const session = await fetchAuthSession();
         const token = session.tokens?.idToken?.toString();
         if (!token) {
             console.warn("No auth token found, request may fail");
+            cachedAuthToken = null;
+            cachedAuthTokenExpiryMs = 0;
             return {};
         }
+
+        const expSecondsRaw = (session.tokens?.idToken as any)?.payload?.exp;
+        const expSeconds = Number(expSecondsRaw);
+
+        cachedAuthToken = token;
+        if (Number.isFinite(expSeconds) && expSeconds > 0) {
+            // Refresh one minute before actual token expiry.
+            cachedAuthTokenExpiryMs = Math.max(Date.now() + 5000, expSeconds * 1000 - 60_000);
+        } else {
+            // Fallback short cache if exp claim is missing.
+            cachedAuthTokenExpiryMs = Date.now() + 30_000;
+        }
+
         return {
-            'Authorization': `Bearer ${token}`
+            Authorization: `Bearer ${token}`
         };
     } catch (e) {
         console.error("Auth Session Error", e);
+        cachedAuthToken = null;
+        cachedAuthTokenExpiryMs = 0;
         return {};
     }
 }
@@ -31,15 +62,19 @@ export interface OrderItem {
     name: string;
     price_cents: number;
     qty: number;
+    description?: string;
 }
 
 export interface Order {
     order_id: string;
     restaurant_id: string;
+    customer_id?: string;
     status: string;
     items: OrderItem[];
     total_cents: number;
     arrival_status?: string;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface Restaurant {
@@ -53,6 +88,16 @@ export interface Restaurant {
     longitude?: number;
     price_tier?: number; // 1-4
     tags?: string[];
+    image_url?: string;
+    banner_image_url?: string;
+    restaurant_images?: string[];
+    restaurant_image_keys?: string[];
+}
+
+export interface Favorite {
+    customer_id: string;
+    restaurant_id: string;
+    created_at?: number;
 }
 
 /**
@@ -86,6 +131,49 @@ export async function getRestaurant(restaurantId: string): Promise<Restaurant> {
 }
 
 /**
+ * Get authenticated customer's favorite restaurants
+ */
+export async function getFavorites(): Promise<Favorite[]> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/favorites`, {
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to fetch favorites');
+    }
+    const data = await response.json();
+    return Array.isArray(data.favorites) ? data.favorites : [];
+}
+
+/**
+ * Add a restaurant to authenticated customer's favorites
+ */
+export async function addFavorite(restaurantId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/favorites/${restaurantId}`, {
+        method: 'PUT',
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to add favorite');
+    }
+}
+
+/**
+ * Remove a restaurant from authenticated customer's favorites
+ */
+export async function removeFavorite(restaurantId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/favorites/${restaurantId}`, {
+        method: 'DELETE',
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to remove favorite');
+    }
+}
+
+/**
  * Get restaurant menu
  */
 export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem[]> {
@@ -101,6 +189,7 @@ export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem
     return rawItems.map((item: any) => ({
         id: String(item.id || item.menu_item_id || item.sku || ''),
         name: item.name || 'Menu Item',
+        description: item.description || '',
         price_cents: typeof item.price_cents === 'number'
             ? item.price_cents
             : Math.round(Number(item.price || 0) * 100),

@@ -2,7 +2,7 @@
  * Menu Screen
  * Agent Kappa: Order placement flow
  */
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
@@ -13,8 +13,14 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { createOrder, getRestaurantMenu, Restaurant } from '../services/api';
+import {
+    getFavoritesWithCache,
+    setFavoriteForCurrentUser,
+} from '../services/favorites';
 import { startLocationTracking, requestPermissions } from '../services/location';
 import { theme } from '../theme';
+import { useCart } from '../state/CartContext';
+import { upsertOrderInCache } from '../services/orderHistory';
 
 interface Props {
     navigation: any;
@@ -22,12 +28,53 @@ interface Props {
 }
 
 export default function MenuScreen({ navigation, route }: Props) {
-    const [cart, setCart] = useState<any[]>([]);
     const [menuItems, setMenuItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [placingOrder, setPlacingOrder] = useState(false);
+    const [isFavorite, setIsFavorite] = useState(false);
+    const [favoriteUpdating, setFavoriteUpdating] = useState(false);
 
     const restaurant: Restaurant | undefined = route.params?.restaurant;
     const customerName = route.params?.customerName || 'Guest';
+
+    const {
+        cartItems,
+        cartRestaurant,
+        cartCount,
+        cartTotalCents,
+        addItemToCart,
+        forceAddItemToCart,
+        clearCart,
+        isCartForRestaurant,
+    } = useCart();
+
+    const isCurrentRestaurantCart = useMemo(() => {
+        return isCartForRestaurant(restaurant?.restaurant_id);
+    }, [isCartForRestaurant, restaurant?.restaurant_id]);
+
+    const visibleCartItems = isCurrentRestaurantCart ? cartItems : [];
+
+    useLayoutEffect(() => {
+        navigation.setOptions({
+            headerRight: () => (
+                <View style={styles.headerActions}>
+                    <TouchableOpacity
+                        onPress={handleToggleFavorite}
+                        style={styles.headerFavoriteButton}
+                        disabled={favoriteUpdating}
+                    >
+                        <Text style={styles.headerFavoriteText}>{isFavorite ? '♥' : '♡'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('Cart')}
+                        style={styles.headerCartButton}
+                    >
+                        <Text style={styles.headerCartText}>Cart{cartCount > 0 ? ` (${cartCount})` : ''}</Text>
+                    </TouchableOpacity>
+                </View>
+            ),
+        });
+    }, [navigation, cartCount, isFavorite, favoriteUpdating]);
 
     useEffect(() => {
         if (!restaurant?.restaurant_id) {
@@ -36,9 +83,39 @@ export default function MenuScreen({ navigation, route }: Props) {
             return;
         }
         loadMenu();
+        loadFavoriteStatus(restaurant.restaurant_id);
     }, [restaurant?.restaurant_id]);
 
-    const loadMenu = async () => {
+    async function loadFavoriteStatus(restaurantId: string) {
+        try {
+            const favorites = await getFavoritesWithCache();
+            setIsFavorite(favorites.favoriteRestaurantIds.includes(restaurantId));
+        } catch {
+            setIsFavorite(false);
+        }
+    }
+
+    async function handleToggleFavorite() {
+        const restaurantId = restaurant?.restaurant_id;
+        if (!restaurantId || favoriteUpdating) {
+            return;
+        }
+
+        const nextValue = !isFavorite;
+        setIsFavorite(nextValue);
+        setFavoriteUpdating(true);
+
+        try {
+            await setFavoriteForCurrentUser(restaurantId, nextValue);
+        } catch (error) {
+            setIsFavorite(!nextValue);
+            Alert.alert('Favorites', 'Could not update favorites. Please try again.');
+        } finally {
+            setFavoriteUpdating(false);
+        }
+    }
+
+    async function loadMenu() {
         if (!restaurant?.restaurant_id) {
             return;
         }
@@ -51,23 +128,36 @@ export default function MenuScreen({ navigation, route }: Props) {
         } finally {
             setLoading(false);
         }
-    };
+    }
 
     const addToCart = (item: any) => {
-        const existing = cart.find(c => c.id === item.id);
-        if (existing) {
-            setCart(cart.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c));
-        } else {
-            setCart([...cart, { ...item, qty: 1 }]);
+        if (!restaurant) {
+            return;
         }
-    };
 
-    const getCartTotal = () => {
-        return cart.reduce((sum, item) => sum + item.price_cents * item.qty, 0);
+        const result = addItemToCart({ ...item, qty: 1 }, restaurant);
+        if (result === 'added') {
+            return;
+        }
+
+        Alert.alert(
+            'Replace Existing Cart?',
+            `Your cart has items from ${cartRestaurant?.name || 'another restaurant'}. Replace them with this item?`,
+            [
+                { text: 'Keep Current Cart', style: 'cancel' },
+                {
+                    text: 'Replace',
+                    style: 'destructive',
+                    onPress: () => {
+                        forceAddItemToCart({ ...item, qty: 1 }, restaurant);
+                    },
+                },
+            ]
+        );
     };
 
     const handlePlaceOrder = async () => {
-        if (cart.length === 0) {
+        if (visibleCartItems.length === 0) {
             Alert.alert('Cart Empty', 'Add some items first!');
             return;
         }
@@ -78,11 +168,12 @@ export default function MenuScreen({ navigation, route }: Props) {
                 return;
             }
 
-            const order = await createOrder(restaurant.restaurant_id, cart, customerName);
+            setPlacingOrder(true);
+            const order = await createOrder(restaurant.restaurant_id, visibleCartItems, customerName);
+            await upsertOrderInCache(order);
 
-            // Navigate to order screen
             navigation.navigate('Order', { orderId: order.order_id });
-            setCart([]);
+            clearCart();
 
             // Try location tracking in background (non-blocking)
             try {
@@ -109,6 +200,8 @@ export default function MenuScreen({ navigation, route }: Props) {
         } catch (error: any) {
             console.error('[MenuScreen] Order placement FAILED:', error?.message);
             Alert.alert('Error', `Failed to place order: ${error?.message || 'Network error'}`);
+        } finally {
+            setPlacingOrder(false);
         }
     };
 
@@ -135,6 +228,15 @@ export default function MenuScreen({ navigation, route }: Props) {
 
     return (
         <View style={styles.container}>
+            {!isCurrentRestaurantCart && cartItems.length > 0 ? (
+                <TouchableOpacity style={styles.crossRestaurantBanner} onPress={() => navigation.navigate('Cart')}>
+                    <Text style={styles.crossRestaurantText}>
+                        You have {cartCount} item(s) in {cartRestaurant?.name || 'another cart'}.
+                    </Text>
+                    <Text style={styles.crossRestaurantLink}>Open Cart ›</Text>
+                </TouchableOpacity>
+            ) : null}
+
             {loading ? (
                 <View style={styles.center}>
                     <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -149,13 +251,21 @@ export default function MenuScreen({ navigation, route }: Props) {
                 />
             )}
 
-            {cart.length > 0 && (
+            {visibleCartItems.length > 0 && (
                 <View style={styles.cartBar}>
-                    <Text style={styles.cartText}>
-                        {cart.reduce((sum, i) => sum + i.qty, 0)} items · ${(getCartTotal() / 100).toFixed(2)}
-                    </Text>
-                    <TouchableOpacity style={styles.orderButton} onPress={handlePlaceOrder}>
-                        <Text style={styles.orderButtonText}>Place Order</Text>
+                    <TouchableOpacity style={styles.cartSummary} onPress={() => navigation.navigate('Cart')}>
+                        <Text style={styles.cartText}>{cartCount} items · ${(cartTotalCents / 100).toFixed(2)}</Text>
+                        <Text style={styles.cartLink}>View Cart</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.orderButton, placingOrder && styles.orderButtonDisabled]}
+                        onPress={handlePlaceOrder}
+                        disabled={placingOrder}
+                    >
+                        {placingOrder
+                            ? <ActivityIndicator color={theme.colors.white} />
+                            : <Text style={styles.orderButtonText}>Place Order</Text>}
                     </TouchableOpacity>
                 </View>
             )}
@@ -168,11 +278,65 @@ const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyText: { textAlign: 'center', marginTop: 40, color: theme.colors.textMuted, fontSize: 16 },
     list: { padding: 16 },
+    headerCartButton: {
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radii.chip,
+        paddingHorizontal: theme.spacing.sm,
+        paddingVertical: theme.spacing.xs,
+        backgroundColor: theme.colors.surface,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: theme.spacing.xs,
+    },
+    headerFavoriteButton: {
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radii.chip,
+        width: 34,
+        height: 34,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.surface,
+    },
+    headerFavoriteText: {
+        color: theme.colors.primary,
+        fontSize: 18,
+        lineHeight: 20,
+    },
+    headerCartText: {
+        ...theme.typography.caption,
+        color: theme.colors.text,
+        fontWeight: '700',
+    },
+    crossRestaurantBanner: {
+        marginHorizontal: theme.spacing.lg,
+        marginTop: theme.spacing.sm,
+        marginBottom: theme.spacing.xs,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radii.input,
+        backgroundColor: theme.colors.glassSurface,
+        paddingHorizontal: theme.spacing.md,
+        paddingVertical: theme.spacing.sm,
+    },
+    crossRestaurantText: {
+        ...theme.typography.bodySm,
+        color: theme.colors.textSecondary,
+    },
+    crossRestaurantLink: {
+        ...theme.typography.caption,
+        color: theme.colors.primary,
+        marginTop: theme.spacing.xs,
+        fontWeight: '700',
+    },
     menuItem: {
         ...theme.layout.card,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 20, /* Slightly taller */
+        paddingVertical: 20,
         backgroundColor: '#fff',
     },
     itemInfo: { flex: 1 },
@@ -195,21 +359,40 @@ const styles = StyleSheet.create({
     cartBar: {
         flexDirection: 'row',
         backgroundColor: '#fff',
-        padding: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
         borderTopWidth: 1,
         borderTopColor: '#eee',
         alignItems: 'center',
+        gap: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -4 },
         shadowOpacity: 0.05,
         shadowRadius: 10,
     },
-    cartText: { flex: 1, color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+    cartSummary: {
+        flex: 1,
+    },
+    cartText: {
+        ...theme.typography.body,
+        color: theme.colors.text,
+        fontWeight: '700',
+    },
+    cartLink: {
+        ...theme.typography.caption,
+        color: theme.colors.primary,
+        marginTop: 2,
+    },
     orderButton: {
         backgroundColor: theme.colors.primary,
-        paddingHorizontal: 24,
+        paddingHorizontal: 18,
         paddingVertical: 12,
         borderRadius: 50,
+        minWidth: 130,
+        alignItems: 'center',
+    },
+    orderButtonDisabled: {
+        opacity: 0.7,
     },
     orderButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
