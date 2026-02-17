@@ -8,12 +8,15 @@ import RestaurantForm from './RestaurantForm'
 import AdminDashboard from './AdminDashboard'
 import MenuIngestion from './MenuIngestion'
 import CapacitySettings from './CapacitySettings'
+import RestaurantImageManager from './RestaurantImageManager'
 
 // Interfaces
 interface Restaurant {
     restaurant_id: string;
     name: string;
     active?: boolean;
+    restaurant_image_keys?: string[];
+    restaurant_images?: string[];
 }
 
 
@@ -41,6 +44,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
     // Capacity Management State
     const [showCapacity, setShowCapacity] = useState(false)
+    const [showImages, setShowImages] = useState(false)
 
     const prevOrderIds = useRef<Set<string>>(new Set())
 
@@ -206,6 +210,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         }
     }, [token, selectedRestaurant])
 
+    const selectedRestaurantData = restaurants.find(r => r.restaurant_id === selectedRestaurant) || null
+
 
     function playNotificationSound() {
         try {
@@ -229,6 +235,28 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         } catch (e) {
             console.warn('Audio not supported:', e)
         }
+    }
+
+    async function handleSaveRestaurantImages(keys: string[]) {
+        if (!token || !selectedRestaurant) return
+
+        const response = await fetch(`${API_BASE_URL}/v1/restaurants/${selectedRestaurant}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                restaurant_image_keys: keys,
+            }),
+        })
+
+        if (!response.ok) {
+            const payload = await response.json().catch(() => null)
+            throw new Error(payload?.error || 'Failed to save restaurant images.')
+        }
+
+        await fetchRestaurants()
     }
 
     // Fetch orders when restaurant changes
@@ -283,9 +311,19 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
             <header className="artistic-header">
                 <div className="header-content" style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h1>🍽️ {restaurants.find(r => r.restaurant_id === selectedRestaurant)?.name || 'AADI Restaurant Portal'}</h1>
+                    <div className="brand-head">
+                        <img
+                            src="/logo_icon_stylized.png"
+                            alt="AADI logo"
+                            className="brand-logo"
+                        />
+                        <div>
+                            <h1>{restaurants.find(r => r.restaurant_id === selectedRestaurant)?.name || 'AADI Restaurant Portal'}</h1>
+                            <p className="brand-subline">Restaurant operations</p>
+                        </div>
+                    </div>
                     <div className="user-info">
-                        <span style={{ marginRight: '12px', color: '#94a3b8' }}>
+                        <span style={{ marginRight: '12px', color: 'rgba(255,255,255,0.92)' }}>
                             {user?.username}
                         </span>
                         <button onClick={signOut} className="btn btn-small">
@@ -355,6 +393,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                 if (!showMenu) fetchMenu()
                                 setShowMenu(prev => !prev)
                                 setShowCapacity(false)
+                                setShowImages(false)
                             }}
                             className="btn btn-secondary"
                             style={{ background: showMenu ? '#e2e8f0' : undefined, color: showMenu ? 'black' : undefined, marginLeft: '0.5rem' }}
@@ -365,11 +404,28 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                             onClick={() => {
                                 setShowCapacity(true)
                                 setShowMenu(false)
+                                setShowImages(false)
                             }}
                             className="btn btn-secondary"
                             style={{ marginLeft: '0.5rem' }}
                         >
                             ⚙️ Capacity
+                        </button>
+                        <button
+                            onClick={() => {
+                                setShowImages(prev => {
+                                    const next = !prev
+                                    if (next) {
+                                        setShowMenu(false)
+                                        setShowCapacity(false)
+                                    }
+                                    return next
+                                })
+                            }}
+                            className="btn btn-secondary"
+                            style={{ marginLeft: '0.5rem', background: showImages ? '#e2e8f0' : undefined, color: showImages ? 'black' : undefined }}
+                        >
+                            {showImages ? 'Close Images' : '🖼️ Images'}
                         </button>
                     </>
                 )}
@@ -437,10 +493,22 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 />
             )}
 
+            {showImages && token && selectedRestaurant && selectedRestaurantData && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                    <RestaurantImageManager
+                        token={token}
+                        restaurantId={selectedRestaurant}
+                        initialImageKeys={selectedRestaurantData.restaurant_image_keys || []}
+                        initialImageUrls={selectedRestaurantData.restaurant_images || []}
+                        onSaveKeys={handleSaveRestaurantImages}
+                    />
+                </div>
+            )}
+
             {/* Hide Orders when Menu is open to avoid clutter? Or keep both? Let's hide orders if Menu is strictly overlay mode, but here it's inline. Let's keep orders visible below for context or hide them if showMenu is true to focus. */}
             {/* Let's hide stats and board if showMenu is true for cleaner focus */}
 
-            {!showMenu && (
+            {!showMenu && !showImages && (
                 <>
                     <StatsBar sentCount={sentCount} activeCount={activeCount} pendingCount={pendingCount} />
 

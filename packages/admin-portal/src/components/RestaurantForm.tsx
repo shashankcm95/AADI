@@ -9,6 +9,9 @@ interface RestaurantFormProps {
 
 export default function RestaurantForm({ token, onSuccess, onCancel }: RestaurantFormProps) {
     const [name, setName] = useState('')
+    const [cuisine, setCuisine] = useState('')
+    const [tagsInput, setTagsInput] = useState('')
+    const [priceTier, setPriceTier] = useState(2)
     const [street, setStreet] = useState('')
     const [city, setCity] = useState('')
     const [state, setState] = useState('')
@@ -25,6 +28,11 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
         setLoading(true)
         setError(null)
 
+        const tags = tagsInput
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(Boolean)
+
         try {
             const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
                 method: 'POST',
@@ -39,7 +47,10 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
                     state,
                     zip,
                     contact_email: email,
-                    operating_hours: hours
+                    operating_hours: hours,
+                    cuisine: cuisine.trim() || 'Other',
+                    tags,
+                    price_tier: priceTier
                 })
             })
 
@@ -107,6 +118,40 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
                                 />
                             </div>
 
+                            <div className="form-row" style={{ display: 'flex', gap: '1rem' }}>
+                                <div className="form-group" style={{ flex: 1 }}>
+                                    <label>Cuisine</label>
+                                    <input
+                                        value={cuisine}
+                                        onChange={e => setCuisine(e.target.value)}
+                                        placeholder="Indian, Pizza, Burgers..."
+                                    />
+                                </div>
+                                <div className="form-group" style={{ flex: 2 }}>
+                                    <label>Tags (comma separated)</label>
+                                    <input
+                                        value={tagsInput}
+                                        onChange={e => setTagsInput(e.target.value)}
+                                        placeholder="vegan, spicy, family-friendly"
+                                    />
+                                    <small style={{ color: '#666' }}>
+                                        Used by customer search and discovery.
+                                    </small>
+                                </div>
+                                <div className="form-group" style={{ flex: 1 }}>
+                                    <label>Price Tier</label>
+                                    <select
+                                        value={priceTier}
+                                        onChange={e => setPriceTier(Number(e.target.value))}
+                                    >
+                                        <option value={1}>$</option>
+                                        <option value={2}>$$</option>
+                                        <option value={3}>$$$</option>
+                                        <option value={4}>$$$$</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <div className="form-group">
                                 <label>Street Address</label>
                                 <input
@@ -164,6 +209,9 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
                                     onChange={e => setHours(e.target.value)}
                                     placeholder="9:00-22:00"
                                 />
+                                <small style={{ color: '#666' }}>
+                                    After creation, upload up to 5 restaurant images from the Edit or Images panel.
+                                </small>
                             </div>
 
                             <div className="form-actions">
@@ -207,6 +255,13 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
           padding: 0.5rem;
           border: 1px solid #ccc;
           border-radius: 4px;
+        }
+        .form-group select {
+          width: 100%;
+          padding: 0.5rem;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          background: white;
         }
         .form-actions {
           display: flex;

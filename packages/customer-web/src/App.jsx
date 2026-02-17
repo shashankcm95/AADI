@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { signInWithRedirect, signOut, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth'
+import { useState, useEffect } from 'react'
+import { fetchAuthSession } from 'aws-amplify/auth'
 import { Authenticator } from '@aws-amplify/ui-react'
 import '@aws-amplify/ui-react/styles.css'
 import './App.css'
@@ -293,7 +293,17 @@ function MainAppContent({ user, signOut }) {
 
       <header className="artistic-header">
         <div className="header-row" style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h1>AADI</h1>
+          <div className="brand-lockup">
+            <img
+              src="/logo_icon_stylized.png"
+              alt="AADI logo"
+              className="brand-logo"
+            />
+            <div>
+              <h1>AADI</h1>
+              <p className="brand-subtitle">Order Ahead. Arrive Perfectly.</p>
+            </div>
+          </div>
           <div className="user-actions user-pill">
             <span className="username">{user.username?.split('_')[1]?.slice(0, 8) || 'User'}</span>
             <button onClick={() => signOut()} className="btn btn-small">Sign Out</button>

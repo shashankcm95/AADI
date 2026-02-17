@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '../aws-exports'
 import RestaurantForm from './RestaurantForm'
+import RestaurantImageManager from './RestaurantImageManager'
 
 // Reuse RestaurantForm for "Adding" but for "Editing" we might need a modified version or just reuse inputs.
 // Simpler to build a small EditModal inside here or refactor RestaurantForm to handle edits.
@@ -130,9 +131,19 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
     return (
         <div className="dashboard-container">
             <header className="dashboard-header">
-                <h1>Platform Administration</h1>
+                <div className="brand-head">
+                    <img
+                        src="/logo_icon_stylized.png"
+                        alt="AADI logo"
+                        className="brand-logo"
+                    />
+                    <div>
+                        <h1>AADI Admin</h1>
+                        <p className="brand-subline">Platform administration</p>
+                    </div>
+                </div>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <span>Welcome, Super Admin</span>
+                    <span style={{ color: 'rgba(255,255,255,0.92)' }}>Welcome, Super Admin</span>
                     <button onClick={signOut} className="btn btn-secondary">Sign Out</button>
                 </div>
             </header>
@@ -221,6 +232,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
             {editingRestaurant && (
                 <EditRestaurantModal
+                    token={token}
                     restaurant={editingRestaurant}
                     onSave={handleUpdate}
                     onCancel={() => setEditingRestaurant(null)}
@@ -259,13 +271,29 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
     )
 }
 
-function EditRestaurantModal({ restaurant, onSave, onCancel }: { restaurant: any, onSave: (data: any) => void, onCancel: () => void }) {
+function EditRestaurantModal({
+    token,
+    restaurant,
+    onSave,
+    onCancel,
+}: {
+    token: string | null,
+    restaurant: any,
+    onSave: (data: any) => void,
+    onCancel: () => void
+}) {
     const [name, setName] = useState(restaurant.name)
+    const [cuisine, setCuisine] = useState(restaurant.cuisine || '')
+    const [tagsInput, setTagsInput] = useState(Array.isArray(restaurant.tags) ? restaurant.tags.join(', ') : '')
+    const [priceTier, setPriceTier] = useState(Number(restaurant.price_tier) || 2)
     const [street, setStreet] = useState(restaurant.street || '')
     const [city, setCity] = useState(restaurant.city || '')
     const [state, setState] = useState(restaurant.state || '')
     const [zip, setZip] = useState(restaurant.zip || '')
     const [hours, setHours] = useState(restaurant.operating_hours || '9:00-22:00')
+    const [restaurantImageKeys, setRestaurantImageKeys] = useState<string[]>(
+        Array.isArray(restaurant.restaurant_image_keys) ? restaurant.restaurant_image_keys : []
+    )
 
     // Parse legacy full address if structured fields are missing
     useEffect(() => {
@@ -273,18 +301,28 @@ function EditRestaurantModal({ restaurant, onSave, onCancel }: { restaurant: any
             // Very basic fallback parsing, or just leave empty and let user fill
             setStreet(restaurant.address)
         }
-    }, [])
+        setRestaurantImageKeys(Array.isArray(restaurant.restaurant_image_keys) ? restaurant.restaurant_image_keys : [])
+    }, [restaurant])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
+        const tags = tagsInput
+            .split(',')
+            .map((tag: string) => tag.trim())
+            .filter(Boolean)
+
         onSave({
             name,
+            cuisine: cuisine.trim() || 'Other',
+            tags,
+            price_tier: priceTier,
             street,
             city,
             state,
             zip,
             operating_hours: hours,
-            contact_email: restaurant.contact_email // Send back original email (immutable)
+            contact_email: restaurant.contact_email, // Send back original email (immutable)
+            restaurant_image_keys: restaurantImageKeys,
         })
     }
 
@@ -296,6 +334,37 @@ function EditRestaurantModal({ restaurant, onSave, onCancel }: { restaurant: any
                     <div className="form-group">
                         <label>Name</label>
                         <input value={name} onChange={e => setName(e.target.value)} required />
+                    </div>
+
+                    <div className="form-row" style={{ display: 'flex', gap: '1rem' }}>
+                        <div className="form-group" style={{ flex: 1 }}>
+                            <label>Cuisine</label>
+                            <input
+                                value={cuisine}
+                                onChange={e => setCuisine(e.target.value)}
+                                placeholder="Indian, Pizza, Burgers..."
+                            />
+                        </div>
+                        <div className="form-group" style={{ flex: 2 }}>
+                            <label>Tags (comma separated)</label>
+                            <input
+                                value={tagsInput}
+                                onChange={e => setTagsInput(e.target.value)}
+                                placeholder="vegan, spicy, family-friendly"
+                            />
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                            <label>Price Tier</label>
+                            <select
+                                value={priceTier}
+                                onChange={e => setPriceTier(Number(e.target.value))}
+                            >
+                                <option value={1}>$</option>
+                                <option value={2}>$$</option>
+                                <option value={3}>$$$</option>
+                                <option value={4}>$$$$</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div className="form-group">
@@ -329,6 +398,14 @@ function EditRestaurantModal({ restaurant, onSave, onCancel }: { restaurant: any
                         <input value={hours} onChange={e => setHours(e.target.value)} />
                     </div>
 
+                    <RestaurantImageManager
+                        token={token}
+                        restaurantId={restaurant.restaurant_id}
+                        initialImageKeys={Array.isArray(restaurant.restaurant_image_keys) ? restaurant.restaurant_image_keys : []}
+                        initialImageUrls={Array.isArray(restaurant.restaurant_images) ? restaurant.restaurant_images : []}
+                        onKeysChange={setRestaurantImageKeys}
+                    />
+
                     <div className="form-actions">
                         <button type="button" onClick={onCancel} className="btn btn-secondary">Cancel</button>
                         <button type="submit" className="btn btn-primary">Save Changes</button>
@@ -342,6 +419,7 @@ function EditRestaurantModal({ restaurant, onSave, onCancel }: { restaurant: any
                 .form-group { margin-bottom: 1rem; }
                 .form-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
                 .form-group input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+                .form-group select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; background: white; }
                 .form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; }
             `}</style>
         </div>
