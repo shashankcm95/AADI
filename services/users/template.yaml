@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aadi-users-service
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID for JWT auth
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool Client ID
+  UsersTableName:
+    Type: String
+    Description: Name of the UsersTable from the infrastructure stack
+  CorsAllowOrigin:
+    Type: String
+    Description: Allowed CORS origin
+    Default: "http://localhost:5173"
+
+Globals:
+  Function:
+    Timeout: 15
+    Runtime: python3.11
+    Architectures:
+      - arm64
+  HttpApi:
+    Auth:
+      DefaultAuthorizer: CognitoJWT
+      Authorizers:
+        CognitoJWT:
+          IdentitySource: "$request.header.Authorization"
+          JwtConfiguration:
+            issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}"
+            audience:
+              - !Ref UserPoolClientId
+    CorsConfiguration:
+      AllowOrigins:
+        - "https://d1f1m06nqs4ul2.cloudfront.net"
+        - "https://d18dqw0gujya99.cloudfront.net"
+        - "http://localhost:5173"
+        - "http://localhost:5174"
+      AllowHeaders:
+        - "Authorization"
+        - "Content-Type"
+      AllowMethods:
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "OPTIONS"
+
+Resources:
+  UsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTableName
+          USER_POOL_ID: !Ref UserPoolId
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminUpdateUserAttributes
+              Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+      Events:
+        GetProfile:
+          Type: HttpApi
+          Properties:
+            Path: /v1/users/me
+            Method: GET
+        UpdateProfile:
+          Type: HttpApi
+          Properties:
+            Path: /v1/users/me
+            Method: PUT
+        HealthCheck:
+          Type: HttpApi
+          Properties:
+            Path: /v1/users/health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  UsersApi:
+    Description: "API Gateway endpoint URL for Users Service"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"

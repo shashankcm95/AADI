@@ -117,6 +117,17 @@ Resources:
 
 
 
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
   # -------------------------------------------------------------------------
   # API Definition (Explicit)
   # -------------------------------------------------------------------------
@@ -215,12 +226,17 @@ Resources:
       Runtime: python3.11
       Architectures:
         - arm64
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
       Policies:
         - Statement:
             - Effect: Allow
               Action:
                 - cognito-idp:AdminUpdateUserAttributes
               Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
 
   PostConfirmationInvokePermission:
     Type: AWS::Lambda::Permission
@@ -401,3 +417,7 @@ Outputs:
   UserPoolClientId:
     Description: "Cognito User Pool Client ID"
     Value: !Ref UserPoolClient
+
+  UsersTableName:
+    Description: "Users DynamoDB Table Name"
+    Value: !Ref UsersTable
