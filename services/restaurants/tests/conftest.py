@@ -4,14 +4,26 @@ import os
 import sys
 import importlib
 
-# Add src to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+# Add src to path (insert at front so it takes priority)
+_SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
-# Avoid cross-service module collisions when running full-repo pytest.
-for module_name in ("app",):
-    sys.modules.pop(module_name, None)
+# Aggressively clear any cross-service modules to avoid collisions
+# (e.g. orders service leaves 'app', 'utils', 'handlers' in sys.modules)
+_MODULES_TO_CLEAR = [k for k in sys.modules if k in (
+    'app', 'utils', 'handlers', 'db', 'models', 'engine', 'errors', 'logger',
+) or k.startswith('handlers.')]
+for _m in _MODULES_TO_CLEAR:
+    sys.modules.pop(_m, None)
 
 import app
+import utils
+from handlers import restaurants as h_restaurants
+from handlers import menu as h_menu
+from handlers import config as h_config
+from handlers import favorites as h_favorites
+from handlers import images as h_images
 
 # ---------------------------------------------------------------------------
 # In-Memory DynamoDB Table Mock
@@ -55,7 +67,7 @@ class InMemoryTable:
             items = [i for i in items if i.get('active') == val]
         return {'Items': items}
 
-    def query(self, IndexName=None, KeyConditionExpression=None, ExpressionAttributeValues=None):
+    def query(self, IndexName=None, KeyConditionExpression=None, ExpressionAttributeValues=None, **kwargs):
         items = []
         target_val = None
         if KeyConditionExpression:
@@ -64,9 +76,7 @@ class InMemoryTable:
             except Exception:
                 target_val = None
 
-        # Primitive query mock for GSI_ActiveRestaurants
         if IndexName == 'GSI_ActiveRestaurants':
-             # Return all items where is_active == "1"
              for item in self.items.values():
                  if item.get('is_active') == "1":
                      items.append(item)
@@ -75,7 +85,7 @@ class InMemoryTable:
                  for item in self.items.values():
                      if item.get('cuisine') == target_val:
                          items.append(item)
-                         
+
         elif IndexName == 'GSI_PriceTier':
              if target_val:
                  for item in self.items.values():
@@ -91,9 +101,9 @@ class InMemoryTable:
         key = Key[self.key_name]
         if key not in self.items:
             self.items[key] = {self.key_name: key}
-        
+
         item = self.items[key]
-        
+
         # 1. Handle SET
         if "SET" in UpdateExpression:
             set_part = UpdateExpression.split("SET")[1].split("REMOVE")[0]
@@ -103,10 +113,10 @@ class InMemoryTable:
                 if len(parts) == 2:
                     k = parts[0].strip()
                     v_placeholder = parts[1].strip()
-                    
+
                     if ExpressionAttributeNames and k in ExpressionAttributeNames:
                         k = ExpressionAttributeNames[k]
-                    
+
                     if ExpressionAttributeValues and v_placeholder in ExpressionAttributeValues:
                         val = ExpressionAttributeValues[v_placeholder]
                         item[k] = val
@@ -119,8 +129,15 @@ class InMemoryTable:
                 k = remove.strip()
                 if k in item:
                     del item[k]
-                    
+
         return {'Attributes': item}
+
+
+# Table attribute names shared by all modules that need patching.
+_TABLE_ATTRS = ('restaurants_table', 'menus_table', 'config_table', 'favorites_table')
+
+# All modules whose table references must be patched for tests.
+_MODULES_TO_PATCH = [app, utils, h_restaurants, h_menu, h_config, h_favorites, h_images]
 
 
 @pytest.fixture
@@ -135,22 +152,26 @@ def mock_tables():
     restaurants.items['r2'] = {'restaurant_id': 'r2', 'name': 'Rest 2', 'active': True}
     restaurants.items['r3'] = {'restaurant_id': 'r3', 'name': 'Rest 3', 'active': True}
 
-    # Patch every visible `app` module reference used by tests.
-    module_candidates = {app, importlib.import_module("app")}
+    tables = {
+        'restaurants_table': restaurants,
+        'menus_table': menus,
+        'config_table': config,
+        'favorites_table': favorites,
+    }
+
+    # Save originals then patch every module.
     original_state = {}
-    for module in module_candidates:
-        original_state[module] = (
-            getattr(module, "restaurants_table", None),
-            getattr(module, "menus_table", None),
-            getattr(module, "config_table", None),
-            getattr(module, "favorites_table", None),
-        )
-        module.restaurants_table = restaurants
-        module.menus_table = menus
-        module.config_table = config
-        module.favorites_table = favorites
-    
+    for module in _MODULES_TO_PATCH:
+        original_state[id(module)] = {attr: getattr(module, attr, None) for attr in _TABLE_ATTRS}
+        for attr in _TABLE_ATTRS:
+            if hasattr(module, attr):
+                setattr(module, attr, tables[attr])
+
     yield {'restaurants': restaurants, 'menus': menus, 'config': config, 'favorites': favorites}
-    
-    for module, state in original_state.items():
-        module.restaurants_table, module.menus_table, module.config_table, module.favorites_table = state
+
+    # Restore originals.
+    for module in _MODULES_TO_PATCH:
+        saved = original_state[id(module)]
+        for attr in _TABLE_ATTRS:
+            if attr in saved:
+                setattr(module, attr, saved[attr])

@@ -213,8 +213,11 @@ def test_customer_favorites_reject_non_customer_role(mock_tables):
 
 
 def test_create_image_upload_url_admin_success(mock_tables, monkeypatch):
+    import utils as _utils
+    from handlers import images as _h_images
     mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True}
-    monkeypatch.setattr(app, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
+    monkeypatch.setattr(_utils, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
+    monkeypatch.setattr(_h_images, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
 
     class MockS3:
         @staticmethod
@@ -222,7 +225,8 @@ def test_create_image_upload_url_admin_success(mock_tables, monkeypatch):
             key = Params['Key']
             return f"https://uploads.example.com/{key}?ttl={ExpiresIn}"
 
-    monkeypatch.setattr(app, 's3_client', MockS3())
+    monkeypatch.setattr(_utils, 's3_client', MockS3())
+    monkeypatch.setattr(_h_images, 's3_client', MockS3())
 
     event = _admin_event(
         'POST /v1/restaurants/{restaurant_id}/images/upload-url',
@@ -260,13 +264,16 @@ def test_create_image_upload_url_denies_other_restaurant_admin(mock_tables):
 
 
 def test_create_image_upload_url_rejects_when_limit_reached(mock_tables, monkeypatch):
+    import utils as _utils
+    from handlers import images as _h_images
     mock_tables['restaurants'].items['r1'] = {
         'restaurant_id': 'r1',
         'name': 'Rest 1',
         'active': True,
         'restaurant_image_keys': [f'restaurants/r1/{idx}.jpg' for idx in range(5)],
     }
-    monkeypatch.setattr(app, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
+    monkeypatch.setattr(_utils, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
+    monkeypatch.setattr(_h_images, 'RESTAURANT_IMAGES_BUCKET', 'test-bucket')
 
     event = _restaurant_admin_event(
         'POST /v1/restaurants/{restaurant_id}/images/upload-url',
@@ -334,3 +341,73 @@ def test_update_restaurant_sets_image_keys_for_owner(mock_tables):
         'restaurants/r1/a.jpg',
         'restaurants/r1/b.jpg',
     ]
+
+
+def test_delete_restaurant_success_admin(mock_tables, monkeypatch):
+    """Admin can delete restaurant and its associated data."""
+    # Seed data
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Rest 1',
+        'contact_email': 'owner@test.com',
+        'active': True
+    }
+    # Seed config table if it exists in mock logic
+    if 'config' in mock_tables:
+        mock_tables['config'].items['r1'] = {'restaurant_id': 'r1', 'config': {}}
+
+    # Mock Cognito
+    class MockCognito:
+        def list_users(self, **kwargs):
+            return {'Users': [{'Username': 'owner@test.com'}]}
+        
+        def admin_delete_user(self, **kwargs):
+            pass
+
+    import handlers.restaurants as h_rest
+    monkeypatch.setattr(h_rest, 'cognito', MockCognito())
+    monkeypatch.setattr(h_rest, 'USER_POOL_ID', 'pool-1')
+
+    # Execute
+    event = _admin_event('DELETE /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = app.lambda_handler(event, None)
+
+    # Verify
+    assert response['statusCode'] == 200
+    assert 'r1' not in mock_tables['restaurants'].items
+    if 'config' in mock_tables:
+        assert 'r1' not in mock_tables['config'].items
+
+
+def test_delete_restaurant_denies_non_admin(mock_tables):
+    """Restaurant admin cannot delete their own restaurant."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1'}
+    
+    event = _restaurant_admin_event(
+        'DELETE /v1/restaurants/{restaurant_id}',
+        assigned_restaurant_id='r1', # Owner
+        restaurant_id='r1'
+    )
+    response = app.lambda_handler(event, None)
+    assert response['statusCode'] == 403
+
+
+def test_delete_restaurant_cognito_cleanup_failure_non_blocking(mock_tables, monkeypatch):
+    """Failure to delete Cognito user should not block restaurant deletion."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'contact_email': 'fail@test.com'}
+    
+    class MockCognitoError:
+        def list_users(self, **kwargs):
+            raise Exception("Cognito Down")
+        # admin_delete_user might be called if list_users succeeds, but here list_users fails first
+
+    import handlers.restaurants as h_rest
+    monkeypatch.setattr(h_rest, 'cognito', MockCognitoError())
+    monkeypatch.setattr(h_rest, 'USER_POOL_ID', 'pool-1')
+
+    event = _admin_event('DELETE /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = app.lambda_handler(event, None)
+    
+    # Needs to still succeed
+    assert response['statusCode'] == 200
+    assert 'r1' not in mock_tables['restaurants'].items
