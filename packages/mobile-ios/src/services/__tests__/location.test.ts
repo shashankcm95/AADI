@@ -32,11 +32,15 @@ import {
     calculateDistance,
     applyCircuity,
     isUserApproaching,
+} from '../location/utils/geo';
+import {
     AsyncMutex,
     SerialEventQueue,
+} from '../location/utils/queue';
+import {
     CONFIG,
     EVENT_PRIORITY,
-} from '../location';
+} from '../location/config';
 
 // ===== determineZone Tests =====
 describe('determineZone', () => {
