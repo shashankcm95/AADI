@@ -4,6 +4,7 @@ Customer-facing order handlers.
 Handles: create, get, list, vicinity, cancel.
 """
 import json
+import base64
 import time
 import uuid
 from decimal import Decimal
@@ -199,21 +200,42 @@ def list_customer_orders(event):
     customer_id = db.get_customer_id(event)
     req_log = log.bind(handler="list_customer_orders", customer_id=customer_id)
 
+    query_params = event.get('queryStringParameters') or {}
+    try:
+        limit = min(int(query_params.get('limit', 25)), 100)
+    except (ValueError, TypeError):
+        limit = 25
+    next_token = query_params.get('next_token')
+
     try:
         with Timer() as t:
-            resp = db.orders_table.query(
-                IndexName='GSI_CustomerOrders',
-                KeyConditionExpression=Key('customer_id').eq(customer_id),
-                ScanIndexForward=False
-            )
+            kwargs = {
+                'IndexName': 'GSI_CustomerOrders',
+                'KeyConditionExpression': Key('customer_id').eq(customer_id),
+                'ScanIndexForward': False,
+                'Limit': limit,
+            }
+            if next_token:
+                kwargs['ExclusiveStartKey'] = json.loads(
+                    base64.b64decode(next_token).decode()
+                )
+
+            resp = db.orders_table.query(**kwargs)
 
         items = resp.get('Items', [])
+        result = {'orders': items}
+
+        if 'LastEvaluatedKey' in resp:
+            result['next_token'] = base64.b64encode(
+                json.dumps(resp['LastEvaluatedKey'], default=db.decimal_default).encode()
+            ).decode()
+
         req_log.info("orders_listed", extra={"count": len(items), "duration_ms": t.elapsed_ms})
 
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'orders': items}, default=db.decimal_default)
+            'body': json.dumps(result, default=db.decimal_default)
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)

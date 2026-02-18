@@ -34,11 +34,7 @@ class PaymentMode(StrEnum):
     AT_RESTAURANT = "PAY_AT_RESTAURANT"
 
 
-class FulfillmentStage(StrEnum):
-    INIT = "STAGE_INIT"
-    PROCESS = "STAGE_PROCESS"
-    FINALIZE = "STAGE_FINALIZE"
-    HANDOFF = "STAGE_HANDOFF"
+
 
 
 # Backward-compatible aliases — existing code uses these names
@@ -57,17 +53,11 @@ RECEIPT_HARD = ReceiptMode.HARD
 
 ARRIVAL_UNKNOWN = ArrivalStatus.UNKNOWN
 ARRIVAL_5_MIN = ArrivalStatus.FIVE_MIN_OUT
-ARRIVAL_PARKING = ArrivalStatus.PARKING
-ARRIVAL_DOOR = ArrivalStatus.AT_DOOR
-ARRIVAL_EXIT = ArrivalStatus.EXIT_VICINITY
 
 
 PAYMENT_MODE_AT_RESTAURANT = PaymentMode.AT_RESTAURANT
 
-STAGE_INIT = FulfillmentStage.INIT
-STAGE_PROCESS = FulfillmentStage.PROCESS
-STAGE_FINALIZE = FulfillmentStage.FINALIZE
-STAGE_HANDOFF = FulfillmentStage.HANDOFF
+
 
 @dataclass(frozen=True)
 class Resource:
@@ -88,7 +78,6 @@ class Session:
     destination_id: str     # Was restaurant_id
     status: str
     
-    # Timestamps
     # Timestamps
     created_at: int
     expires_at: int

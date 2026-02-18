@@ -3,8 +3,7 @@ class AppError(Exception):
     http_status: int = 500
     message: str = "internal error"
 
-    def to_dict(self):
-        return {"error": {"code": self.code, "message": self.message}}
+
 
     def __str__(self):
         return self.message

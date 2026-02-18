@@ -14,7 +14,6 @@ from models import (
     RECEIPT_SOFT,
     RECEIPT_HARD,
     ARRIVAL_5_MIN,
-    ARRIVAL_5_MIN,
     PAYMENT_MODE_AT_RESTAURANT
 )
 

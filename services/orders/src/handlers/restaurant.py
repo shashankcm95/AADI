@@ -4,6 +4,7 @@ Restaurant-side order handlers.
 Handles: list restaurant orders, acknowledge, update status.
 """
 import json
+import base64
 import time
 from boto3.dynamodb.conditions import Key
 
@@ -23,29 +24,50 @@ def list_restaurant_orders(restaurant_id, event):
     if not db.orders_table:
         return {'statusCode': 500, 'body': 'DB not configured'}
 
-    status = (event.get('queryStringParameters') or {}).get('status')
-    req_log.info("listing_orders", extra={"status_filter": status})
+    query_params = event.get('queryStringParameters') or {}
+    status = query_params.get('status')
+    try:
+        limit = min(int(query_params.get('limit', 25)), 100)
+    except (ValueError, TypeError):
+        limit = 25
+    next_token = query_params.get('next_token')
+    req_log.info("listing_orders", extra={"status_filter": status, "limit": limit})
 
     try:
         with Timer() as t:
-            if status:
-                resp = db.orders_table.query(
-                    IndexName='GSI_RestaurantStatus',
-                    KeyConditionExpression=Key('restaurant_id').eq(restaurant_id) & Key('status').eq(status)
-                )
-            else:
-                resp = db.orders_table.query(
-                    IndexName='GSI_RestaurantStatus',
-                    KeyConditionExpression=Key('restaurant_id').eq(restaurant_id)
+            kwargs = {'Limit': limit}
+            if next_token:
+                kwargs['ExclusiveStartKey'] = json.loads(
+                    base64.b64decode(next_token).decode()
                 )
 
+            if status:
+                kwargs.update({
+                    'IndexName': 'GSI_RestaurantStatus',
+                    'KeyConditionExpression': Key('restaurant_id').eq(restaurant_id) & Key('status').eq(status),
+                })
+            else:
+                kwargs.update({
+                    'IndexName': 'GSI_RestaurantStatus',
+                    'KeyConditionExpression': Key('restaurant_id').eq(restaurant_id),
+                })
+
+            resp = db.orders_table.query(**kwargs)
+
         items = resp.get('Items', [])
+        result = {'orders': items}
+
+        if 'LastEvaluatedKey' in resp:
+            result['next_token'] = base64.b64encode(
+                json.dumps(resp['LastEvaluatedKey'], default=db.decimal_default).encode()
+            ).decode()
+
         req_log.info("orders_listed", extra={"count": len(items), "duration_ms": t.elapsed_ms})
 
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json'},
-            'body': json.dumps({'orders': items}, default=db.decimal_default)
+            'body': json.dumps(result, default=db.decimal_default)
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
