@@ -10,6 +10,10 @@ Parameters:
   UserPoolClientId:
     Type: String
     Description: Cognito User Pool Client ID
+  CorsAllowOrigin:
+    Type: String
+    Description: Allowed CORS origin (e.g. https://d1234.cloudfront.net). Use '*' only for local dev.
+    Default: "http://localhost:5173"
 
 Globals:
   Function:
@@ -29,7 +33,7 @@ Globals:
               - !Ref UserPoolClientId
     CorsConfiguration:
       AllowOrigins:
-        - "*"
+        - !Ref CorsAllowOrigin
       AllowHeaders:
         - "Authorization"
         - "Content-Type"
