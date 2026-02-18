@@ -20,8 +20,16 @@ with patch("boto3.resource"), patch("boto3.client"):
 def mock_tables():
     restaurants_table = MagicMock()
     config_table = MagicMock()
+    
+    # Patch app-level references
     app.restaurants_table = restaurants_table
     app.config_table = config_table
+    
+    # Patch handlers-level references (critical for create_restaurant)
+    import handlers.restaurants
+    handlers.restaurants.restaurants_table = restaurants_table
+    handlers.restaurants.config_table = config_table
+    
     yield restaurants_table, config_table
 
 
@@ -55,7 +63,7 @@ def test_create_restaurant_as_admin(mock_tables):
         }
     )
 
-    with patch.object(app, "geocode_address", return_value=None):
+    with patch("handlers.restaurants.geocode_address", return_value=None):
         response = app.lambda_handler(event, None)
 
     assert response["statusCode"] == 201
