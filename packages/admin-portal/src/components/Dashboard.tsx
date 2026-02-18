@@ -3,7 +3,7 @@ import { fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth'
 import { API_BASE_URL, ORDERS_API_URL } from '../aws-exports'
 import '../App.css'
 import StatsBar from './StatsBar'
-import KanbanBoard, { Order } from './KanbanBoard'
+import OrderTimeline, { Order } from './OrderTimeline'
 import RestaurantForm from './RestaurantForm'
 import AdminDashboard from './AdminDashboard'
 import MenuIngestion from './MenuIngestion'
@@ -34,7 +34,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [lastRefresh, setLastRefresh] = useState<string | null>(null)
-    const [filter, setFilter] = useState('active')
+    const [_filter, _setFilter] = useState('active')
     const [newOrderAlert, setNewOrderAlert] = useState(false)
     const [showAddRestaurant, setShowAddRestaurant] = useState(false)
 
@@ -273,19 +273,19 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     }, [token, selectedRestaurant, fetchOrders, showMenu, fetchMenu])
 
 
-    async function handleStatusUpdate(orderId: string, newStatus: string) {
+    async function handleAcknowledge(orderId: string) {
         try {
-            const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/status`, {
+            const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/ack`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ status: newStatus })
             })
             if (res.ok) fetchOrders()
+            else setError('Failed to acknowledge order')
         } catch (err: any) {
-            setError(err.message || 'Update failed')
+            setError(err.message || 'Acknowledge failed')
         }
     }
 
@@ -518,33 +518,17 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         {error && <span className="error">⚠️ {error}</span>}
                     </div>
 
-                    <div className="filter-tabs">
-                        <button className={`tab ${filter === 'active' ? 'active' : ''}`} onClick={() => setFilter('active')}>
-                            🔥 Active ({activeCount})
-                        </button>
-                        <button className={`tab ${filter === 'pending' ? 'active' : ''}`} onClick={() => setFilter('pending')}>
-                            ⏳ Pending ({pendingCount})
-                        </button>
-                        <button className={`tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-                            All ({orders.length})
-                        </button>
-                        <button className={`tab ${filter === 'completed' ? 'active' : ''}`} onClick={() => setFilter('completed')}>
-                            ✅ Done
-                        </button>
-                    </div>
-
                     {newOrderAlert && (
                         <div className="new-order-banner">
                             🔔 NEW ORDER RECEIVED!
                         </div>
                     )}
 
-                    <KanbanBoard orders={orders.filter(o => {
-                        if (filter === 'active') return ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'].includes(o.status)
-                        if (filter === 'pending') return o.status === 'PENDING_NOT_SENT'
-                        if (filter === 'completed') return o.status === 'COMPLETED'
-                        return true // 'all'
-                    })} handleStatusUpdate={handleStatusUpdate} />
+                    <OrderTimeline
+                        orders={orders}
+                        loading={loading}
+                        onAcknowledge={handleAcknowledge}
+                    />
                 </>
             )}
         </div>
