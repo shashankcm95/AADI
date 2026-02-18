@@ -9,6 +9,7 @@ import AdminDashboard from './AdminDashboard'
 import MenuIngestion from './MenuIngestion'
 import CapacitySettings from './CapacitySettings'
 import RestaurantImageManager from './RestaurantImageManager'
+import PosSettings from './PosSettings'
 
 // Interfaces
 interface Restaurant {
@@ -45,6 +46,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     // Capacity Management State
     const [showCapacity, setShowCapacity] = useState(false)
     const [showImages, setShowImages] = useState(false)
+    const [showPosSettings, setShowPosSettings] = useState(false)
 
     const prevOrderIds = useRef<Set<string>>(new Set())
 
@@ -67,7 +69,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             const role = attrs['custom:role']
             const RestId = attrs['custom:restaurant_id']
 
-            // console.log("RBAC Check:", { role, RestId })
+
 
             if (role === 'admin') {
                 // Super Admin - no restrictions
@@ -132,7 +134,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         if (_assignedRestaurantId && restaurants.length > 0) {
             const myRestaurant = restaurants.find(r => r.restaurant_id === _assignedRestaurantId)
             if (myRestaurant && !myRestaurant.active) {
-                // console.log("First login detected (Restaurant Inactive). Activating...")
+
                 activateRestaurant(_assignedRestaurantId)
             }
         }
@@ -148,7 +150,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 },
                 body: JSON.stringify({ active: true })
             })
-            // console.log("Restaurant Activated!")
+
             // Refresh to show active status
             fetchRestaurants()
         } catch (e) {
@@ -394,6 +396,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                 setShowMenu(prev => !prev)
                                 setShowCapacity(false)
                                 setShowImages(false)
+                                setShowPosSettings(false)
                             }}
                             className="btn btn-secondary"
                             style={{ background: showMenu ? '#e2e8f0' : undefined, color: showMenu ? 'black' : undefined, marginLeft: '0.5rem' }}
@@ -405,6 +408,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                 setShowCapacity(true)
                                 setShowMenu(false)
                                 setShowImages(false)
+                                setShowPosSettings(false)
                             }}
                             className="btn btn-secondary"
                             style={{ marginLeft: '0.5rem' }}
@@ -418,6 +422,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                     if (next) {
                                         setShowMenu(false)
                                         setShowCapacity(false)
+                                        setShowPosSettings(false)
                                     }
                                     return next
                                 })
@@ -426,6 +431,23 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                             style={{ marginLeft: '0.5rem', background: showImages ? '#e2e8f0' : undefined, color: showImages ? 'black' : undefined }}
                         >
                             {showImages ? 'Close Images' : '🖼️ Images'}
+                        </button>
+                        <button
+                            onClick={() => {
+                                setShowPosSettings(prev => {
+                                    const next = !prev
+                                    if (next) {
+                                        setShowMenu(false)
+                                        setShowCapacity(false)
+                                        setShowImages(false)
+                                    }
+                                    return next
+                                })
+                            }}
+                            className="btn btn-secondary"
+                            style={{ marginLeft: '0.5rem', background: showPosSettings ? '#e2e8f0' : undefined, color: showPosSettings ? 'black' : undefined }}
+                        >
+                            {showPosSettings ? 'Close POS' : '🔌 POS'}
                         </button>
                     </>
                 )}
@@ -503,6 +525,14 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         onSaveKeys={handleSaveRestaurantImages}
                     />
                 </div>
+            )}
+
+            {showPosSettings && token && selectedRestaurant && (
+                <PosSettings
+                    restaurantId={selectedRestaurant}
+                    token={token}
+                    onClose={() => setShowPosSettings(false)}
+                />
             )}
 
             {/* Hide Orders when Menu is open to avoid clutter? Or keep both? Let's hide orders if Menu is strictly overlay mode, but here it's inline. Let's keep orders visible below for context or hide them if showMenu is true to focus. */}

@@ -45,12 +45,12 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
     async function fetchRestaurants(authToken: string) {
         try {
-            // console.log("Fetching restaurants with token...")
+
             const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
                 headers: { 'Authorization': `Bearer ${authToken}` }
             })
             const data = await res.json()
-            // console.log("Restaurants API Response:", data)
+
             setRestaurants(data.restaurants || [])
         } catch (err) {
             console.error("API Error:", err)
