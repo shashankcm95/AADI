@@ -291,14 +291,14 @@ server.on('request', (req, res) => {
 
         // GET /v1/pos/menu — Get menu
         if (method === 'GET' && pathname === '/v1/pos/menu') {
-            const restaurant = restaurants.find(r => r.restaurant_id === restaurantId);
+            const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
             json(res, 200, { menu: restaurant?.menu || [], restaurant_id: restaurantId });
             return;
         }
 
         // POST /v1/pos/menu/sync — Sync menu
         if (method === 'POST' && pathname === '/v1/pos/menu/sync') {
-            const restaurant = restaurants.find(r => r.restaurant_id === restaurantId);
+            const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
             if (restaurant) {
                 restaurant.menu = payload.items || [];
                 console.log(`📝 [POS] Menu Synced: ${(payload.items || []).length} items for ${restaurantId}`);

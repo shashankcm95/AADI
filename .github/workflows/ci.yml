@@ -29,10 +29,16 @@ jobs:
         run: |
           pip install -r infrastructure/requirements-dev.txt
           pip install -r services/orders/requirements.txt
+          pip install -r services/restaurants/requirements.txt
       
       - name: Run Orders Engine Tests
         run: |
           cd services/orders
+          python -m pytest tests/ -v
+
+      - name: Run Restaurants Tests
+        run: |
+          cd services/restaurants
           python -m pytest tests/ -v
 
       - name: Run POS Integration Tests
@@ -43,6 +49,12 @@ jobs:
 
       - name: Run Linter (Ruff)
         run: ruff check services/orders/src services/restaurants/src
+
+      - name: Scan for Secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --baseline .secrets.baseline
+          detect-secrets audit --report --baseline .secrets.baseline
 
   frontend-check:
     runs-on: ubuntu-latest

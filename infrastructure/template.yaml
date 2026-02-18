@@ -386,6 +386,14 @@ Outputs:
     Description: "CloudFront URL for Admin Portal"
     Value: !Sub "https://${AdminPortalDistribution.DomainName}"
 
+  CustomerWebDistributionId:
+    Description: "CloudFront Distribution ID for Customer Web"
+    Value: !Ref CustomerWebDistribution
+
+  AdminPortalDistributionId:
+    Description: "CloudFront Distribution ID for Admin Portal"
+    Value: !Ref AdminPortalDistribution
+
   UserPoolId:
     Description: "Cognito User Pool ID"
     Value: !Ref UserPool

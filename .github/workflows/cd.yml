@@ -46,6 +46,8 @@ jobs:
   deploy-frontend:
     needs: deploy
     runs-on: ubuntu-latest
+    env:
+      STACK_NAME: arrive-dev
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
@@ -68,16 +70,29 @@ jobs:
           npx turbo run build --filter=admin-portal
 
       - name: Deploy Customer Web
-        # Fetch bucket again or pass via outputs (simplified here by re-fetching or known convention, but CD job separation makes env sharing harder. Let's merge jobs or re-fetch)
-        # Merging approach: actually 'deploy' job above only did backend. Let's do it all in one job or use outputs.
-        # For simplicity, we'll re-fetch or just assume the first job populated the stack.
         run: |
-          CUSTOMER_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='CustomerWebBucketName'].OutputValue" --output text)
+          CUSTOMER_BUCKET=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='CustomerWebBucketName'].OutputValue" --output text)
           aws s3 sync packages/customer-web/dist s3://$CUSTOMER_BUCKET --delete
-          echo "Deployed Customer Web to: http://$CUSTOMER_BUCKET.s3-website-us-east-1.amazonaws.com"
+          echo "Deployed Customer Web to s3://$CUSTOMER_BUCKET"
+
+      - name: Invalidate Customer Web CloudFront
+        run: |
+          CF_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='CustomerWebDistributionId'].OutputValue" --output text)
+          if [ "$CF_ID" != "None" ] && [ -n "$CF_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
+            echo "Invalidated CloudFront distribution $CF_ID"
+          fi
 
       - name: Deploy Admin Portal
         run: |
-          ADMIN_BUCKET=$(aws cloudformation describe-stacks --stack-name arrive-dev --query "Stacks[0].Outputs[?OutputKey=='AdminPortalBucketName'].OutputValue" --output text)
+          ADMIN_BUCKET=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='AdminPortalBucketName'].OutputValue" --output text)
           aws s3 sync packages/admin-portal/dist s3://$ADMIN_BUCKET --delete
-          echo "Deployed Admin Portal to: http://$ADMIN_BUCKET.s3-website-us-east-1.amazonaws.com"
+          echo "Deployed Admin Portal to s3://$ADMIN_BUCKET"
+
+      - name: Invalidate Admin Portal CloudFront
+        run: |
+          CF_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='AdminPortalDistributionId'].OutputValue" --output text)
+          if [ "$CF_ID" != "None" ] && [ -n "$CF_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
+            echo "Invalidated CloudFront distribution $CF_ID"
+          fi
