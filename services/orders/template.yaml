@@ -37,7 +37,10 @@ Globals:
               - !Ref UserPoolClientId
     CorsConfiguration:
       AllowOrigins:
-        - !Ref CorsAllowOrigin
+        - "https://d1f1m06nqs4ul2.cloudfront.net"
+        - "https://d18dqw0gujya99.cloudfront.net"
+        - "http://localhost:5173"
+        - "http://localhost:5174"
       AllowHeaders:
         - "Authorization"
         - "Content-Type"
