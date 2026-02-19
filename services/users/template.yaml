@@ -10,13 +10,18 @@ Parameters:
   UserPoolClientId:
     Type: String
     Description: Cognito User Pool Client ID
-  UsersTableName:
+
+  UserAvatarsBucketName:
     Type: String
-    Description: Name of the UsersTable from the infrastructure stack
+    Description: Name of the S3 Bucket for User Avatars
   CorsAllowOrigin:
     Type: String
     Description: Allowed CORS origin
     Default: "http://localhost:5173"
+  CorsAllowOriginAdmin:
+    Type: String
+    Description: Allowed CORS origin for admin portal
+    Default: "http://localhost:5174"
 
 Globals:
   Function:
@@ -36,8 +41,8 @@ Globals:
               - !Ref UserPoolClientId
     CorsConfiguration:
       AllowOrigins:
-        - "https://d1f1m06nqs4ul2.cloudfront.net"
-        - "https://d18dqw0gujya99.cloudfront.net"
+        - !Ref CorsAllowOrigin
+        - !Ref CorsAllowOriginAdmin
         - "http://localhost:5173"
         - "http://localhost:5174"
       AllowHeaders:
@@ -50,6 +55,54 @@ Globals:
         - "OPTIONS"
 
 Resources:
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+
+  UserAvatarsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref UserAvatarsBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
+            MaxAge: 3000
+
+  UserAvatarsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UserAvatarsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadAvatars
+            Effect: Allow
+            Principal: "*"
+            Action:
+              - s3:GetObject
+            Resource: !Sub "${UserAvatarsBucket.Arn}/*"
+
   UsersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -57,11 +110,14 @@ Resources:
       Handler: app.lambda_handler
       Environment:
         Variables:
-          USERS_TABLE: !Ref UsersTableName
+          USERS_TABLE: !Ref UsersTable
           USER_POOL_ID: !Ref UserPoolId
+          AVATARS_BUCKET_NAME: !Ref UserAvatarsBucketName
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTableName
+            TableName: !Ref UsersTable
+        - S3CrudPolicy:
+            BucketName: !Ref UserAvatarsBucketName
         - Statement:
             - Effect: Allow
               Action:
@@ -78,6 +134,11 @@ Resources:
           Properties:
             Path: /v1/users/me
             Method: PUT
+        CreateAvatarUploadUrl:
+          Type: HttpApi
+          Properties:
+            Path: /v1/users/me/avatar/upload-url
+            Method: POST
         HealthCheck:
           Type: HttpApi
           Properties:
@@ -90,3 +151,7 @@ Outputs:
   UsersApi:
     Description: "API Gateway endpoint URL for Users Service"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  UsersTableName:
+    Description: "Users DynamoDB Table Name"
+    Value: !Ref UsersTable

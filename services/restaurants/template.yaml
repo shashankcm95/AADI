@@ -14,6 +14,10 @@ Parameters:
     Type: String
     Description: Allowed CORS origin (e.g. https://d1234.cloudfront.net). Use '*' only for local dev.
     Default: "http://localhost:5173"
+  CorsAllowOriginAdmin:
+    Type: String
+    Description: Allowed CORS origin for admin portal
+    Default: "http://localhost:5174"
 
 Globals:
   Function:
@@ -33,8 +37,8 @@ Globals:
               - !Ref UserPoolClientId
     CorsConfiguration:
       AllowOrigins:
-        - "https://d1f1m06nqs4ul2.cloudfront.net"
-        - "https://d18dqw0gujya99.cloudfront.net"
+        - !Ref CorsAllowOrigin
+        - !Ref CorsAllowOriginAdmin
         - "http://localhost:5173"
         - "http://localhost:5174"
       AllowHeaders:
@@ -278,3 +282,4 @@ Outputs:
   RestaurantImagesBucketName:
     Description: "S3 bucket for restaurant media uploads"
     Value: !Ref RestaurantImagesBucket
+
