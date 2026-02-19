@@ -11,11 +11,10 @@ def lambda_handler(event, context):
     Main entry point for Users Service.
     Routing logic.
     """
-    # Log incoming event
-    # logger.info(json.dumps(event))
-
     http_method = event.get('requestContext', {}).get('http', {}).get('method')
     path = event.get('requestContext', {}).get('http', {}).get('path')
+    request_id = event.get('requestContext', {}).get('requestId')
+    logger.info("Users request received", extra={"method": http_method, "path": path, "request_id": request_id})
     
     # Enable CORS for OPTIONS
     if http_method == 'OPTIONS':
@@ -42,6 +41,9 @@ def lambda_handler(event, context):
             elif http_method == 'PUT':
                 return users.update_profile(event)
         
+        if path == '/v1/users/me/avatar/upload-url' and http_method == 'POST':
+            return users.create_avatar_upload_url(event)
+
         return {
             'statusCode': 404,
             'body': json.dumps({'error': 'Not Found'})
