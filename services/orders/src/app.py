@@ -72,7 +72,10 @@ def lambda_handler(event, context):
             if route_key in CUSTOMER_ROUTES:
                 if not customer_id:
                     return db.make_response(401, {'error': 'Unauthorized'})
-                if role != 'customer':
+                # Legacy/federated users may have no explicit role claim.
+                # Treat them as customers only when they are not tied to a restaurant.
+                is_customer = role == 'customer' or (not role and not assigned_restaurant_id)
+                if not is_customer:
                     req_log.warning("auth_rejected", extra={"reason": "wrong_role", "role": role})
                     return db.make_response(403, {'error': 'Access denied'})
 

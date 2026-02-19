@@ -34,6 +34,23 @@ def test_get_user_claims_valid():
     assert claims['customer_id'] == 'user-123'
     assert claims['username'] == 'admin-user'
 
+def test_get_user_claims_roleless_defaults_customer():
+    event = {
+        'requestContext': {
+            'authorizer': {
+                'jwt': {
+                    'claims': {
+                        'sub': 'user-123',
+                        'cognito:username': 'social-user'
+                    }
+                }
+            }
+        }
+    }
+    claims = utils.get_user_claims(event)
+    assert claims['role'] == 'customer'
+    assert claims['customer_id'] == 'user-123'
+
 def test_get_user_claims_invalid():
     assert utils.get_user_claims({}) == {}
 
@@ -55,6 +72,22 @@ def test_require_customer_success():
                     'claims': {
                         'sub': 'c1',
                         'custom:role': 'customer'
+                    }
+                }
+            }
+        }
+    }
+    customer_id, error = utils._require_customer(event)
+    assert customer_id == 'c1'
+    assert error is None
+
+def test_require_customer_roleless_success():
+    event = {
+        'requestContext': {
+            'authorizer': {
+                'jwt': {
+                    'claims': {
+                        'sub': 'c1'
                     }
                 }
             }

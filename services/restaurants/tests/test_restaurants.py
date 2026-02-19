@@ -9,10 +9,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 import app
 
 
-def _customer_event(route_key, restaurant_id=None, customer_id='cust_1'):
+def _customer_event(route_key, restaurant_id=None, customer_id='cust_1', include_role=True):
     path_params = {}
     if restaurant_id:
         path_params['restaurant_id'] = restaurant_id
+
+    claims = {
+        'sub': customer_id,
+    }
+    if include_role:
+        claims['custom:role'] = 'customer'
 
     return {
         'routeKey': route_key,
@@ -20,10 +26,7 @@ def _customer_event(route_key, restaurant_id=None, customer_id='cust_1'):
         'requestContext': {
             'authorizer': {
                 'jwt': {
-                    'claims': {
-                        'custom:role': 'customer',
-                        'sub': customer_id,
-                    }
+                    'claims': claims
                 }
             }
         }
@@ -210,6 +213,14 @@ def test_customer_favorites_reject_non_customer_role(mock_tables):
     }
     response = app.lambda_handler(event, None)
     assert response['statusCode'] == 403
+
+
+def test_customer_favorites_roleless_user_allowed(mock_tables):
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True, 'is_active': '1'}
+
+    add_event = _customer_event('PUT /v1/favorites/{restaurant_id}', restaurant_id='r1', include_role=False)
+    add_response = app.lambda_handler(add_event, None)
+    assert add_response['statusCode'] == 200
 
 
 def test_create_image_upload_url_admin_success(mock_tables, monkeypatch):

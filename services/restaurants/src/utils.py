@@ -57,10 +57,18 @@ def get_user_claims(event):
     """Extract user claims from the event."""
     try:
         claims = event['requestContext']['authorizer']['jwt']['claims']
+        role = claims.get('custom:role') or claims.get('role')
+        restaurant_id = claims.get('custom:restaurant_id') or claims.get('restaurant_id')
+        customer_id = claims.get('sub')
+
+        # Legacy/federated users may not carry custom role attributes.
+        if not role and customer_id and not restaurant_id:
+            role = 'customer'
+
         return {
-            'role': claims.get('custom:role') or claims.get('role'),
-            'restaurant_id': claims.get('custom:restaurant_id') or claims.get('restaurant_id'),
-            'customer_id': claims.get('sub'),
+            'role': role,
+            'restaurant_id': restaurant_id,
+            'customer_id': customer_id,
             'username': claims.get('cognito:username') or claims.get('username')
         }
     except (KeyError, TypeError):
@@ -77,11 +85,14 @@ def _require_customer(event):
     claims = get_user_claims(event)
     customer_id = claims.get('customer_id')
     role = claims.get('role')
+    restaurant_id = claims.get('restaurant_id')
 
     if not customer_id:
         return None, {'statusCode': 401, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Unauthorized'})}
 
-    if role != 'customer':
+    # Accept role-less users as customers only when not bound to a restaurant.
+    is_customer = role == 'customer' or (not role and not restaurant_id)
+    if not is_customer:
         return None, {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
 
     return customer_id, None

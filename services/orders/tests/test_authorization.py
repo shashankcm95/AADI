@@ -21,8 +21,9 @@ def _event(route_key, role, path_params=None, body=None, assigned_restaurant_id=
     path_params = path_params or {}
     claims = {
         "sub": "user_123",
-        "custom:role": role,
     }
+    if role is not None:
+        claims["custom:role"] = role
     if role == "restaurant_admin":
         claims["custom:restaurant_id"] = (
             assigned_restaurant_id
@@ -111,6 +112,16 @@ def test_restaurant_admin_cannot_call_customer_create_order():
     )
     resp = app.lambda_handler(event, None)
     assert resp["statusCode"] == 403
+
+
+def test_roleless_user_can_call_customer_create_order():
+    event = _event(
+        "POST /v1/orders",
+        role=None,
+        body={"restaurant_id": "rest_1", "items": [{"id": "i1", "qty": 1}]},
+    )
+    resp = app.lambda_handler(event, None)
+    assert resp["statusCode"] != 403
 
 
 def test_customer_cannot_call_restaurant_status_update():

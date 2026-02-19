@@ -32,6 +32,7 @@ def list_restaurants(event):
             resp = restaurants_table.get_item(Key={'restaurant_id': assigned_restaurant_id})
             item = resp.get('Item')
             items = [item] if item else []
+            next_key = None
         else:
             query_params = event.get('queryStringParameters') or {}
             cuisine_filter = query_params.get('cuisine')
