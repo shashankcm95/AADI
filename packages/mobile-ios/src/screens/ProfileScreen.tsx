@@ -5,16 +5,28 @@ import {
     Image,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
+    ScrollView,
+    KeyboardAvoidingView,
+    Platform
 } from 'react-native';
 import { signOut } from 'aws-amplify/auth';
+import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../theme';
-import { clearAuthHeaderCache } from '../services/api';
+import {
+    clearAuthHeaderCache,
+    getUserProfile,
+    updateUserProfile,
+    getAvatarUploadUrl,
+    uploadAvatarToS3,
+    UserProfile
+} from '../services/api';
 import { clearMyOrdersCache } from '../services/orderHistory';
+
 import { clearMyFavoritesCache } from '../services/favorites';
 import { clearRestaurantsCache } from '../services/restaurantsCatalog';
-import { getCurrentUserProfile, UserProfile } from '../services/session';
 import { useCart } from '../state/CartContext';
 
 interface Props {
@@ -24,30 +36,110 @@ interface Props {
 export default function ProfileScreen({ navigation }: Props) {
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(false);
+    const [uploading, setUploading] = useState(false);
+
+    // Edit form state
+    const [editName, setEditName] = useState('');
+    const [editPhone, setEditPhone] = useState('');
+
     const { clearCart } = useCart();
 
+    const fetchProfile = async () => {
+        try {
+            const data = await getUserProfile();
+            setProfile(data);
+            setEditName(data.name || data.email?.split('@')[0] || '');
+            setEditPhone(data.phone_number || '');
+        } catch (error) {
+            console.error('Failed to fetch profile:', error);
+            // Fallback to session? No, we want to force API usage now.
+            Alert.alert('Error', 'Failed to load profile');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        let cancelled = false;
-
-        getCurrentUserProfile()
-            .then((result) => {
-                if (!cancelled) {
-                    setProfile(result);
-                }
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setLoading(false);
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
+        fetchProfile();
     }, []);
 
+    const handleSave = async () => {
+        if (!editName.trim()) {
+            Alert.alert('Error', 'Name cannot be empty');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const updated = await updateUserProfile({
+                name: editName,
+                phone_number: editPhone
+            });
+            setProfile(updated);
+            setEditing(false);
+            Alert.alert('Success', 'Profile updated');
+        } catch (error) {
+            console.error('Update failed:', error);
+            Alert.alert('Error', 'Failed to update profile');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            uploadImage(result.assets[0].uri);
+        }
+    };
+
+    const uploadImage = async (uri: string) => {
+        setUploading(true);
+        try {
+            // 1. Get Presigned URL
+            const { upload_url, s3_key, bucket, region, public_url } = await getAvatarUploadUrl('image/jpeg');
+
+            // 2. Upload to S3
+            // Note: In real app, might need to detect mime type from uri. Assuming jpeg for now.
+            await uploadAvatarToS3(upload_url, uri, 'image/jpeg');
+
+            // 3. Construct Public URL (Assuming public bucket or we save key)
+            // If bucket is public: https://{bucket}.s3.{region}.amazonaws.com/{key}
+            // If we save key, we need frontend to know how to construct it.
+            // Let's assume we save the key for now and construct URL in render, 
+            // OR we save the full URL. Ideally backend logic.
+            // Implementation Plan said "S3 URL or Key". 
+            // Let's save the FULL URL if possible, or just the key.
+            // Let's try to update with the KEY, and see if backend handles it?
+            // Backend valid fields: picture.
+
+            // Let's construct the URL to save.
+            // Using generic S3 URL structure:
+            const s3Url = public_url || `https://${bucket}.s3.${region}.amazonaws.com/${s3_key}`;
+
+            // 4. Update Profile
+            const updated = await updateUserProfile({ picture: s3Url });
+            setProfile(updated);
+
+            Alert.alert('Success', 'Profile picture updated');
+
+        } catch (error) {
+            console.error('Upload failed:', error);
+            Alert.alert('Error', 'Failed to upload image');
+        } finally {
+            setUploading(false);
+        }
+    };
+
     const handleSignOut = () => {
-        Alert.alert('Sign Out', 'Do you want to sign out from this customer account?', [
+        Alert.alert('Sign Out', 'Do you want to sign out?', [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Sign Out',
@@ -61,7 +153,7 @@ export default function ProfileScreen({ navigation }: Props) {
                         clearAuthHeaderCache();
                         await signOut();
                     } catch (error) {
-                        console.warn('[ProfileScreen] Sign-out warning:', error);
+                        console.warn('Sign-out error:', error);
                     } finally {
                         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
                     }
@@ -70,60 +162,113 @@ export default function ProfileScreen({ navigation }: Props) {
         ]);
     };
 
-    if (loading) {
+    if (loading && !profile) {
         return (
             <View style={styles.center}>
                 <ActivityIndicator size="large" color={theme.colors.primary} />
-                <Text style={styles.loadingText}>Loading profile...</Text>
             </View>
         );
     }
 
-    const showImage = Boolean(profile?.picture);
+    // Use profile picture or fallback
+    const avatarSource = profile?.picture
+        ? { uri: profile.picture }
+        : require('../../assets/logo_icon_stylized.png');
 
     return (
-        <View style={styles.container}>
-            <View style={styles.card}>
-                <View style={styles.headerRow}>
-                    {showImage ? (
-                        <Image source={{ uri: profile?.picture }} style={styles.avatarImage} resizeMode="cover" />
-                    ) : (
-                        <Image
-                            source={require('../../assets/logo_icon_stylized.png')}
-                            style={styles.avatarFallback}
-                            resizeMode="cover"
-                        />
-                    )}
+        <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.container}
+        >
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                <View style={styles.card}>
+                    <View style={styles.headerColumn}>
+                        <TouchableOpacity onPress={handlePickImage} disabled={uploading || editing}>
+                            <View style={styles.avatarContainer}>
+                                <Image source={avatarSource} style={styles.avatarImage} resizeMode="cover" />
+                                <View style={styles.editIconBadge}>
+                                    <Text style={styles.editIconText}>📷</Text>
+                                </View>
+                                {uploading && (
+                                    <View style={styles.uploadOverlay}>
+                                        <ActivityIndicator color="#fff" />
+                                    </View>
+                                )}
+                            </View>
+                        </TouchableOpacity>
 
-                    <View style={styles.identityWrap}>
-                        <Text style={styles.name}>{profile?.displayName || 'Customer'}</Text>
-                        <Text style={styles.meta}>{profile?.email || 'No email on file'}</Text>
-                        {profile?.userId ? (
-                            <Text style={styles.meta}>User ID: {profile.userId.slice(0, 10)}...</Text>
-                        ) : null}
+                        {!editing ? (
+                            <>
+                                <Text style={styles.name}>{profile?.name || profile?.email?.split('@')[0] || 'Customer'}</Text>
+                                <Text style={styles.meta}>{profile?.email}</Text>
+                                {profile?.role && profile.role !== 'customer' && (
+                                    <View style={styles.roleBadge}>
+                                        <Text style={styles.roleText}>{profile?.role?.toUpperCase()}</Text>
+                                    </View>
+                                )}
+                            </>
+                        ) : (
+                            <View style={styles.editForm}>
+                                <Text style={styles.label}>Name</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={editName}
+                                    onChangeText={setEditName}
+                                    placeholder="Full Name"
+                                />
+
+                                <Text style={styles.label}>Phone</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={editPhone}
+                                    onChangeText={setEditPhone}
+                                    placeholder="+1234567890"
+                                    keyboardType="phone-pad"
+                                />
+                            </View>
+                        )}
                     </View>
+
+                    <View style={styles.buttonRow}>
+                        {!editing ? (
+                            <TouchableOpacity style={styles.editButton} onPress={() => setEditing(true)}>
+                                <Text style={styles.editButtonText}>Edit Profile</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.saveCancelRow}>
+                                <TouchableOpacity style={[styles.editButton, styles.cancelButton]} onPress={() => setEditing(false)}>
+                                    <Text style={[styles.editButtonText, styles.cancelText]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.editButton, styles.saveButton]} onPress={handleSave}>
+                                    <Text style={[styles.editButtonText, styles.saveText]}>Save</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Orders')}>
+                        <Text style={styles.actionTitle}>Order History</Text>
+                        <Text style={styles.chevron}>›</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Cart')}>
+                        <Text style={styles.actionTitle}>Cart</Text>
+                        <Text style={styles.chevron}>›</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Favorites')}>
+                        <Text style={styles.actionTitle}>Favorites</Text>
+                        <Text style={styles.chevron}>›</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+                        <Text style={styles.signOutText}>Sign Out</Text>
+                    </TouchableOpacity>
                 </View>
-
-                <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Orders')}>
-                    <Text style={styles.actionTitle}>Order History</Text>
-                    <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Cart')}>
-                    <Text style={styles.actionTitle}>Cart</Text>
-                    <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Favorites')}>
-                    <Text style={styles.actionTitle}>Favorites</Text>
-                    <Text style={styles.chevron}>›</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-                    <Text style={styles.signOutText}>Sign Out</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 }
 
@@ -131,6 +276,8 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: theme.colors.background,
+    },
+    scrollContent: {
         padding: theme.spacing.lg,
     },
     center: {
@@ -139,83 +286,157 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         backgroundColor: theme.colors.background,
     },
-    loadingText: {
-        ...theme.typography.body,
-        color: theme.colors.textSecondary,
-        marginTop: theme.spacing.md,
-    },
     card: {
         ...theme.layout.card,
         padding: theme.spacing.lg,
     },
-    headerRow: {
-        flexDirection: 'row',
+    headerColumn: {
         alignItems: 'center',
         marginBottom: theme.spacing.lg,
     },
+    avatarContainer: {
+        position: 'relative',
+        marginBottom: theme.spacing.md,
+    },
     avatarImage: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        marginRight: theme.spacing.md,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        borderWidth: 2,
+        borderColor: theme.colors.primary,
     },
     avatarFallback: {
-        width: 72,
-        height: 72,
-        borderRadius: 18,
-        marginRight: theme.spacing.md,
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        borderWidth: 2,
+        borderColor: theme.colors.border,
+    },
+    editIconBadge: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: theme.colors.surface,
+        borderRadius: 12,
+        padding: 4,
         borderWidth: 1,
         borderColor: theme.colors.border,
     },
-    identityWrap: {
-        flex: 1,
+    editIconText: {
+        fontSize: 12,
+    },
+    uploadOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        borderRadius: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     name: {
         ...theme.typography.h2,
         color: theme.colors.text,
+        marginBottom: 4,
     },
     meta: {
-        ...theme.typography.bodySm,
+        ...theme.typography.body,
         color: theme.colors.textSecondary,
-        marginTop: theme.spacing.xs,
+    },
+    roleBadge: {
+        marginTop: 8,
+        backgroundColor: theme.colors.primary + '20',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    roleText: {
+        ...theme.typography.caption,
+        color: theme.colors.primary,
+        fontWeight: '700',
+    },
+    editForm: {
+        width: '100%',
+        marginTop: 10,
+    },
+    label: {
+        ...theme.typography.caption,
+        color: theme.colors.textSecondary,
+        marginBottom: 4,
+        marginTop: 8,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: 8,
+        padding: 10,
+        fontSize: 16,
+        color: theme.colors.text,
+        backgroundColor: theme.colors.background,
+    },
+    buttonRow: {
+        marginBottom: theme.spacing.xl,
+    },
+    editButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        alignItems: 'center',
+    },
+    editButtonText: {
+        ...theme.typography.body,
+        fontWeight: '600',
+    },
+    saveCancelRow: {
+        flexDirection: 'row',
+        gap: 10,
+        justifyContent: 'center',
+        marginTop: 10,
+    },
+    cancelButton: {
+        backgroundColor: theme.colors.error + '10',
+        borderColor: theme.colors.error,
+    },
+    cancelText: {
+        color: theme.colors.error,
+    },
+    saveButton: {
+        backgroundColor: theme.colors.primary,
+        borderColor: theme.colors.primary,
+    },
+    saveText: {
+        color: '#fff',
+    },
+    divider: {
+        height: 1,
+        backgroundColor: theme.colors.border,
+        marginBottom: theme.spacing.lg,
     },
     actionRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        borderRadius: theme.radii.input,
-        paddingHorizontal: theme.spacing.md,
         paddingVertical: theme.spacing.md,
-        marginBottom: theme.spacing.sm,
-        backgroundColor: theme.colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.colors.border + '40',
     },
     actionTitle: {
         ...theme.typography.body,
+        fontSize: 16,
         color: theme.colors.text,
-        fontWeight: '600',
     },
     chevron: {
         ...theme.typography.h3,
         color: theme.colors.textSecondary,
-        lineHeight: 18,
     },
     signOutButton: {
         marginTop: theme.spacing.xl,
-        borderRadius: theme.radii.button,
         alignItems: 'center',
-        justifyContent: 'center',
         paddingVertical: theme.spacing.md,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
     },
     signOutText: {
         ...theme.typography.body,
-        color: theme.colors.primary,
-        fontWeight: '700',
+        color: theme.colors.error,
+        fontWeight: '600',
     },
 });

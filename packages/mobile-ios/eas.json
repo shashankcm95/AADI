@@ -8,22 +8,25 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com",
-        "EXPO_PUBLIC_ORDERS_API_URL": "https://5fnj76yo6i.execute-api.us-east-1.amazonaws.com"
+        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://5bil2rxq9c.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_ORDERS_API_URL": "https://scscv96kc7.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_USERS_API_URL": "https://pulne3mtk0.execute-api.us-east-1.amazonaws.com"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com",
-        "EXPO_PUBLIC_ORDERS_API_URL": "https://5fnj76yo6i.execute-api.us-east-1.amazonaws.com"
+        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://5bil2rxq9c.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_ORDERS_API_URL": "https://scscv96kc7.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_USERS_API_URL": "https://pulne3mtk0.execute-api.us-east-1.amazonaws.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com",
-        "EXPO_PUBLIC_ORDERS_API_URL": "https://5fnj76yo6i.execute-api.us-east-1.amazonaws.com"
+        "EXPO_PUBLIC_RESTAURANTS_API_URL": "https://5bil2rxq9c.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_ORDERS_API_URL": "https://scscv96kc7.execute-api.us-east-1.amazonaws.com",
+        "EXPO_PUBLIC_USERS_API_URL": "https://pulne3mtk0.execute-api.us-east-1.amazonaws.com"
       }
     }
   }

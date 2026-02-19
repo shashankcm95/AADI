@@ -2,6 +2,7 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 import {
     ORDERS_API_BASE_URL,
     RESTAURANTS_API_BASE_URL,
+    USERS_API_BASE_URL,
 } from '../config';
 
 /**
@@ -283,4 +284,92 @@ export async function getMyOrders(): Promise<Order[]> {
     }
     const data = await response.json();
     return data.orders;
+}
+
+
+/**
+ * Users Service
+ */
+
+export interface UserProfile {
+    user_id: string;
+    email?: string;
+    role?: string;
+    name?: string;
+    phone_number?: string;
+    picture?: string;
+    created_at?: number;
+    updated_at?: number;
+}
+
+export async function getUserProfile(): Promise<UserProfile> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${USERS_API_BASE_URL}/v1/users/me`, {
+        headers: { ...headers }
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch profile');
+    }
+
+    return response.json();
+}
+
+export async function updateUserProfile(data: { name?: string; phone_number?: string; picture?: string }): Promise<UserProfile> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${USERS_API_BASE_URL}/v1/users/me`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...headers
+        },
+        body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to update profile');
+    }
+
+    return response.json();
+}
+
+export async function getAvatarUploadUrl(contentType: string): Promise<{
+    upload_url: string;
+    s3_key: string;
+    bucket?: string;
+    region?: string;
+    public_url?: string;
+}> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${USERS_API_BASE_URL}/v1/users/me/avatar/upload-url`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...headers
+        },
+        body: JSON.stringify({ content_type: contentType })
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to get upload URL');
+    }
+
+    return response.json();
+}
+
+export async function uploadAvatarToS3(uploadUrl: string, fileUri: string, contentType: string): Promise<void> {
+    const response = await fetch(fileUri);
+    const blob = await response.blob();
+
+    const uploadResponse = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': contentType
+        },
+        body: blob
+    });
+
+    if (!uploadResponse.ok) {
+        throw new Error('Failed to upload avatar to S3');
+    }
 }
