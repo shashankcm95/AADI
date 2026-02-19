@@ -1,0 +1,151 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { getUserProfile, updateUserProfile, getAvatarUploadUrl, uploadAvatarToS3 } from '../services/api';
+
+export default function Profile({ user, signOut }) {
+    const [profile, setProfile] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(false);
+    const [uploading, setUploading] = useState(false);
+
+    const [editName, setEditName] = useState('');
+    const [editPhone, setEditPhone] = useState('');
+
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        loadProfile();
+    }, []);
+
+    const loadProfile = async () => {
+        try {
+            const data = await getUserProfile();
+            setProfile(data);
+            setEditName(data.name || '');
+            setEditPhone(data.phone_number || '');
+        } catch (err) {
+            console.error('Failed to load profile', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        try {
+            const updated = await updateUserProfile({
+                name: editName,
+                phone_number: editPhone
+            });
+            setProfile(updated);
+            setEditing(false);
+        } catch (err) {
+            alert('Failed to update profile');
+            console.error('Failed to update profile', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleFileSelect = async (e) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            await uploadImage(file);
+        }
+    };
+
+    const uploadImage = async (file) => {
+        setUploading(true);
+        try {
+            const contentType = file.type || 'image/jpeg';
+            // 1. Get Presigned URL
+            const { upload_url, s3_key, bucket, region, public_url } = await getAvatarUploadUrl(contentType);
+
+            // 2. Upload to S3
+            await uploadAvatarToS3(upload_url, file, contentType);
+
+            // 3. Construct Public URL
+            const s3Url = public_url || `https://${bucket}.s3.${region}.amazonaws.com/${s3_key}`;
+
+            // 4. Update Profile
+            const updated = await updateUserProfile({ picture: s3Url });
+            setProfile(updated);
+            alert('Profile picture updated!');
+        } catch (err) {
+            console.error('Upload failed', err);
+            alert('Failed to upload image');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    if (loading && !profile) return <div className="p-4">Loading profile...</div>;
+
+    return (
+        <div className="profile-container fade-in">
+            <div className="profile-card">
+                <div className="profile-header">
+                    <div className="avatar-wrapper">
+                        <img
+                            src={profile?.picture || '/logo_icon_stylized.png'}
+                            alt="Profile"
+                            className="profile-avatar"
+                        />
+                        <button
+                            className="avatar-edit-btn"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={uploading || editing}
+                        >
+                            📷
+                        </button>
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                            accept="image/*"
+                            onChange={handleFileSelect}
+                        />
+                        {uploading && <div className="upload-spinner"></div>}
+                    </div>
+
+                    {!editing ? (
+                        <div className="profile-info">
+                            <h2>{profile?.name || user?.username || 'Customer'}</h2>
+                            <p className="profile-meta">{profile?.email}</p>
+                            {profile?.phone_number && <p className="profile-meta">{profile.phone_number}</p>}
+                            <button className="btn btn-outline" onClick={() => setEditing(true)}>Edit Profile</button>
+                        </div>
+                    ) : (
+                        <div className="profile-edit-form">
+                            <div className="form-group">
+                                <label>Name</label>
+                                <input
+                                    type="text"
+                                    value={editName}
+                                    onChange={e => setEditName(e.target.value)}
+                                    className="input-field"
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Phone</label>
+                                <input
+                                    type="tel"
+                                    value={editPhone}
+                                    onChange={e => setEditPhone(e.target.value)}
+                                    className="input-field"
+                                />
+                            </div>
+                            <div className="button-group">
+                                <button className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
+                                <button className="btn btn-primary" onClick={handleSave}>Save</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="profile-actions">
+                    <button onClick={signOut} className="btn btn-danger full-width">Sign Out</button>
+                </div>
+            </div>
+        </div>
+    );
+}

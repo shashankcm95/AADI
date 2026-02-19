@@ -8,6 +8,8 @@ import RestaurantSelector from './components/RestaurantSelector'
 import MenuGrid from './components/MenuGrid'
 import Cart from './components/Cart'
 import OrderList from './components/OrderList'
+import Profile from './components/Profile'
+import Favorites from './components/Favorites'
 import { RESTAURANTS_API_URL, ORDERS_API_URL } from './config'
 
 
@@ -34,6 +36,9 @@ function MainAppContent({ user, signOut }) {
   // Orders
   const [myOrders, setMyOrders] = useState([])
   const [apiResponse, setApiResponse] = useState(null)
+
+  // Navigation
+  const [currentView, setCurrentView] = useState('home') // home | profile | favorites
 
 
   /* ── Data fetching ────────────────────────────────────────────── */
@@ -267,13 +272,20 @@ function MainAppContent({ user, signOut }) {
 
       <header className="artistic-header">
         <div className="header-row" style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="brand-lockup">
+          <div className="brand-lockup cursor-pointer" onClick={() => setCurrentView('home')}>
             <img src="/logo_icon_stylized.png" alt="AADI logo" className="brand-logo" />
             <div>
               <h1>AADI</h1>
               <p className="brand-subtitle">Order Ahead. Arrive Perfectly.</p>
             </div>
           </div>
+
+          <nav className="nav-tabs">
+            <button className={`nav-tab ${currentView === 'home' ? 'active' : ''}`} onClick={() => setCurrentView('home')}>Home</button>
+            <button className={`nav-tab ${currentView === 'favorites' ? 'active' : ''}`} onClick={() => setCurrentView('favorites')}>Favorites</button>
+            <button className={`nav-tab ${currentView === 'profile' ? 'active' : ''}`} onClick={() => setCurrentView('profile')}>Profile</button>
+          </nav>
+
           <div className="user-actions user-pill">
             <span className="username">{user.username?.split('_')[1]?.slice(0, 8) || 'User'}</span>
             <button onClick={() => signOut()} className="btn btn-small">Sign Out</button>
@@ -281,24 +293,42 @@ function MainAppContent({ user, signOut }) {
         </div>
       </header>
 
-      <RestaurantSelector
-        restaurants={restaurants}
-        selectedId={selectedRestaurant}
-        onSelect={setSelectedRestaurant}
-      />
+      {currentView === 'home' && (
+        <>
+          <RestaurantSelector
+            restaurants={restaurants}
+            selectedId={selectedRestaurant}
+            onSelect={setSelectedRestaurant}
+          />
 
-      {selectedRestaurant && (
-        <MenuGrid menu={menu} onAddToCart={addToCart} />
+          {selectedRestaurant && (
+            <MenuGrid menu={menu} onAddToCart={addToCart} />
+          )}
+
+          <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} />
+
+          <OrderList
+            orders={myOrders}
+            onVicinity={enterVicinity}
+            onCancel={cancelOrder}
+            onRefresh={getOrderStatus}
+          />
+        </>
       )}
 
-      <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} />
+      {currentView === 'profile' && (
+        <Profile user={user} signOut={signOut} />
+      )}
 
-      <OrderList
-        orders={myOrders}
-        onVicinity={enterVicinity}
-        onCancel={cancelOrder}
-        onRefresh={getOrderStatus}
-      />
+      {currentView === 'favorites' && (
+        <Favorites
+          restaurants={restaurants}
+          onSelectRestaurant={(id) => {
+            setSelectedRestaurant(id);
+            setCurrentView('home');
+          }}
+        />
+      )}
 
       {/* Debug API Response */}
       {apiResponse && (
