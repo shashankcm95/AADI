@@ -16,9 +16,7 @@ function AdminAuthHeader() {
 }
 
 const authComponents = {
-  SignIn: {
-    Header: AdminAuthHeader,
-  },
+  Header: AdminAuthHeader,
 }
 
 function App() {
