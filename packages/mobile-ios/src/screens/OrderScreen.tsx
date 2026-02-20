@@ -10,7 +10,7 @@ import {
     TouchableOpacity,
     ActivityIndicator,
 } from 'react-native';
-import { getOrder, sendArrivalEvent, getRestaurant } from '../services/api';
+import { getOrder, sendArrivalEvent, getRestaurant, getLeaveAdvisory, LeaveAdvisory } from '../services/api';
 import { startLocationTracking, stopLocationTracking } from '../services/location';
 import { theme } from '../theme';
 
@@ -42,6 +42,7 @@ interface Props {
 export default function OrderScreen({ route }: Props) {
     const { orderId } = route.params;
     const [order, setOrder] = useState<any>(null);
+    const [leaveAdvisory, setLeaveAdvisory] = useState<LeaveAdvisory | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -68,6 +69,18 @@ export default function OrderScreen({ route }: Props) {
             const data = await getOrder(orderId);
             setOrder(data);
             setLoading(false);
+
+            if (['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(data.status)) {
+                try {
+                    const advisory = await getLeaveAdvisory(orderId);
+                    setLeaveAdvisory(advisory);
+                } catch (advisoryError) {
+                    console.warn('[OrderScreen] Failed to fetch leave advisory:', advisoryError);
+                    setLeaveAdvisory(null);
+                }
+            } else {
+                setLeaveAdvisory(null);
+            }
 
             // Manage Location Tracking based on status
             const activeStatuses = ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'];
@@ -127,6 +140,9 @@ export default function OrderScreen({ route }: Props) {
 
     const statusInfo = STATUS_LABELS[order?.status] || STATUS_LABELS['PENDING_NOT_SENT'];
     const arrivalLabel = order?.arrival_status ? ARRIVAL_LABELS[order.arrival_status] : null;
+    const estimatedWaitMinutes = leaveAdvisory
+        ? Math.ceil(Math.max(0, Number(leaveAdvisory.estimated_wait_seconds || 0)) / 60)
+        : 0;
 
     return (
         <View style={styles.container}>
@@ -140,6 +156,18 @@ export default function OrderScreen({ route }: Props) {
 
                 {arrivalLabel && (
                     <Text style={styles.arrivalStatus}>{arrivalLabel}</Text>
+                )}
+
+                {leaveAdvisory && ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(order?.status) && (
+                    <View style={styles.advisoryCard}>
+                        <Text style={styles.advisoryTitle}>Leave-time estimate</Text>
+                        <Text style={styles.advisoryBody}>
+                            {leaveAdvisory.recommended_action === 'LEAVE_NOW'
+                                ? 'Leave now. Capacity looks available right now.'
+                                : `Wait about ${estimatedWaitMinutes} min before heading out.`}
+                        </Text>
+                        <Text style={styles.advisoryNote}>Estimate only. Capacity is reserved on arrival dispatch.</Text>
+                    </View>
                 )}
 
                 {/* Order Items */}
@@ -197,6 +225,29 @@ const styles = StyleSheet.create({
     statusEmoji: { fontSize: 24, marginRight: 12 },
     statusLabel: { fontSize: 18, fontWeight: '700' },
     arrivalStatus: { color: theme.colors.primary, fontSize: 16, marginBottom: 16, textAlign: 'center', fontWeight: 'bold' },
+    advisoryCard: {
+        borderWidth: 1,
+        borderColor: '#fde68a',
+        backgroundColor: '#fffbeb',
+        borderRadius: 12,
+        padding: 12,
+        marginBottom: 16,
+    },
+    advisoryTitle: {
+        color: '#92400e',
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 4,
+    },
+    advisoryBody: {
+        color: '#78350f',
+        fontSize: 14,
+    },
+    advisoryNote: {
+        color: '#a16207',
+        fontSize: 12,
+        marginTop: 6,
+    },
     itemsContainer: { borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
     itemLine: { color: theme.colors.text, fontSize: 16, marginBottom: 8 },
     total: { color: theme.colors.primary, fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'right' },

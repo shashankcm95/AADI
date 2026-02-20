@@ -78,6 +78,22 @@ export interface Order {
     updated_at?: string;
 }
 
+export interface LeaveAdvisory {
+    order_id: string;
+    status: string;
+    recommended_action: 'LEAVE_NOW' | 'WAIT' | 'FOLLOW_LIVE_STATUS';
+    estimated_wait_seconds: number;
+    suggested_leave_at: number;
+    current_window_start?: number;
+    next_window_start?: number;
+    current_reserved?: number;
+    available_slots?: number;
+    max_concurrent?: number;
+    window_seconds?: number;
+    is_estimate: boolean;
+    advisory_note?: string;
+}
+
 export interface Restaurant {
     restaurant_id: string;
     name: string;
@@ -266,6 +282,20 @@ export async function sendArrivalEvent(
         throw new Error('Failed to send arrival event');
     }
 
+    return response.json();
+}
+
+/**
+ * Get non-reserving leave-time estimate for an order.
+ */
+export async function getLeaveAdvisory(orderId: string): Promise<LeaveAdvisory> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders/${orderId}/advisory`, {
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to fetch leave advisory');
+    }
     return response.json();
 }
 
