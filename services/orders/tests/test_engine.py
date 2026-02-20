@@ -327,6 +327,7 @@ class TestCreateSessionModel:
         assert model["session_id"] == "s1"
         assert model["destination_id"] == "r1"
         assert model["customer_id"] == "c1"
+        assert model["customer_name"] == "Guest"
         assert model["status"] == STATUS_PENDING
         assert model["total_cents"] == 1800  # (500*2 + 800*1)
         assert model["work_units_total"] == 11  # (3*2 + 5*1)
@@ -355,6 +356,18 @@ class TestCreateSessionModel:
             "s5", "r1", [{"id": "x", "qty": 1}], "c1", NOW, NOW + 3600, ttl=ttl_val
         )
         assert model["ttl"] == ttl_val
+
+    def test_customer_name_passed_through(self):
+        model = create_session_model(
+            "s6",
+            "r1",
+            [{"id": "x", "qty": 1}],
+            "c1",
+            NOW,
+            NOW + 3600,
+            customer_name="Alex Doe",
+        )
+        assert model["customer_name"] == "Alex Doe"
 
 
 # =============================================================================

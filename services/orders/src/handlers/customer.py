@@ -27,6 +27,41 @@ log = get_logger("orders.customer", service="orders")
 DISPATCH_ELIGIBLE_EVENTS = {'5_MIN_OUT', 'PARKING', 'AT_DOOR'}
 
 
+def _sanitize_customer_name(name):
+    if not isinstance(name, str):
+        return None
+    cleaned = " ".join(name.strip().split())
+    if not cleaned:
+        return None
+    return cleaned[:80]
+
+
+def _resolve_customer_name(event, body_name=None):
+    provided = _sanitize_customer_name(body_name)
+    if provided:
+        return provided
+
+    claims = db.get_auth_claims(event)
+    full_name = " ".join(
+        part for part in [claims.get('given_name'), claims.get('family_name')] if part
+    )
+    claim_candidates = [
+        claims.get('name'),
+        claims.get('custom:name'),
+        full_name,
+        claims.get('preferred_username'),
+        claims.get('cognito:username'),
+        claims.get('email'),
+    ]
+
+    for candidate in claim_candidates:
+        cleaned = _sanitize_customer_name(candidate)
+        if cleaned:
+            return cleaned
+
+    return "Guest"
+
+
 def create_order(event):
     req_log = log.bind(handler="create_order")
     req_log.info("create_order_started")
@@ -105,8 +140,9 @@ def create_order(event):
         now = int(time.time())
         order_id = f"ord_{uuid.uuid4().hex[:16]}"
         customer_id = db.get_customer_id(event)
+        customer_name = _resolve_customer_name(event, body.get('customer_name'))
 
-        req_log = req_log.bind(order_id=order_id, customer_id=customer_id)
+        req_log = req_log.bind(order_id=order_id, customer_id=customer_id, customer_name=customer_name)
         req_log.info("order_id_generated")
 
         # Create domain model
@@ -118,7 +154,8 @@ def create_order(event):
             now=now,
             expires_at=now + 3600,  # 1 hour expiry
             ttl=now + (90 * 24 * 60 * 60), # 90 days retention,
-            payment_mode=PAYMENT_MODE_AT_RESTAURANT
+            payment_mode=PAYMENT_MODE_AT_RESTAURANT,
+            customer_name=customer_name,
         )
         req_log.info("session_model_created", extra={"status": order.get("status")})
 

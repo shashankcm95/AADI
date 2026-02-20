@@ -245,7 +245,14 @@ def tables():
     db.idempotency_table = original_idempotency
 
 
-def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1', role=None):
+def _make_event(
+    route_key,
+    body=None,
+    path_params=None,
+    customer_id='cust_test1',
+    role=None,
+    claim_overrides=None,
+):
     """Build a minimal API Gateway v2 event."""
     path_params = path_params or {}
     # Use role defaults that mirror production route ownership.
@@ -255,6 +262,8 @@ def _make_event(route_key, body=None, path_params=None, customer_id='cust_test1'
     claims = {'sub': customer_id, 'custom:role': role}
     if role == 'restaurant_admin':
         claims['custom:restaurant_id'] = path_params.get('restaurant_id', 'rest_abc')
+    if claim_overrides:
+        claims.update(claim_overrides)
 
     event = {
         'routeKey': route_key,
@@ -287,6 +296,39 @@ class TestRouteDispatch:
         event = _make_event('GET /v1/orders/{order_id}', path_params={'order_id': 'nope'})
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 404
+
+
+class TestCustomerNameCapture:
+    def test_create_order_uses_payload_customer_name(self, tables):
+        event = _make_event(
+            'POST /v1/orders',
+            body={
+                'restaurant_id': 'rest_abc',
+                'customer_name': 'Alex Doe',
+                'items': [{'id': 'coffee', 'qty': 1}],
+            },
+        )
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 201
+
+        body = json.loads(resp['body'])
+        assert body['customer_name'] == 'Alex Doe'
+        assert tables['orders'].items[body['order_id']]['customer_name'] == 'Alex Doe'
+
+    def test_create_order_falls_back_to_claim_name(self, tables):
+        event = _make_event(
+            'POST /v1/orders',
+            body={
+                'restaurant_id': 'rest_abc',
+                'items': [{'id': 'coffee', 'qty': 1}],
+            },
+            claim_overrides={'name': 'Claim User'},
+        )
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 201
+
+        body = json.loads(resp['body'])
+        assert body['customer_name'] == 'Claim User'
 
 
 # =============================================================================

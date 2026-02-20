@@ -66,12 +66,16 @@ def try_reserve_slot(
                 "restaurant_id": destination_id,  # PK name kept for DDB compat
                 "window_start": window_start,
             },
-            UpdateExpression="SET current_count = if_not_exists(current_count, :zero) + :one, "
-                             "ttl = :ttl",
+            UpdateExpression="SET #current_count = if_not_exists(#current_count, :zero) + :one, "
+                             "#ttl = :ttl",
             ConditionExpression=(
                 Attr("current_count").not_exists() |
                 Attr("current_count").lt(max_concurrent)
             ),
+            ExpressionAttributeNames={
+                "#current_count": "current_count",
+                "#ttl": "ttl",
+            },
             ExpressionAttributeValues={
                 ":zero": 0,
                 ":one": 1,

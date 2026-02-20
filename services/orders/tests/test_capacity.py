@@ -107,6 +107,7 @@ class TestTryReserveSlot:
         call_kwargs = table.update_item.call_args[1]
         # TTL = window_start + window_seconds + ttl_padding = 900 + 300 + 3600 = 4800
         assert call_kwargs['ExpressionAttributeValues'][':ttl'] == 4800
+        assert call_kwargs['ExpressionAttributeNames']['#ttl'] == 'ttl'
 
 
 # =============================================================================
