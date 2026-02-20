@@ -61,7 +61,10 @@ class InMemoryTable:
         self._cond_exc = ConditionalCheckFailedException
 
     def put_item(self, Item, ConditionExpression=None, **kwargs):
-        key = Item[self.key_name]
+        if isinstance(self.key_name, tuple):
+            key = tuple(Item[k] for k in self.key_name)
+        else:
+            key = Item[self.key_name]
         
         # Simple condition check for idempotency
         if ConditionExpression and 'attribute_not_exists' in ConditionExpression:
@@ -71,7 +74,10 @@ class InMemoryTable:
         self.items[key] = dict(Item)
 
     def get_item(self, Key):
-        key = Key[self.key_name]
+        if isinstance(self.key_name, tuple):
+            key = tuple(Key[k] for k in self.key_name)
+        else:
+            key = Key[self.key_name]
         item = self.items.get(key)
         if item:
             return {'Item': dict(item)}
@@ -284,6 +290,64 @@ class TestRouteDispatch:
 
 
 # =============================================================================
+# Leave Advisory (Non-Reserving)
+# =============================================================================
+
+class TestLeaveAdvisory:
+    def test_pending_order_leave_now_estimate(self, tables):
+        create = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'coffee', 'qty': 1}],
+        })
+        create_resp = app.lambda_handler(create, None)
+        order_id = json.loads(create_resp['body'])['order_id']
+
+        advisory = _make_event('GET /v1/orders/{order_id}/advisory', path_params={'order_id': order_id})
+        resp = app.lambda_handler(advisory, None)
+
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body['order_id'] == order_id
+        assert body['status'] == 'PENDING_NOT_SENT'
+        assert body['is_estimate'] is True
+        assert body['recommended_action'] in ('LEAVE_NOW', 'WAIT')
+
+    def test_waiting_order_advisory_recommends_wait_when_window_full(self, tables):
+        tables['config'].items['rest_abc']['max_concurrent_orders'] = 1
+
+        # Fill the single slot.
+        create_1 = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'a', 'qty': 1}],
+        })
+        order_1 = json.loads(app.lambda_handler(create_1, None)['body'])['order_id']
+        app.lambda_handler(
+            _make_event(
+                'POST /v1/orders/{order_id}/vicinity',
+                body={'event': '5_MIN_OUT'},
+                path_params={'order_id': order_1},
+            ),
+            None
+        )
+
+        # Second order is still pending; advisory should now recommend waiting.
+        create_2 = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'b', 'qty': 1}],
+        })
+        order_2 = json.loads(app.lambda_handler(create_2, None)['body'])['order_id']
+
+        advisory = _make_event('GET /v1/orders/{order_id}/advisory', path_params={'order_id': order_2})
+        resp = app.lambda_handler(advisory, None)
+
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body['is_estimate'] is True
+        assert body['recommended_action'] == 'WAIT'
+        assert body['estimated_wait_seconds'] >= 0
+
+
+# =============================================================================
 # Full Order Lifecycle: Happy Path
 # =============================================================================
 
@@ -401,8 +465,8 @@ class TestCapacityGatingFlow:
       3. Cancel one → slot released → next can reserve
     """
 
-    def _create_and_fire(self, tables):
-        """Helper: create an order and push it through 5_MIN_OUT."""
+    def _create_and_fire(self, tables, event_name='5_MIN_OUT'):
+        """Helper: create an order and push it through an arrival event."""
 
         event = _make_event('POST /v1/orders', body={
             'restaurant_id': 'rest_abc',
@@ -412,7 +476,7 @@ class TestCapacityGatingFlow:
         order_id = json.loads(resp['body'])['order_id']
 
         event = _make_event('POST /v1/orders/{order_id}/vicinity',
-                            body={'event': '5_MIN_OUT'},
+                            body={'event': event_name},
                             path_params={'order_id': order_id})
         resp = app.lambda_handler(event, None)
         body = json.loads(resp['body'])
@@ -463,6 +527,21 @@ class TestCapacityGatingFlow:
             f"After completion, new order should be SENT, got {body2['status']}"
         )
 
+    def test_at_door_does_not_bypass_capacity(self, tables):
+        """
+        Arrival events other than 5_MIN_OUT must not bypass capacity while pending/waiting.
+        """
+        tables['config'].items['rest_abc']['max_concurrent_orders'] = 1
+
+        oid1, body1 = self._create_and_fire(tables, event_name='5_MIN_OUT')
+        assert body1['status'] == 'SENT_TO_DESTINATION'
+
+        oid2, body2 = self._create_and_fire(tables, event_name='AT_DOOR')
+        assert body2['status'] == 'WAITING_FOR_CAPACITY', (
+            f"AT_DOOR should respect capacity, got {body2['status']}"
+        )
+        assert body2.get('arrival_status') == 'AT_DOOR'
+
 
 # =============================================================================
 # Vicinity Non-Capacity Events
@@ -470,8 +549,7 @@ class TestCapacityGatingFlow:
 
 class TestVicinityNonCapacityEvents:
     """
-    Tests that PARKING, AT_DOOR, EXIT_VICINITY bypass capacity and
-    go through decide_arrival_update.
+    Tests non-dispatch vicinity events on already-dispatched orders.
     """
 
     def _create_sent_order(self, tables):

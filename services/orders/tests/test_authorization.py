@@ -124,6 +124,17 @@ def test_roleless_user_can_call_customer_create_order():
     assert resp["statusCode"] != 403
 
 
+def test_restaurant_admin_cannot_call_customer_advisory():
+    event = _event(
+        "GET /v1/orders/{order_id}/advisory",
+        role="restaurant_admin",
+        path_params={"order_id": "ord_1"},
+        assigned_restaurant_id="rest_1",
+    )
+    resp = app.lambda_handler(event, None)
+    assert resp["statusCode"] == 403
+
+
 def test_customer_cannot_call_restaurant_status_update():
     event = _event(
         "POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status",

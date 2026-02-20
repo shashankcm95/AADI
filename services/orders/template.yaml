@@ -171,6 +171,11 @@ Resources:
           Properties:
             Path: /v1/orders/{order_id}
             Method: GET
+        GetLeaveAdvisory:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/advisory
+            Method: GET
         ListCustomerOrders:
           Type: HttpApi
           Properties:

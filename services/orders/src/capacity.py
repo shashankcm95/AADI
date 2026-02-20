@@ -193,3 +193,102 @@ def check_and_reserve_for_arrival(
         "window_seconds": window_seconds,
         "max_concurrent": max_concurrent,
     }
+
+
+def get_window_usage(
+    capacity_table,
+    destination_id: str,
+    window_start: int,
+) -> int:
+    """
+    Return current reserved count for a specific destination/window.
+
+    Read-only helper used for advisory estimates. Never reserves capacity.
+    """
+    if not capacity_table:
+        return 0
+
+    try:
+        resp = capacity_table.get_item(
+            Key={
+                "restaurant_id": destination_id,
+                "window_start": window_start,
+            }
+        )
+        item = resp.get("Item", {})
+        return max(0, int(item.get("current_count", 0)))
+    except Exception:
+        return 0
+
+
+def estimate_leave_advisory(
+    capacity_table,
+    config_table,
+    destination_id: str,
+    now: int,
+) -> Dict[str, Any]:
+    """
+    Provide a non-reserving leave-time estimate for the customer.
+
+    This endpoint is advisory only:
+      - no slot reservation
+      - no status mutation
+      - no promise of availability
+    """
+    config = get_capacity_config(config_table, destination_id)
+    max_concurrent = int(config["max_concurrent_orders"])
+    window_seconds = int(config["capacity_window_seconds"])
+    current_window_start = get_window_start(now, window_seconds)
+    next_window_start = current_window_start + window_seconds
+
+    # If configuration is invalid/closed (<= 0), always advise waiting.
+    if max_concurrent <= 0:
+        return {
+            "recommended_action": "WAIT",
+            "estimated_wait_seconds": max(0, next_window_start - now),
+            "suggested_leave_at": next_window_start,
+            "current_window_start": current_window_start,
+            "next_window_start": next_window_start,
+            "current_reserved": 0,
+            "available_slots": 0,
+            "max_concurrent": max_concurrent,
+            "window_seconds": window_seconds,
+            "is_estimate": True,
+            "advisory_note": "Estimate only. Capacity is reserved only at arrival dispatch.",
+        }
+
+    current_reserved = get_window_usage(
+        capacity_table=capacity_table,
+        destination_id=destination_id,
+        window_start=current_window_start,
+    )
+    available_slots = max(0, max_concurrent - current_reserved)
+
+    if available_slots > 0:
+        return {
+            "recommended_action": "LEAVE_NOW",
+            "estimated_wait_seconds": 0,
+            "suggested_leave_at": now,
+            "current_window_start": current_window_start,
+            "next_window_start": next_window_start,
+            "current_reserved": current_reserved,
+            "available_slots": available_slots,
+            "max_concurrent": max_concurrent,
+            "window_seconds": window_seconds,
+            "is_estimate": True,
+            "advisory_note": "Estimate only. Capacity is reserved only at arrival dispatch.",
+        }
+
+    return {
+        "recommended_action": "WAIT",
+        "estimated_wait_seconds": max(0, next_window_start - now),
+        "suggested_leave_at": next_window_start,
+        "current_window_start": current_window_start,
+        "next_window_start": next_window_start,
+        "current_reserved": current_reserved,
+        "available_slots": available_slots,
+        "max_concurrent": max_concurrent,
+        "window_seconds": window_seconds,
+        "is_estimate": True,
+        "advisory_note": "Estimate only. Capacity is reserved only at arrival dispatch.",
+    }

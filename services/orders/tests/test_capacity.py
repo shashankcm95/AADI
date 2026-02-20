@@ -241,3 +241,68 @@ class TestCheckAndReserveForArrival:
         assert result['reserved'] is True
         assert result['max_concurrent'] == capacity.DEFAULT_MAX_CONCURRENT
         assert result['window_seconds'] == capacity.DEFAULT_WINDOW_SECONDS
+
+
+# =============================================================================
+# leave advisory (non-reserving)
+# =============================================================================
+
+class TestLeaveAdvisory:
+    def test_window_usage_defaults_to_zero(self):
+        usage = capacity.get_window_usage(None, "rest_abc", 900)
+        assert usage == 0
+
+    def test_window_usage_reads_current_count(self):
+        cap_table = MagicMock()
+        cap_table.get_item.return_value = {'Item': {'current_count': 3}}
+        usage = capacity.get_window_usage(cap_table, "rest_abc", 900)
+        assert usage == 3
+
+    def test_estimate_leave_now_when_capacity_available(self):
+        cap_table = MagicMock()
+        cap_table.get_item.return_value = {'Item': {'current_count': 1}}
+
+        config_table = MagicMock()
+        config_table.get_item.return_value = {
+            'Item': {
+                'restaurant_id': 'rest_abc',
+                'max_concurrent_orders': 3,
+                'capacity_window_seconds': 300,
+            }
+        }
+
+        advisory = capacity.estimate_leave_advisory(
+            capacity_table=cap_table,
+            config_table=config_table,
+            destination_id="rest_abc",
+            now=1007,
+        )
+
+        assert advisory['recommended_action'] == 'LEAVE_NOW'
+        assert advisory['estimated_wait_seconds'] == 0
+        assert advisory['available_slots'] == 2
+        assert advisory['is_estimate'] is True
+
+    def test_estimate_wait_when_capacity_full(self):
+        cap_table = MagicMock()
+        cap_table.get_item.return_value = {'Item': {'current_count': 3}}
+
+        config_table = MagicMock()
+        config_table.get_item.return_value = {
+            'Item': {
+                'restaurant_id': 'rest_abc',
+                'max_concurrent_orders': 3,
+                'capacity_window_seconds': 300,
+            }
+        }
+
+        advisory = capacity.estimate_leave_advisory(
+            capacity_table=cap_table,
+            config_table=config_table,
+            destination_id="rest_abc",
+            now=1007,
+        )
+
+        assert advisory['recommended_action'] == 'WAIT'
+        assert advisory['estimated_wait_seconds'] > 0
+        assert advisory['available_slots'] == 0

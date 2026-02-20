@@ -16,10 +16,15 @@ import capacity
 import db
 from dynamo_apply import build_update_item_kwargs
 from errors import NotFoundError
-from models import PAYMENT_MODE_AT_RESTAURANT
+from models import (
+    PAYMENT_MODE_AT_RESTAURANT,
+    STATUS_PENDING,
+    STATUS_WAITING,
+)
 from logger import get_logger, Timer
 
 log = get_logger("orders.customer", service="orders")
+DISPATCH_ELIGIBLE_EVENTS = {'5_MIN_OUT', 'PARKING', 'AT_DOOR'}
 
 
 def create_order(event):
@@ -193,6 +198,69 @@ def get_order(order_id, customer_id=None):
     }
 
 
+def get_leave_advisory(order_id, customer_id=None):
+    """
+    Return a non-reserving leave-time estimate for a pending/waiting order.
+    """
+    req_log = log.bind(handler="get_leave_advisory", order_id=order_id, customer_id=customer_id)
+
+    if not db.orders_table:
+        return {'statusCode': 500, 'body': 'DB not configured'}
+
+    with Timer() as t:
+        resp = db.orders_table.get_item(Key={'order_id': order_id})
+    session = resp.get('Item')
+
+    req_log.info("order_fetched_for_advisory", extra={"found": session is not None, "duration_ms": t.elapsed_ms})
+
+    if not session:
+        raise NotFoundError()
+
+    # Ownership check: customer can only access their own order
+    if customer_id and session.get('customer_id') != customer_id:
+        req_log.warning("ownership_check_failed", extra={"order_customer": session.get('customer_id')})
+        raise NotFoundError()
+
+    status = session.get('status')
+    now = int(time.time())
+
+    # Advisory becomes informational-only once dispatch has already happened.
+    if status not in (STATUS_PENDING, STATUS_WAITING):
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'order_id': order_id,
+                'status': status,
+                'recommended_action': 'FOLLOW_LIVE_STATUS',
+                'estimated_wait_seconds': 0,
+                'suggested_leave_at': now,
+                'is_estimate': True,
+                'advisory_note': 'Order is already dispatched or closed. Follow live status updates.'
+            }, default=db.decimal_default)
+        }
+
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    estimate = capacity.estimate_leave_advisory(
+        capacity_table=db.capacity_table,
+        config_table=db.config_table,
+        destination_id=destination_id,
+        now=now,
+    )
+
+    response = {
+        'order_id': order_id,
+        'status': status,
+        **estimate,
+    }
+
+    return {
+        'statusCode': 200,
+        'headers': {'Content-Type': 'application/json'},
+        'body': json.dumps(response, default=db.decimal_default)
+    }
+
+
 def list_customer_orders(event):
     if not db.orders_table:
         return {'statusCode': 500, 'body': 'DB not configured'}
@@ -280,25 +348,44 @@ def update_vicinity(order_id, event, customer_id=None):
     # Check expiry before processing
     engine.ensure_not_expired(session, now)
 
-    # --- Capacity-gated path for 5_MIN_OUT ---
+    # Dispatch transition must reserve capacity for any dispatch-eligible arrival
+    # event when the order is still pending/waiting.
     cap_result = None
-    if vicinity_event == '5_MIN_OUT' and db.capacity_table:
-        destination_id = session.get('destination_id', session.get('restaurant_id'))
-        req_log.info("capacity_check_started", extra={"restaurant_id": destination_id})
+    is_dispatch_candidate = (
+        vicinity_event in DISPATCH_ELIGIBLE_EVENTS and
+        current_status in (STATUS_PENDING, STATUS_WAITING)
+    )
 
-        with Timer() as t:
-            cap_result = capacity.check_and_reserve_for_arrival(
-                capacity_table=db.capacity_table,
-                config_table=db.config_table,
-                destination_id=destination_id,
-                now=now,
-            )
-        req_log.info("capacity_check_completed", extra={
-            "reserved": cap_result.get('reserved'),
-            "window_start": cap_result.get('window_start'),
-            "window_seconds": cap_result.get('window_seconds'),
-            "duration_ms": t.elapsed_ms,
-        })
+    if is_dispatch_candidate:
+        destination_id = session.get('destination_id', session.get('restaurant_id'))
+        req_log.info("dispatch_capacity_check_started", extra={"restaurant_id": destination_id, "event": vicinity_event})
+
+        if db.capacity_table:
+            with Timer() as t:
+                cap_result = capacity.check_and_reserve_for_arrival(
+                    capacity_table=db.capacity_table,
+                    config_table=db.config_table,
+                    destination_id=destination_id,
+                    now=now,
+                )
+            req_log.info("dispatch_capacity_check_completed", extra={
+                "reserved": cap_result.get('reserved'),
+                "window_start": cap_result.get('window_start'),
+                "window_seconds": cap_result.get('window_seconds'),
+                "duration_ms": t.elapsed_ms,
+            })
+        else:
+            # If capacity table is unavailable, dispatch path remains open
+            # (no reservation guarantee).
+            cfg = capacity.get_capacity_config(db.config_table, destination_id)
+            window_seconds = int(cfg.get('capacity_window_seconds', capacity.DEFAULT_WINDOW_SECONDS))
+            cap_result = {
+                'reserved': True,
+                'window_start': capacity.get_window_start(now, window_seconds),
+                'window_seconds': window_seconds,
+                'max_concurrent': int(cfg.get('max_concurrent_orders', capacity.DEFAULT_MAX_CONCURRENT)),
+            }
+            req_log.warning("capacity_table_missing_dispatching_without_reservation")
 
         plan = engine.decide_vicinity_update(
             session=session,
@@ -308,9 +395,23 @@ def update_vicinity(order_id, event, customer_id=None):
             window_start=cap_result['window_start'],
             reserved_capacity=cap_result['reserved'],
         )
+
+        # Preserve arrival progression metadata even on the capacity path.
+        if plan.set_fields is not None:
+            plan.set_fields['arrival_status'] = vicinity_event
+            plan.set_fields['last_arrival_update'] = now
+        if plan.response is not None:
+            plan.response['arrival_status'] = vicinity_event
     else:
-        # Non-capacity events: PARKING, AT_DOOR, EXIT_VICINITY
+        # Non-dispatch events (or already dispatched orders) use arrival-only path.
         plan = engine.decide_arrival_update(session, vicinity_event, now)
+
+    if cap_result:
+        req_log.info("capacity_decision", extra={
+            "reserved": cap_result.get('reserved'),
+            "window_start": cap_result.get('window_start'),
+            "window_seconds": cap_result.get('window_seconds'),
+        })
 
     req_log.info("state_transition_decided", extra={
         "new_status": plan.response.get('status'),
@@ -401,4 +502,3 @@ def cancel_order(order_id, customer_id=None):
         'statusCode': 200,
         'body': json.dumps(plan.response, default=db.decimal_default)
     }
-

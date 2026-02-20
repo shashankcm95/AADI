@@ -10,6 +10,7 @@ import db
 from handlers.customer import (
     create_order,
     get_order,
+    get_leave_advisory,
     list_customer_orders,
     update_vicinity,
     cancel_order,
@@ -28,6 +29,7 @@ log = get_logger("orders.router", service="orders")
 CUSTOMER_ROUTES = {
     'POST /v1/orders',
     'GET /v1/orders/{order_id}',
+    'GET /v1/orders/{order_id}/advisory',
     'GET /v1/orders',
     'POST /v1/orders/{order_id}/vicinity',
     'POST /v1/orders/{order_id}/cancel',
@@ -98,6 +100,9 @@ def lambda_handler(event, context):
 
             elif route_key == 'GET /v1/orders/{order_id}':
                 return get_order(path_params.get('order_id'), customer_id)
+
+            elif route_key == 'GET /v1/orders/{order_id}/advisory':
+                return get_leave_advisory(path_params.get('order_id'), customer_id)
 
             elif route_key == 'GET /v1/orders':
                 return list_customer_orders(event)
