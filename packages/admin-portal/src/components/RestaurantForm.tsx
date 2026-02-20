@@ -232,7 +232,9 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
           background: rgba(0,0,0,0.5);
           display: flex;
           justify-content: center;
-          align-items: center;
+          align-items: flex-start;
+          overflow-y: auto;
+          padding: 2rem 1rem;
           z-index: 1000;
         }
         .modal {
@@ -240,6 +242,9 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
           padding: 2rem;
           border-radius: 8px;
           min-width: 400px;
+          width: min(960px, 100%);
+          max-height: calc(100vh - 4rem);
+          overflow-y: auto;
           color: #333;
         }
         .form-group {
@@ -275,6 +280,11 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
           padding: 0.75rem;
           border-radius: 4px;
           margin-bottom: 1rem;
+        }
+        @media (max-width: 700px) {
+          .modal {
+            min-width: 0;
+          }
         }
       `}</style>
         </div>

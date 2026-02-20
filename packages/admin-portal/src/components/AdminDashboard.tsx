@@ -150,7 +150,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
             <div className="main-content">
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                    <h2>Restaurants</h2>
+                    <h2 className="panel-subheader">Restaurants</h2>
                     <button onClick={() => setShowAddModal(true)} className="btn btn-primary">
                         + Add Restaurant
                     </button>
@@ -191,29 +191,29 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                                         >
                                             Edit
                                         </button>
-                                        <button
-                                            onClick={() => handleDelete(r.restaurant_id)}
-                                            className="btn btn-small btn-danger"
-                                        >
-                                            Delete
-                                        </button>
                                         {!r.active ? (
                                             <button
                                                 onClick={() => handleToggleStatus(r.restaurant_id, true)}
-                                                className="btn btn-small"
-                                                style={{ marginLeft: '0.5rem', background: '#e0f2fe', color: '#0284c7' }}
+                                                className="btn btn-small btn-activate"
+                                                style={{ marginRight: '0.5rem' }}
                                             >
                                                 Activate
                                             </button>
                                         ) : (
                                             <button
                                                 onClick={() => handleToggleStatus(r.restaurant_id, false)}
-                                                className="btn btn-small"
-                                                style={{ marginLeft: '0.5rem', background: '#fee2e2', color: '#dc2626', borderColor: '#ef4444' }}
+                                                className="btn btn-small btn-deactivate"
+                                                style={{ marginRight: '0.5rem' }}
                                             >
                                                 Deactivate
                                             </button>
                                         )}
+                                        <button
+                                            onClick={() => handleDelete(r.restaurant_id)}
+                                            className="btn btn-small btn-danger"
+                                        >
+                                            Delete
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -238,35 +238,6 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                     onCancel={() => setEditingRestaurant(null)}
                 />
             )}
-
-            <style>{`
-                .admin-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    background: white;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                }
-                .admin-table th, .admin-table td {
-                    padding: 1rem;
-                    text-align: left;
-                    border-bottom: 1px solid #eee;
-                }
-                .admin-table th {
-                    background: #f8f9fa;
-                    font-weight: 600;
-                }
-                .btn-small {
-                    padding: 0.25rem 0.5rem;
-                    font-size: 0.875rem;
-                }
-                .btn-danger {
-                    background: #fee2e2;
-                    color: #dc2626;
-                }
-                .btn-danger:hover {
-                    background: #fecaca;
-                }
-            `}</style>
         </div>
     )
 }
@@ -414,13 +385,40 @@ function EditRestaurantModal({
             </div>
             <style>{`
                 /* Reuse existing modal styles from RestaurantForm */
-                .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-                .modal { background: white; padding: 2rem; border-radius: 8px; min-width: 500px; color: #333; }
+                .modal-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0,0,0,0.5);
+                    display: flex;
+                    justify-content: center;
+                    align-items: flex-start;
+                    overflow-y: auto;
+                    padding: 2rem 1rem;
+                    z-index: 1000;
+                }
+                .modal {
+                    background: white;
+                    padding: 2rem;
+                    border-radius: 8px;
+                    min-width: 500px;
+                    width: min(960px, 100%);
+                    max-height: calc(100vh - 4rem);
+                    overflow-y: auto;
+                    color: #333;
+                }
                 .form-group { margin-bottom: 1rem; }
                 .form-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
                 .form-group input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
                 .form-group select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; background: white; }
                 .form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; }
+                @media (max-width: 700px) {
+                    .modal {
+                        min-width: 0;
+                    }
+                }
             `}</style>
         </div>
     )

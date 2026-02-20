@@ -3,13 +3,16 @@ import { fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth'
 import { API_BASE_URL, ORDERS_API_URL } from '../aws-exports'
 import '../App.css'
 import StatsBar from './StatsBar'
-import OrderTimeline, { Order } from './OrderTimeline'
+import KanbanBoard, { Order } from './KanbanBoard'
 import RestaurantForm from './RestaurantForm'
 import AdminDashboard from './AdminDashboard'
 import MenuIngestion from './MenuIngestion'
 import CapacitySettings from './CapacitySettings'
 import RestaurantImageManager from './RestaurantImageManager'
 import PosSettings from './PosSettings'
+
+const AUTO_PROMOTE_DELAY_MS = 2 * 60 * 1000
+const COMPLETED_LANE_LIMIT = 20
 
 // Interfaces
 interface Restaurant {
@@ -45,10 +48,14 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
     // Capacity Management State
     const [showCapacity, setShowCapacity] = useState(false)
+    const [showArchived, setShowArchived] = useState(false)
     const [showImages, setShowImages] = useState(false)
     const [showPosSettings, setShowPosSettings] = useState(false)
+    const [orderActionState, setOrderActionState] = useState<Record<string, boolean>>({})
 
     const prevOrderIds = useRef<Set<string>>(new Set())
+    const autoTransitionInFlight = useRef<Set<string>>(new Set())
+    const incomingSeenAt = useRef<Map<string, number>>(new Map())
 
     // RBAC State
     const [_assignedRestaurantId, setAssignedRestaurantId] = useState<string | null>(null)
@@ -190,6 +197,41 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
             setOrders(fetchedOrders)
             setLastRefresh(new Date().toLocaleTimeString())
+
+            const incomingOrders = fetchedOrders
+                .filter((o: Order) => o.status === 'SENT_TO_DESTINATION')
+            const incomingNow = new Set<string>()
+            const nowMs = Date.now()
+
+            for (const incoming of incomingOrders) {
+                incomingNow.add(incoming.order_id)
+                if (!incomingSeenAt.current.has(incoming.order_id)) {
+                    const persistedAtMs = typeof incoming.updated_at === 'number'
+                        ? incoming.updated_at * 1000
+                        : (typeof incoming.created_at === 'number' ? incoming.created_at * 1000 : nowMs)
+                    incomingSeenAt.current.set(incoming.order_id, persistedAtMs)
+                }
+            }
+
+            for (const trackedOrderId of incomingSeenAt.current.keys()) {
+                if (!incomingNow.has(trackedOrderId)) {
+                    incomingSeenAt.current.delete(trackedOrderId)
+                }
+            }
+
+            const autoAdvanceIds = incomingOrders
+                .map((o: Order) => o.order_id)
+                .filter((orderId: string) => !autoTransitionInFlight.current.has(orderId))
+                .filter((orderId: string) => {
+                    const seenAt = incomingSeenAt.current.get(orderId)
+                    if (!seenAt) return false
+                    return nowMs - seenAt >= AUTO_PROMOTE_DELAY_MS
+                })
+
+            for (const orderId of autoAdvanceIds) {
+                autoTransitionInFlight.current.add(orderId)
+                void autoPromoteIncomingOrder(orderId)
+            }
         } catch (err: any) {
             setError(err.message)
         }
@@ -265,6 +307,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     useEffect(() => {
         if (token && selectedRestaurant) {
             prevOrderIds.current = new Set()
+            incomingSeenAt.current.clear()
+            autoTransitionInFlight.current.clear()
             fetchOrders()
             // If looking at menu, fetch menu
             if (showMenu) fetchMenu()
@@ -275,25 +319,122 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     }, [token, selectedRestaurant, fetchOrders, showMenu, fetchMenu])
 
 
-    async function handleAcknowledge(orderId: string) {
+    function setOrderActionLoading(orderId: string, isLoading: boolean) {
+        setOrderActionState((prev) => {
+            if (isLoading) {
+                return { ...prev, [orderId]: true }
+            }
+            const next = { ...prev }
+            delete next[orderId]
+            return next
+        })
+    }
+
+    async function extractErrorMessage(res: Response, fallback: string) {
+        const payload = await res.json().catch(() => null)
+        return payload?.error || payload?.message || fallback
+    }
+
+    async function autoPromoteIncomingOrder(orderId: string) {
+        if (!token || !selectedRestaurant) {
+            autoTransitionInFlight.current.delete(orderId)
+            return
+        }
         try {
-            const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/ack`, {
+            // After timeout in Incoming, auto-ack first (best effort), then auto-start prep.
+            await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/ack`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
                 },
             })
-            if (res.ok) fetchOrders()
-            else setError('Failed to acknowledge order')
-        } catch (err: any) {
-            setError(err.message || 'Acknowledge failed')
+            const statusRes = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/status`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ status: 'IN_PROGRESS' }),
+            })
+            if (!statusRes.ok) {
+                console.warn(`Auto-promote failed for order ${orderId}`)
+            }
+        } catch (err) {
+            console.warn(`Auto-promote error for order ${orderId}:`, err)
+        } finally {
+            autoTransitionInFlight.current.delete(orderId)
         }
     }
 
+    async function postOrderStatus(orderId: string, newStatus: string) {
+        if (!token || !selectedRestaurant) return
+        const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/status`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status: newStatus }),
+        })
+        if (!res.ok) {
+            throw new Error(await extractErrorMessage(res, `Failed to update order to ${newStatus}`))
+        }
+    }
+
+    async function handleCompleteOrder(order: Order) {
+        if (!token || !selectedRestaurant) return
+        const completionPathByStatus: Record<string, string[]> = {
+            IN_PROGRESS: ['READY', 'FULFILLING', 'COMPLETED'],
+            READY: ['FULFILLING', 'COMPLETED'],
+            FULFILLING: ['COMPLETED'],
+        }
+        const completionPath = completionPathByStatus[order.status]
+        if (!completionPath || completionPath.length === 0) return
+
+        setOrderActionLoading(order.order_id, true)
+        try {
+            for (const status of completionPath) {
+                await postOrderStatus(order.order_id, status)
+            }
+            await fetchOrders()
+        } catch (err: any) {
+            setError(err.message || 'Failed to complete order')
+        } finally {
+            setOrderActionLoading(order.order_id, false)
+        }
+    }
+
+    function getOrderSortKey(order: Order) {
+        return order.updated_at || order.created_at || 0
+    }
+
+    function getOrderItemsSummary(order: Order) {
+        const orderItems = order.items && order.items.length > 0 ? order.items : (order.resources || [])
+        if (orderItems.length === 0) return 'No items'
+        return orderItems
+            .map((item) => `${item.name || item.id || 'Item'} x${item.qty || 1}`)
+            .join(', ')
+    }
+
+    function formatOrderDate(epoch?: number) {
+        if (!epoch) return '—'
+        return new Date(epoch * 1000).toLocaleString()
+    }
+
+    const completedOrders = [...orders]
+        .filter((o) => o.status === 'COMPLETED')
+        .sort((a, b) => getOrderSortKey(b) - getOrderSortKey(a))
+    const recentCompletedOrders = completedOrders.slice(0, COMPLETED_LANE_LIMIT)
+    const archivedOrders = completedOrders.slice(COMPLETED_LANE_LIMIT)
+    const boardOrders = [
+        ...orders.filter((o) => o.status !== 'COMPLETED'),
+        ...recentCompletedOrders,
+    ]
+
     // Counts
-    const pendingCount = orders.filter(o => o.status === 'PENDING_NOT_SENT').length
-    const activeCount = orders.filter(o => ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'].includes(o.status)).length
+    const pendingCount = orders.filter(o => ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(o.status)).length
+    const activeCount = orders.filter(o => ['IN_PROGRESS', 'READY', 'FULFILLING'].includes(o.status)).length
     const sentCount = orders.filter(o => o.status === 'SENT_TO_DESTINATION').length
 
 
@@ -351,8 +492,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             )}
 
             {/* Restaurant Picker & Toolbar */}
-            <section className="restaurant-picker" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
+            <section className="restaurant-picker">
+                <div className="restaurant-picker-main">
                     <label>📍 Managing Restaurant:</label>
 
                     {/* Only show picker if NOT assigned to a specific restaurant */}
@@ -369,7 +510,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                             ))}
                         </select>
                     ) : (
-                        <span style={{ fontWeight: 'bold', marginLeft: '0.5rem', color: '#e2e8f0' }}>
+                        <span className="managed-restaurant-name">
                             {restaurants.find(r => r.restaurant_id === _assignedRestaurantId)?.name || 'My Restaurant'}
                         </span>
                     )}
@@ -379,7 +520,6 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         <button
                             onClick={() => setShowAddRestaurant(true)}
                             className="btn btn-small btn-primary"
-                            style={{ marginLeft: '1rem' }}
                         >
                             + Add Restaurant
                         </button>
@@ -389,29 +529,46 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 </div>
 
                 {selectedRestaurant && (
-                    <>
+                    <div className="restaurant-action-tabs">
                         <button
                             onClick={() => {
                                 if (!showMenu) fetchMenu()
                                 setShowMenu(prev => !prev)
                                 setShowCapacity(false)
+                                setShowArchived(false)
                                 setShowImages(false)
                                 setShowPosSettings(false)
                             }}
-                            className="btn btn-secondary"
-                            style={{ background: showMenu ? '#e2e8f0' : undefined, color: showMenu ? 'black' : undefined, marginLeft: '0.5rem' }}
+                            className={`btn btn-secondary peacock-tab ${showMenu ? 'active' : ''}`}
                         >
                             {showMenu ? 'Close Menu' : '📜 Manage Menu'}
                         </button>
                         <button
                             onClick={() => {
+                                setShowArchived(prev => {
+                                    const next = !prev
+                                    if (next) {
+                                        setShowMenu(false)
+                                        setShowCapacity(false)
+                                        setShowImages(false)
+                                        setShowPosSettings(false)
+                                    }
+                                    return next
+                                })
+                            }}
+                            className={`btn btn-secondary peacock-tab ${showArchived ? 'active' : ''}`}
+                        >
+                            {showArchived ? 'Close Archived' : `🗂️ Archived (${archivedOrders.length})`}
+                        </button>
+                        <button
+                            onClick={() => {
                                 setShowCapacity(true)
                                 setShowMenu(false)
+                                setShowArchived(false)
                                 setShowImages(false)
                                 setShowPosSettings(false)
                             }}
-                            className="btn btn-secondary"
-                            style={{ marginLeft: '0.5rem' }}
+                            className={`btn btn-secondary peacock-tab ${showCapacity ? 'active' : ''}`}
                         >
                             ⚙️ Capacity
                         </button>
@@ -422,13 +579,13 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                     if (next) {
                                         setShowMenu(false)
                                         setShowCapacity(false)
+                                        setShowArchived(false)
                                         setShowPosSettings(false)
                                     }
                                     return next
                                 })
                             }}
-                            className="btn btn-secondary"
-                            style={{ marginLeft: '0.5rem', background: showImages ? '#e2e8f0' : undefined, color: showImages ? 'black' : undefined }}
+                            className={`btn btn-secondary peacock-tab ${showImages ? 'active' : ''}`}
                         >
                             {showImages ? 'Close Images' : '🖼️ Images'}
                         </button>
@@ -439,17 +596,17 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                     if (next) {
                                         setShowMenu(false)
                                         setShowCapacity(false)
+                                        setShowArchived(false)
                                         setShowImages(false)
                                     }
                                     return next
                                 })
                             }}
-                            className="btn btn-secondary"
-                            style={{ marginLeft: '0.5rem', background: showPosSettings ? '#e2e8f0' : undefined, color: showPosSettings ? 'black' : undefined }}
+                            className={`btn btn-secondary peacock-tab ${showPosSettings ? 'active' : ''}`}
                         >
                             {showPosSettings ? 'Close POS' : '🔌 POS'}
                         </button>
-                    </>
+                    </div>
                 )}
             </section>
 
@@ -473,8 +630,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         onSuccess={fetchMenu}
                     />
 
-                    <div style={{ marginTop: '1rem', background: 'white', padding: '1rem', borderRadius: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                        <h3>Current Menu ({menuItems.length} items)</h3>
+                    <div className="menu-current-card">
+                        <h3 className="menu-current-title">Current Menu ({menuItems.length} items)</h3>
                         {menuItems.length === 0 ? (
                             <p>No items found. Import a menu to get started.</p>
                         ) : (
@@ -535,10 +692,39 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 />
             )}
 
-            {/* Hide Orders when Menu is open to avoid clutter? Or keep both? Let's hide orders if Menu is strictly overlay mode, but here it's inline. Let's keep orders visible below for context or hide them if showMenu is true to focus. */}
-            {/* Let's hide stats and board if showMenu is true for cleaner focus */}
+            {showArchived && (
+                <div className="menu-management-section" style={{ marginBottom: '2rem' }}>
+                    <div className="menu-current-card">
+                        <h3 className="menu-current-title">Archived Orders ({archivedOrders.length})</h3>
+                        {archivedOrders.length === 0 ? (
+                            <p>No archived orders yet.</p>
+                        ) : (
+                            <table className="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>Order</th>
+                                        <th>Customer</th>
+                                        <th>Completed At</th>
+                                        <th>Items</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {archivedOrders.map((order) => (
+                                        <tr key={order.order_id}>
+                                            <td>#{order.order_id.slice(-6)}</td>
+                                            <td>{order.customer_name || 'Guest'}</td>
+                                            <td>{formatOrderDate(order.updated_at || order.created_at)}</td>
+                                            <td className="archived-items-cell">{getOrderItemsSummary(order)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            )}
 
-            {!showMenu && !showImages && (
+            {!showMenu && !showImages && !showArchived && (
                 <>
                     <StatsBar sentCount={sentCount} activeCount={activeCount} pendingCount={pendingCount} />
 
@@ -554,10 +740,11 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         </div>
                     )}
 
-                    <OrderTimeline
-                        orders={orders}
-                        loading={loading}
-                        onAcknowledge={handleAcknowledge}
+                    <KanbanBoard
+                        orders={boardOrders}
+                        loading={orders.length === 0 && !lastRefresh}
+                        onCompleteOrder={handleCompleteOrder}
+                        orderActionState={orderActionState}
                     />
                 </>
             )}
