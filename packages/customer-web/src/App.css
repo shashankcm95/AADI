@@ -128,6 +128,9 @@
 [data-amplify-authenticator].customer-auth-shell [data-amplify-container] {
   width: min(1120px, 100%);
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 [data-amplify-authenticator].customer-auth-shell [data-amplify-router] {
@@ -143,7 +146,7 @@
   display: flex;
   justify-content: center;
   gap: 0.6rem;
-  padding: 0.85rem 1rem 0.35rem;
+  padding: 0.8rem 1rem 0.35rem;
   border-bottom: 1px solid rgba(33, 98, 186, 0.12);
   background: rgba(255, 255, 255, 0.5);
 }
@@ -187,6 +190,25 @@
 
 [data-amplify-authenticator].customer-auth-shell [data-amplify-footer] {
   padding-bottom: 0.3rem;
+}
+
+[data-amplify-authenticator].customer-auth-shell .amplify-button--primary {
+  border: none;
+  border-radius: var(--radius-button);
+  color: var(--white);
+  font-weight: 700;
+  background: var(--gradient-primary);
+  box-shadow: 0 10px 20px -14px rgba(33, 98, 186, 0.8);
+}
+
+[data-amplify-authenticator].customer-auth-shell .amplify-button--primary:hover {
+  filter: brightness(0.97);
+}
+
+[data-amplify-authenticator].customer-auth-shell .amplify-button--primary:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(115, 195, 197, 0.32),
+    0 10px 20px -14px rgba(33, 98, 186, 0.8);
 }
 
 .auth-brand-header {

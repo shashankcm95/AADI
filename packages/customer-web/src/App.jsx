@@ -26,21 +26,7 @@ function CustomerAuthHeader() {
 }
 
 const authComponents = {
-  SignIn: {
-    Header: CustomerAuthHeader,
-  },
-  SignUp: {
-    Header: CustomerAuthHeader,
-  },
-  ResetPassword: {
-    Header: CustomerAuthHeader,
-  },
-  ConfirmResetPassword: {
-    Header: CustomerAuthHeader,
-  },
-  ConfirmSignUp: {
-    Header: CustomerAuthHeader,
-  },
+  Header: CustomerAuthHeader,
 }
 
 function App() {
