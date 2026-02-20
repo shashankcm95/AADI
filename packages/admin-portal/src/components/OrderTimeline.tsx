@@ -32,7 +32,7 @@ export interface Order {
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
     PENDING_NOT_SENT: { label: '⏳ Pending', className: 'badge-pending' },
-    WAITING: { label: '⏰ Waiting', className: 'badge-waiting' },
+    WAITING_FOR_CAPACITY: { label: '⏰ Waiting', className: 'badge-waiting' },
     SENT_TO_DESTINATION: { label: '📨 New', className: 'badge-new' },
     IN_PROGRESS: { label: '👨‍🍳 Cooking', className: 'badge-cooking' },
     READY: { label: '✅ Ready', className: 'badge-ready' },
@@ -177,7 +177,7 @@ interface OrderTimelineProps {
 
 export default function OrderTimeline({ orders, loading, onAcknowledge }: OrderTimelineProps) {
     const incoming = orders.filter(o => o.status === 'SENT_TO_DESTINATION');
-    const pending = orders.filter(o => o.status === 'PENDING_NOT_SENT' || o.status === 'WAITING');
+    const pending = orders.filter(o => o.status === 'PENDING_NOT_SENT' || o.status === 'WAITING_FOR_CAPACITY');
     const active = orders.filter(o => o.status === 'IN_PROGRESS' || o.status === 'READY');
     const pickup = orders.filter(o => o.status === 'FULFILLING');
     const completed = orders.filter(o => o.status === 'COMPLETED');

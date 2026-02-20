@@ -4,7 +4,7 @@
 
 const STATUS_CONFIG = {
     'PENDING_NOT_SENT': { label: '⏳ Confirmed', color: '#f59e0b', canVicinity: true, canCancel: true },
-    'WAITING': { label: '⏰ Waiting', color: '#f59e0b', canVicinity: true, canCancel: true },
+    'WAITING_FOR_CAPACITY': { label: '⏰ Waiting', color: '#f59e0b', canVicinity: true, canCancel: true },
     'SENT_TO_DESTINATION': { label: '📨 Sent', color: '#3b82f6' },
     'IN_PROGRESS': { label: '👨‍🍳 Cooking', color: '#8b5cf6' },
     'READY': { label: '✅ Ready!', color: '#22c55e' },
