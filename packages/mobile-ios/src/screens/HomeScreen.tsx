@@ -100,6 +100,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const [favoriteUpdating, setFavoriteUpdating] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
+    const [restaurantsError, setRestaurantsError] = useState('');
     const { cartCount } = useCart();
 
     useEffect(() => {
@@ -107,6 +108,9 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     }, []);
 
     const loadHomeData = async () => {
+        setLoading(true);
+        setRestaurantsError('');
+
         try {
             const [restaurantRes, favoritesRes] = await Promise.allSettled([
                 getRestaurantsWithCache(),
@@ -115,11 +119,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
             if (restaurantRes.status === 'fulfilled') {
                 setRestaurants(restaurantRes.value.restaurants || []);
+                setRestaurantsError('');
 
                 if (restaurantRes.value.fromCache) {
                     getRestaurantsWithCache({ forceRefresh: true })
                         .then((fresh) => {
                             setRestaurants(fresh.restaurants || []);
+                            setRestaurantsError('');
                         })
                         .catch(() => {
                             // Keep cached restaurants if background refresh fails.
@@ -128,6 +134,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
             } else {
                 console.error('Failed to load restaurants:', restaurantRes.reason);
                 setRestaurants([]);
+                setRestaurantsError('Could not connect to restaurants. Check your connection and try again.');
             }
 
             if (favoritesRes.status === 'fulfilled') {
@@ -255,6 +262,20 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     const renderRestaurantGrid = () => {
         if (loading) {
             return renderCardSkeletons();
+        }
+
+        if (restaurantsError && restaurants.length === 0) {
+            return (
+                <View style={styles.emptyState}>
+                    <Text style={styles.emptyTitle}>Unable to load restaurants</Text>
+                    <Text style={styles.emptySubtitle}>{restaurantsError}</Text>
+                    <PrimaryButton
+                        label="Retry"
+                        onPress={loadHomeData}
+                        style={styles.emptyButton}
+                    />
+                </View>
+            );
         }
 
         if (filteredRestaurants.length === 0) {

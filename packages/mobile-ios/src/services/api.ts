@@ -203,15 +203,21 @@ export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem
     }
     const data = await response.json();
     const rawItems = data.items || data.menu?.items || [];
-    return rawItems.map((item: any) => ({
-        id: String(item.id || item.menu_item_id || item.sku || ''),
-        name: item.name || 'Menu Item',
-        description: item.description || '',
-        price_cents: typeof item.price_cents === 'number'
-            ? item.price_cents
-            : Math.round(Number(item.price || 0) * 100),
-        qty: typeof item.qty === 'number' && item.qty > 0 ? item.qty : 1,
-    }));
+    return rawItems.map((item: any, index: number) => {
+        const rawId = String(item.id || item.menu_item_id || item.sku || '').trim();
+        const fallbackToken = String(item.name || 'item').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'item';
+        const fallbackId = `local-${restaurantId}-${fallbackToken}-${index}`;
+
+        return {
+            id: rawId || fallbackId,
+            name: item.name || 'Menu Item',
+            description: item.description || '',
+            price_cents: typeof item.price_cents === 'number'
+                ? item.price_cents
+                : Math.round(Number(item.price || 0) * 100),
+            qty: typeof item.qty === 'number' && item.qty > 0 ? item.qty : 1,
+        };
+    });
 }
 
 /**
@@ -223,6 +229,18 @@ export async function createOrder(
     customerName: string
 ): Promise<Order> {
     const headers = await getAuthHeaders();
+    const sanitizedItems = (Array.isArray(items) ? items : []).map((item, index) => {
+        const description = String(item?.description || '').trim();
+
+        return {
+            id: String(item?.id || '').trim() || `local-item-${index}`,
+            name: String(item?.name || 'Menu Item'),
+            price_cents: Math.max(0, Math.round(Number(item?.price_cents) || 0)),
+            qty: Math.max(1, Math.round(Number(item?.qty) || 1)),
+            ...(description ? { description } : {}),
+        };
+    });
+
     const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders`, {
         method: 'POST',
         headers: {
@@ -231,7 +249,7 @@ export async function createOrder(
         },
         body: JSON.stringify({
             restaurant_id: restaurantId,
-            items,
+            items: sanitizedItems,
             customer_name: customerName,
         }),
     });

@@ -3,6 +3,7 @@ import {
     clearAuthHeaderCache,
     createOrder,
     getFavorites,
+    getRestaurantMenu,
     getRestaurants,
     OrderItem,
     removeFavorite,
@@ -65,6 +66,36 @@ describe('API Service', () => {
         );
     });
 
+    it('createOrder sanitizes items before sending', async () => {
+        const mockOrder = { order_id: '123', status: 'created' };
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockOrder,
+        });
+
+        const items: OrderItem[] = [{
+            id: '',
+            name: 'Burger',
+            price_cents: -50,
+            qty: 0,
+            description: '   ',
+        }];
+
+        await createOrder('rest_1', items, 'John');
+
+        const [, request] = (global.fetch as jest.Mock).mock.calls[0];
+        const payload = JSON.parse(request.body);
+
+        expect(payload.items).toEqual([
+            {
+                id: 'local-item-0',
+                name: 'Burger',
+                price_cents: 0,
+                qty: 1,
+            },
+        ]);
+    });
+
     it('getFavorites fetches and returns data', async () => {
         const mockFavorites = [{ customer_id: 'cust_1', restaurant_id: 'rest_1' }];
         (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -112,5 +143,22 @@ describe('API Service', () => {
                 method: 'DELETE',
             })
         );
+    });
+
+    it('getRestaurantMenu generates fallback IDs when backend IDs are missing', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                items: [
+                    { name: 'Burger', price_cents: 1200 },
+                    { name: '', price_cents: 500 },
+                ],
+            }),
+        });
+
+        const items = await getRestaurantMenu('rest_1');
+
+        expect(items[0].id).toBe('local-rest_1-burger-0');
+        expect(items[1].id).toBe('local-rest_1-item-1');
     });
 });

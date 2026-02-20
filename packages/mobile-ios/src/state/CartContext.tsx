@@ -10,6 +10,7 @@ export interface CartRestaurant {
 
 export interface CartItem extends OrderItem {
     description?: string;
+    cart_item_key: string;
 }
 
 type AddItemResult = 'added' | 'restaurant_mismatch';
@@ -21,8 +22,8 @@ interface CartContextValue {
     cartTotalCents: number;
     addItemToCart: (item: CartItem, restaurant: Restaurant) => AddItemResult;
     forceAddItemToCart: (item: CartItem, restaurant: Restaurant) => void;
-    setItemQty: (itemId: string, qty: number) => void;
-    removeItem: (itemId: string) => void;
+    setItemQty: (itemKey: string, qty: number) => void;
+    removeItem: (itemKey: string) => void;
     clearCart: () => void;
     isCartForRestaurant: (restaurantId?: string) => boolean;
 }
@@ -51,15 +52,47 @@ function toCartRestaurant(restaurant: Restaurant): CartRestaurant {
     };
 }
 
+function normalizedToken(value: unknown): string {
+    return String(value || '').trim().toLowerCase();
+}
+
+function buildFallbackId(item: Partial<OrderItem>): string {
+    const token = normalizedToken(item.name) || 'item';
+    const price = Number(item.price_cents) || 0;
+    return `local-${token}-${price}`;
+}
+
+function buildCartItemKey(item: Partial<OrderItem>): string {
+    return [
+        normalizedToken(item.id) || 'no-id',
+        normalizedToken(item.name),
+        String(Number(item.price_cents) || 0),
+        normalizedToken(item.description),
+    ].join('|');
+}
+
+function normalizeCartItem(item: CartItem): CartItem {
+    const normalizedId = String(item.id || '').trim() || buildFallbackId(item);
+    const normalizedQty = Math.max(1, Number(item.qty) || 1);
+    const normalizedKey = item.cart_item_key || buildCartItemKey({ ...item, id: normalizedId });
+
+    return {
+        ...item,
+        id: normalizedId,
+        qty: normalizedQty,
+        cart_item_key: normalizedKey,
+    };
+}
+
 function upsertItem(items: CartItem[], item: CartItem): CartItem[] {
-    const existing = items.find((entry) => entry.id === item.id);
+    const normalizedItem = normalizeCartItem(item);
+    const existing = items.find((entry) => entry.cart_item_key === normalizedItem.cart_item_key);
 
     if (!existing) {
-        const qty = Math.max(1, Number(item.qty) || 1);
-        return [...items, { ...item, qty }];
+        return [...items, normalizedItem];
     }
 
-    return items.map((entry) => entry.id === item.id
+    return items.map((entry) => entry.cart_item_key === normalizedItem.cart_item_key
         ? { ...entry, qty: entry.qty + 1 }
         : entry);
 }
@@ -101,7 +134,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const nextRestaurant = toCartRestaurant(restaurant);
 
         if (cartRestaurant && cartRestaurant.restaurant_id !== nextRestaurant.restaurant_id) {
-            setCartItems([{ ...item, qty: Math.max(1, Number(item.qty) || 1) }]);
+            setCartItems([normalizeCartItem(item)]);
             setCartRestaurant(nextRestaurant);
             return;
         }
@@ -110,8 +143,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCartItems((current) => upsertItem(current, item));
     };
 
-    const setItemQty = (itemId: string, qty: number) => {
-        if (!itemId) {
+    const setItemQty = (itemKey: string, qty: number) => {
+        if (!itemKey) {
             return;
         }
 
@@ -119,7 +152,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setCartItems((current) => {
             const updated = current
-                .map((item) => (item.id === itemId ? { ...item, qty: normalized } : item))
+                .map((item) => (item.cart_item_key === itemKey ? { ...item, qty: normalized } : item))
                 .filter((item) => item.qty > 0);
 
             if (updated.length === 0) {
@@ -130,9 +163,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
     };
 
-    const removeItem = (itemId: string) => {
+    const removeItem = (itemKey: string) => {
         setCartItems((current) => {
-            const updated = current.filter((item) => item.id !== itemId);
+            const updated = current.filter((item) => item.cart_item_key !== itemKey);
             if (updated.length === 0) {
                 setCartRestaurant(null);
             }

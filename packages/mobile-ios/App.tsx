@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, TouchableOpacity, Text } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { theme } from './src/theme';
@@ -36,24 +36,13 @@ export default function App() {
                 <View style={styles.container}>
                     <StatusBar style="dark" />
                     <Stack.Navigator
-                        screenOptions={({ navigation, route }: any) => ({
+                        screenOptions={{
                             headerStyle: { backgroundColor: theme.colors.background },
                             headerTintColor: theme.colors.primary,
                             headerTitleStyle: { fontWeight: 'bold', fontFamily: 'System', fontSize: 20 },
                             headerShadowVisible: false,
                             contentStyle: { backgroundColor: theme.colors.background },
-                            headerBackTitleVisible: false,
-                            headerRight: route.name !== 'Home' && route.name !== 'Login'
-                                ? () => (
-                                    <TouchableOpacity
-                                        onPress={() => navigation.navigate('Home')}
-                                        style={styles.homeButton}
-                                    >
-                                        <Text style={styles.homeButtonText}>Home</Text>
-                                    </TouchableOpacity>
-                                )
-                                : undefined,
-                        })}
+                        }}
                     >
                         <Stack.Screen
                             name="Login"
@@ -113,18 +102,5 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: theme.colors.background,
-    },
-    homeButton: {
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        borderRadius: theme.radii.chip,
-        backgroundColor: theme.colors.surface,
-        paddingHorizontal: theme.spacing.sm,
-        paddingVertical: theme.spacing.xs,
-    },
-    homeButtonText: {
-        ...theme.typography.caption,
-        color: theme.colors.text,
-        fontWeight: '700',
     },
 });

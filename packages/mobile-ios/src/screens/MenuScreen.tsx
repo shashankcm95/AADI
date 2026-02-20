@@ -12,12 +12,12 @@ import {
     Alert,
     ActivityIndicator,
 } from 'react-native';
-import { createOrder, getRestaurantMenu, Restaurant } from '../services/api';
+import { createOrder, getRestaurantMenu, Restaurant, sendArrivalEvent } from '../services/api';
 import {
     getFavoritesWithCache,
     setFavoriteForCurrentUser,
 } from '../services/favorites';
-import { startLocationTracking, requestPermissions } from '../services/location';
+import { requestPermissions, startLocationTracking, stopLocationTracking } from '../services/location';
 import { theme } from '../theme';
 import { useCart } from '../state/CartContext';
 import { upsertOrderInCache } from '../services/orderHistory';
@@ -181,14 +181,28 @@ export default function MenuScreen({ navigation, route }: Props) {
                 if (hasPermission) {
                     const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
                     if (hasCoordinates) {
-                        startLocationTracking(
+                        await startLocationTracking(
                             {
                                 latitude: Number(restaurant.latitude),
                                 longitude: Number(restaurant.longitude),
                                 restaurantId: restaurant.restaurant_id,
                             },
                             order.order_id,
-                            () => { }
+                            async (event, eventOrderId) => {
+                                if (!['5_MIN_OUT', 'PARKING', 'AT_DOOR'].includes(event)) {
+                                    return;
+                                }
+
+                                if (event === 'AT_DOOR') {
+                                    await stopLocationTracking();
+                                }
+
+                                try {
+                                    await sendArrivalEvent(eventOrderId, event);
+                                } catch (arrivalError) {
+                                    console.warn('[MenuScreen] Failed to send arrival event:', arrivalError);
+                                }
+                            }
                         );
                     } else {
                         console.warn('[MenuScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');

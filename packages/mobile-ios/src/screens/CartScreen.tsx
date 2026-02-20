@@ -9,10 +9,10 @@ import {
     View,
 } from 'react-native';
 import { theme } from '../theme';
-import { createOrder } from '../services/api';
+import { createOrder, sendArrivalEvent } from '../services/api';
 import { upsertOrderInCache } from '../services/orderHistory';
 import { getCurrentUserProfile } from '../services/session';
-import { requestPermissions, startLocationTracking } from '../services/location';
+import { requestPermissions, startLocationTracking, stopLocationTracking } from '../services/location';
 import { useCart } from '../state/CartContext';
 
 interface Props {
@@ -58,14 +58,28 @@ export default function CartScreen({ navigation }: Props) {
             try {
                 const hasPermission = await requestPermissions();
                 if (hasPermission && Number.isFinite(cartRestaurant.latitude) && Number.isFinite(cartRestaurant.longitude)) {
-                    startLocationTracking(
+                    await startLocationTracking(
                         {
                             latitude: Number(cartRestaurant.latitude),
                             longitude: Number(cartRestaurant.longitude),
                             restaurantId: cartRestaurant.restaurant_id,
                         },
                         order.order_id,
-                        () => { }
+                        async (event, eventOrderId) => {
+                            if (!['5_MIN_OUT', 'PARKING', 'AT_DOOR'].includes(event)) {
+                                return;
+                            }
+
+                            if (event === 'AT_DOOR') {
+                                await stopLocationTracking();
+                            }
+
+                            try {
+                                await sendArrivalEvent(eventOrderId, event);
+                            } catch (arrivalError) {
+                                console.warn('[CartScreen] Failed to send arrival event:', arrivalError);
+                            }
+                        }
                     );
                 }
             } catch (locErr) {
@@ -103,7 +117,7 @@ export default function CartScreen({ navigation }: Props) {
 
             <FlatList
                 data={cartItems}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item) => item.cart_item_key}
                 contentContainerStyle={styles.list}
                 renderItem={({ item }) => (
                     <View style={styles.itemCard}>
@@ -114,14 +128,14 @@ export default function CartScreen({ navigation }: Props) {
                         </View>
 
                         <View style={styles.qtyWrap}>
-                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.id, item.qty - 1)}>
+                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.cart_item_key, item.qty - 1)}>
                                 <Text style={styles.qtyText}>-</Text>
                             </TouchableOpacity>
                             <Text style={styles.qtyValue}>{item.qty}</Text>
-                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.id, item.qty + 1)}>
+                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.cart_item_key, item.qty + 1)}>
                                 <Text style={styles.qtyText}>+</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.removeButton} onPress={() => removeItem(item.id)}>
+                            <TouchableOpacity style={styles.removeButton} onPress={() => removeItem(item.cart_item_key)}>
                                 <Text style={styles.removeText}>Remove</Text>
                             </TouchableOpacity>
                         </View>

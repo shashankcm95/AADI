@@ -35,17 +35,33 @@ const ARRIVAL_LABELS: { [key: string]: string } = {
     'UNKNOWN': '📍 Tracking...',
 };
 
+const TRACKABLE_STATUSES = ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY', 'SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY'];
+const TERMINAL_STATUSES = ['COMPLETED', 'CANCELED', 'DECLINED', 'EXPIRED'];
+
+function hasReachedRestaurant(order: any): boolean {
+    const status = String(order?.status || '').toUpperCase();
+    const arrivalStatus = String(order?.arrival_status || '').toUpperCase();
+
+    return arrivalStatus === 'AT_DOOR' || status === 'FULFILLING' || TERMINAL_STATUSES.includes(status);
+}
+
 interface Props {
+    navigation: any;
     route: any;
 }
 
-export default function OrderScreen({ route }: Props) {
-    const { orderId } = route.params;
+export default function OrderScreen({ navigation, route }: Props) {
+    const orderId = String(route?.params?.orderId || '').trim();
     const [order, setOrder] = useState<any>(null);
     const [leaveAdvisory, setLeaveAdvisory] = useState<LeaveAdvisory | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        if (!orderId) {
+            setLoading(false);
+            return;
+        }
+
         let mounted = true;
 
         const init = async () => {
@@ -60,15 +76,18 @@ export default function OrderScreen({ route }: Props) {
         return () => {
             mounted = false;
             clearInterval(interval);
-            stopLocationTracking(); // Privacy: Stop tracking on unmount
         };
-    }, []);
+    }, [orderId]);
 
     const fetchOrder = async () => {
+        if (!orderId) {
+            setLoading(false);
+            return;
+        }
+
         try {
             const data = await getOrder(orderId);
             setOrder(data);
-            setLoading(false);
 
             if (['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(data.status)) {
                 try {
@@ -82,26 +101,29 @@ export default function OrderScreen({ route }: Props) {
                 setLeaveAdvisory(null);
             }
 
-            // Manage Location Tracking based on status
-            const activeStatuses = ['SENT_TO_DESTINATION', 'IN_PROGRESS', 'READY', 'FULFILLING'];
-            const isCompleted = ['COMPLETED', 'CANCELED', 'DECLINED', 'EXPIRED'].includes(data.status);
+            if (hasReachedRestaurant(data)) {
+                await stopLocationTracking();
+                return;
+            }
 
-            if (activeStatuses.includes(data.status)) {
+            // Manage location tracking based on order lifecycle.
+            const status = String(data.status || '').toUpperCase();
+
+            if (TRACKABLE_STATUSES.includes(status)) {
                 try {
                     const restaurant = await getRestaurant(data.restaurant_id);
                     const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
                     if (hasCoordinates) {
-                        startLocationTracking(
+                        await startLocationTracking(
                             {
                                 latitude: Number(restaurant.latitude),
                                 longitude: Number(restaurant.longitude),
                                 restaurantId: data.restaurant_id
                             },
                             orderId,
-                            (event, _orderId, meta) => {
-                                console.log(`[OrderScreen] Event: ${event} Meta:`, meta);
+                            async (event) => {
                                 if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
-                                    sendArrival(event);
+                                    await sendArrival(event);
                                 }
                             }
                         );
@@ -113,22 +135,38 @@ export default function OrderScreen({ route }: Props) {
                     stopLocationTracking();
                     console.warn('[OrderScreen] Could not fetch restaurant coordinates:', err);
                 }
-            } else if (isCompleted) {
-                stopLocationTracking();
             }
         } catch (error) {
             console.error('Failed to fetch order:', error);
+        } finally {
+            setLoading(false);
         }
     };
 
     const sendArrival = async (event: string) => {
+        const normalizedEvent = String(event || '').toUpperCase();
         try {
-            await sendArrivalEvent(orderId, event);
-            fetchOrder();
+            if (normalizedEvent === 'AT_DOOR') {
+                await stopLocationTracking();
+            }
+            await sendArrivalEvent(orderId, normalizedEvent);
+            await fetchOrder();
         } catch (error) {
             console.error('Failed to send arrival event:', error);
         }
     };
+
+    if (!orderId) {
+        return (
+            <View style={styles.center}>
+                <Text style={styles.emptyStateTitle}>Order not found</Text>
+                <Text style={styles.emptyStateBody}>We couldn't load this order. Try opening it again from your order history.</Text>
+                <TouchableOpacity style={styles.emptyStateButton} onPress={() => navigation.navigate('Orders')}>
+                    <Text style={styles.emptyStateButtonText}>Back to Orders</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     if (loading) {
         return (
@@ -269,4 +307,30 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     simButtonText: { color: theme.colors.text, fontWeight: '600' },
+    emptyStateTitle: {
+        ...theme.typography.h3,
+        color: theme.colors.text,
+        textAlign: 'center',
+    },
+    emptyStateBody: {
+        ...theme.typography.bodySm,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+        marginTop: theme.spacing.sm,
+        marginBottom: theme.spacing.lg,
+        paddingHorizontal: theme.spacing.lg,
+    },
+    emptyStateButton: {
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radii.button,
+        backgroundColor: theme.colors.surface,
+        paddingHorizontal: theme.spacing.lg,
+        paddingVertical: theme.spacing.md,
+    },
+    emptyStateButtonText: {
+        ...theme.typography.body,
+        color: theme.colors.text,
+        fontWeight: '700',
+    },
 });

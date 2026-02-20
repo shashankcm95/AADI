@@ -125,8 +125,16 @@ export default function LoginScreen({ navigation }: Props) {
             return;
         }
 
-        navigation.navigate('Home', {
-            customerName: (claimEmail || normalizedEmail).split('@')[0] || 'Guest',
+        navigation.reset({
+            index: 0,
+            routes: [
+                {
+                    name: 'Home',
+                    params: {
+                        customerName: (claimEmail || normalizedEmail).split('@')[0] || 'Guest',
+                    },
+                },
+            ],
         });
     };
 

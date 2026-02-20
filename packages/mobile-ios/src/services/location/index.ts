@@ -91,7 +91,24 @@ export async function startLocationTracking(
     orderId: string,
     onEvent: (event: string, orderId: string, metadata?: any) => void
 ): Promise<void> {
-    const trackingState = getTrackingState();
+    let trackingState = getTrackingState();
+
+    if (trackingState.isStarted) {
+        if (activeOrderId && activeOrderId !== orderId) {
+            await stopLocationTracking();
+            trackingState = getTrackingState();
+        } else {
+            activeRestaurant = restaurant;
+            activeOrderId = orderId;
+            onArrivalEvent = onEvent;
+            eventQueue.setSender(async (event, oid, meta) => {
+                if (onArrivalEvent) {
+                    await Promise.resolve(onArrivalEvent(event, oid, meta));
+                }
+            });
+            return;
+        }
+    }
 
     if (trackingState.isStarted) {
         return;

@@ -103,4 +103,31 @@ describe('HomeScreen', () => {
             customerName: 'Guest',
         });
     });
+
+    it('shows connection error state and recovers on retry', async () => {
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        (restaurantsCatalog.getRestaurantsWithCache as jest.Mock)
+            .mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValueOnce({
+                userId: 'cust_1',
+                restaurants: mockRestaurants,
+                fromCache: false,
+            });
+
+        const { getByText } = render(<HomeScreen navigation={mockNavigation} route={mockRoute} />);
+
+        await waitFor(() => {
+            expect(getByText('Unable to load restaurants')).toBeTruthy();
+            expect(getByText('Retry')).toBeTruthy();
+        });
+
+        fireEvent.press(getByText('Retry'));
+
+        await waitFor(() => {
+            expect(getByText('AADI Burger')).toBeTruthy();
+        });
+
+        errorSpy.mockRestore();
+    });
 });

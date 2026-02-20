@@ -45,7 +45,6 @@ export async function processLocationUpdate(
     // If user is moving AWAY from restaurant, inflate TTA to prevent false zone transitions
     if (!approaching && trackingState.lastLocationTs !== 0) {
         ttaSeconds = ttaSeconds * 2;
-        console.log(`[Location] User moving AWAY from restaurant, inflated TTA: ${Math.round(ttaSeconds)}s`);
     }
     const ttaMinutes = ttaSeconds / 60;
 
@@ -78,15 +77,9 @@ export async function processLocationUpdate(
     }
 
     // 5. Zone Transition Detection
-    if (trackingState.currentZone !== null && trackingState.currentZone !== newZone) {
-        console.log(`[Location] Zone transition: ${trackingState.currentZone} -> ${newZone} (TTA: ${Math.round(ttaSeconds)}s)`);
-    }
     trackingState.currentZone = newZone;
 
-    // 6. Cold Start Detection
-    const isColdStart = trackingState.lastLocationTs === 0;
-
-    // 7. Evaluate Reporting Rules (Privacy Filter)
+    // 6. Evaluate Reporting Rules (Privacy Filter)
     let shouldReport = false;
     let eventName = 'LOCATION_UPDATE';
 
@@ -128,7 +121,7 @@ export async function processLocationUpdate(
         }
     }
 
-    // 8. Execute Report (if needed)
+    // 7. Execute Report (if needed)
     if (shouldReport && onArrivalEvent) {
         const isDuplicate = (
             trackingState.lastReportedEvent === eventName &&
@@ -136,18 +129,7 @@ export async function processLocationUpdate(
         );
 
         if (!isDuplicate) {
-            if (isColdStart) {
-                console.log(`[Location] COLD START: User already inside geofence. Firing: ${eventName} (dist: ${Math.round(distanceMeters)}m)`);
-            }
-            console.log(`[Location] Reporting: ${eventName} (TTA: ${Math.round(ttaSeconds)}s, dist: ${Math.round(distanceMeters)}m, zone: ${newZone}, poll: ${nextInterval / 1000}s)`);
-
-            eventQueue.enqueue(eventName, orderId, {
-                tta: Math.round(ttaSeconds),
-                distance: Math.round(distanceMeters),
-                zone: newZone,
-                cold_start: isColdStart,
-                battery_save: newZone === 'FAR',
-            });
+            eventQueue.enqueue(eventName, orderId, undefined);
 
             trackingState.lastReportTs = now;
             trackingState.lastReportedTta = ttaSeconds;
@@ -163,7 +145,7 @@ export async function processLocationUpdate(
         }
     }
 
-    // 9. Re-configure Polling (The "Tether")
+    // 8. Re-configure Polling (The "Tether")
     // Note: returning instructions would be cleaner, but we'll accept the side-effect here for now as planned
     return {
         nextInterval,
