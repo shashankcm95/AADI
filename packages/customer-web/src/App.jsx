@@ -10,12 +10,42 @@ import Cart from './components/Cart'
 import OrderList from './components/OrderList'
 import Profile from './components/Profile'
 import Favorites from './components/Favorites'
-import { RESTAURANTS_API_URL, ORDERS_API_URL } from './config'
+import { RESTAURANTS_API_URL, ORDERS_API_URL, USERS_API_URL } from './config'
 
+
+function CustomerAuthHeader() {
+  return (
+    <div className="auth-brand-header">
+      <img src="/logo_icon_stylized.png" alt="AADI logo" className="auth-brand-logo" />
+      <div>
+        <h2>AADI</h2>
+        <p>Customer Portal</p>
+      </div>
+    </div>
+  )
+}
+
+const authComponents = {
+  SignIn: {
+    Header: CustomerAuthHeader,
+  },
+  SignUp: {
+    Header: CustomerAuthHeader,
+  },
+  ResetPassword: {
+    Header: CustomerAuthHeader,
+  },
+  ConfirmResetPassword: {
+    Header: CustomerAuthHeader,
+  },
+  ConfirmSignUp: {
+    Header: CustomerAuthHeader,
+  },
+}
 
 function App() {
   return (
-    <Authenticator>
+    <Authenticator className="customer-auth-shell" components={authComponents}>
       {({ signOut, user }) => (
         <MainAppContent user={user} signOut={signOut} />
       )}
@@ -36,6 +66,8 @@ function MainAppContent({ user, signOut }) {
   // Orders
   const [myOrders, setMyOrders] = useState([])
   const [apiResponse, setApiResponse] = useState(null)
+  const [customerName, setCustomerName] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
 
   // Navigation
   const [currentView, setCurrentView] = useState('home') // home | profile | favorites
@@ -99,6 +131,36 @@ function MainAppContent({ user, signOut }) {
     }
   }, [token])
 
+  const fallbackCustomerName = useCallback(() => {
+    if (!user?.username) return ''
+    const suffix = user.username.split('_')[1] || user.username
+    return (suffix || '').trim()
+  }, [user])
+
+  const fetchCustomerProfileName = useCallback(async () => {
+    if (!token) return null
+    try {
+      const res = await fetch(`${USERS_API_URL}/v1/users/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (!res.ok) return null
+
+      const data = await res.json()
+      const profileEmail = (data?.email || '').trim()
+      const profileName = (data?.name || '').trim()
+      if (profileEmail) {
+        setCustomerEmail(profileEmail)
+      }
+      if (profileName) {
+        setCustomerName(profileName)
+        return profileName
+      }
+    } catch {
+      // Non-blocking: we can still place orders with a fallback name.
+    }
+    return null
+  }, [token])
+
   const refreshOrderStatuses = useCallback(async () => {
     const activeOrders = myOrders.filter(o =>
       !['COMPLETED', 'CANCELED', 'EXPIRED'].includes(o.status)
@@ -127,8 +189,9 @@ function MainAppContent({ user, signOut }) {
     if (token) {
       fetchRestaurants()
       fetchMyOrders()
+      fetchCustomerProfileName()
     }
-  }, [token, fetchRestaurants, fetchMyOrders])
+  }, [token, fetchRestaurants, fetchMyOrders, fetchCustomerProfileName])
 
   useEffect(() => {
     if (token && selectedRestaurant) {
@@ -167,6 +230,9 @@ function MainAppContent({ user, signOut }) {
     setApiResponse({ loading: true })
 
     try {
+      const latestProfileName = await fetchCustomerProfileName()
+      const resolvedCustomerName = latestProfileName || customerName || fallbackCustomerName() || 'Guest'
+
       const res = await fetch(`${ORDERS_API_URL}/v1/orders`, {
         method: 'POST',
         headers: {
@@ -175,6 +241,7 @@ function MainAppContent({ user, signOut }) {
         },
         body: JSON.stringify({
           restaurant_id: selectedRestaurant,
+          customer_name: resolvedCustomerName,
           items: cart.map(c => ({
             id: c.id,
             qty: c.qty,
@@ -264,6 +331,15 @@ function MainAppContent({ user, signOut }) {
     return <div className="container"><p>Loading...</p></div>
   }
 
+  const cognitoLoginId = (user?.signInDetails?.loginId || '').trim()
+  const fallbackEmail = cognitoLoginId.includes('@')
+    ? cognitoLoginId
+    : ((user?.username || '').includes('@') ? user.username : '')
+  const headerName = (customerName || '').trim()
+  const headerEmail = (customerEmail || fallbackEmail || '').trim()
+  const headerPrimary = headerName || headerEmail || user?.username || 'Customer'
+  const headerSecondary = headerName && headerEmail ? headerEmail : ''
+
   return (
     <div className="container">
       {/* Background Washes */}
@@ -287,7 +363,10 @@ function MainAppContent({ user, signOut }) {
           </nav>
 
           <div className="user-actions user-pill">
-            <span className="username">{user.username?.split('_')[1]?.slice(0, 8) || 'User'}</span>
+            <div className="user-identity">
+              <span className="user-primary">{headerPrimary}</span>
+              {headerSecondary && <span className="user-secondary">{headerSecondary}</span>}
+            </div>
             <button onClick={() => signOut()} className="btn btn-small">Sign Out</button>
           </div>
         </div>

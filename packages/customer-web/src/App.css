@@ -92,6 +92,136 @@
   font-weight: 700;
 }
 
+.user-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.user-primary {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-secondary {
+  color: rgba(84, 110, 122, 0.86);
+  font-size: 0.72rem;
+  line-height: 1.05;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-amplify-authenticator].customer-auth-shell {
+  min-height: 100vh;
+  display: block;
+  padding: 1.15rem 1rem 2rem;
+}
+
+[data-amplify-authenticator].customer-auth-shell [data-amplify-container] {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+[data-amplify-authenticator].customer-auth-shell [data-amplify-router] {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-hero);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+
+[data-amplify-authenticator].customer-auth-shell [role='tablist'] {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 0.35rem;
+  border-bottom: 1px solid rgba(33, 98, 186, 0.12);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+[data-amplify-authenticator].customer-auth-shell [role='tab'] {
+  border-radius: 999px;
+  border: 1px solid rgba(33, 98, 186, 0.14);
+  padding: 0.42rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.86);
+  transition: all 0.2s ease;
+}
+
+[data-amplify-authenticator].customer-auth-shell [role='tab'][aria-selected='true'] {
+  color: var(--text-primary);
+  border-color: rgba(33, 98, 186, 0.34);
+  background: linear-gradient(135deg, rgba(115, 195, 197, 0.26), rgba(33, 98, 186, 0.16));
+  box-shadow: 0 10px 20px -16px rgba(33, 98, 186, 0.72);
+}
+
+[data-amplify-authenticator].customer-auth-shell [data-amplify-router-content] {
+  padding: 0.45rem 1rem 1.15rem;
+}
+
+[data-amplify-authenticator].customer-auth-shell [data-amplify-form] {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0.35rem 0.25rem 0.9rem;
+}
+
+[data-amplify-authenticator].customer-auth-shell .amplify-card {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-amplify-authenticator].customer-auth-shell [data-amplify-footer] {
+  padding-bottom: 0.3rem;
+}
+
+.auth-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  margin: 0 0 1rem;
+  border-radius: var(--radius-card);
+  background: var(--gradient-primary);
+  box-shadow: 0 14px 24px -20px rgba(33, 98, 186, 0.82);
+}
+
+.auth-brand-header h2 {
+  margin: 0;
+  color: var(--white);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.auth-brand-header p {
+  margin: 0.3rem 0 0;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.95rem;
+}
+
+.auth-brand-logo {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow: 0 14px 24px -18px rgba(20, 55, 107, 0.7);
+}
+
 section {
   background: var(--bg-surface);
   border: 1px solid var(--border-soft);
@@ -101,9 +231,17 @@ section {
   box-shadow: var(--shadow-card);
 }
 
-section h2 {
-  font-size: 1.35rem;
-  margin-bottom: 0.95rem;
+section>h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.2rem;
+  margin: -1rem -1rem 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background: var(--gradient-primary);
+  color: var(--white);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
 }
 
 .organic-card,
@@ -115,6 +253,25 @@ section h2 {
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.95);
   box-shadow: var(--shadow-card);
+}
+
+.organic-card,
+.my-order-card,
+.restaurant-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.organic-card::before,
+.my-order-card::before,
+.restaurant-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient-primary);
 }
 
 .restaurant-select {
@@ -289,6 +446,46 @@ section h2 {
 }
 
 @media (max-width: 780px) {
+  [data-amplify-authenticator].customer-auth-shell {
+    padding: 0.8rem 0.8rem 1.4rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell [data-amplify-router-content] {
+    padding: 0.35rem 0.7rem 0.9rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell [role='tablist'] {
+    gap: 0.45rem;
+    padding: 0.7rem 0.65rem 0.3rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell [role='tab'] {
+    padding: 0.38rem 0.78rem;
+    font-size: 0.82rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell [data-amplify-form] {
+    max-width: none;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell .auth-brand-header {
+    padding: 0.72rem 0.8rem;
+    border-radius: 14px;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell .auth-brand-header h2 {
+    font-size: 1.55rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell .auth-brand-header p {
+    font-size: 0.8rem;
+  }
+
+  [data-amplify-authenticator].customer-auth-shell .auth-brand-logo {
+    width: 46px;
+    height: 46px;
+  }
+
   .container {
     padding: 0.8rem 0.8rem 1.4rem;
   }
@@ -458,8 +655,25 @@ section h2 {
 
 /* ── Favorites Styles ── */
 .favorites-grid h2 {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 1.2rem;
+    margin: -1rem -1rem 1rem;
+    padding: 0.8rem 1rem;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    background: var(--gradient-primary);
+    color: var(--white);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+}
+
+.favorites-grid {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    padding: 1rem;
+    margin-bottom: 1rem;
 }
 
 .empty-state {
@@ -571,4 +785,3 @@ section h2 {
         flex-wrap: wrap;
     }
 }
-
