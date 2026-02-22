@@ -18,13 +18,16 @@ export async function processLocationUpdate(
 ) {
     const now = Date.now();
     const { latitude, longitude, speed } = location.coords;
+    const accuracyMeters = Number(location.coords?.accuracy);
+    const hasReliableAccuracy = Number.isFinite(accuracyMeters) ? accuracyMeters <= 100 : false;
+    const usedEstimatedSpeed = !(speed && speed > 0);
 
     // 1. Calculate Distance & Smooth Speed
     const straightLineMeters = calculateDistance(latitude, longitude, restaurant.latitude, restaurant.longitude);
     const distanceMeters = applyCircuity(straightLineMeters);
 
     // Kalman-lite smoothing: weighted average (70% new, 30% old)
-    const rawSpeed = (speed && speed > 0) ? speed : CONFIG.SPEED_FALLBACK;
+    const rawSpeed = usedEstimatedSpeed ? CONFIG.SPEED_FALLBACK : speed;
     trackingState.currentSpeed = (trackingState.currentSpeed === 0)
         ? rawSpeed
         : (rawSpeed * 0.7) + (trackingState.currentSpeed * 0.3);
@@ -151,5 +154,8 @@ export async function processLocationUpdate(
         nextInterval,
         accuracy,
         shouldUpdateConfig: (trackingState.lastConfiguredInterval === 0 || Math.abs(nextInterval - trackingState.lastConfiguredInterval) > 5000),
+        ttaSeconds,
+        usedEstimatedSpeed,
+        hasReliableAccuracy,
     };
 }

@@ -2,16 +2,25 @@
  * Order Screen
  * Agent Kappa: Real-time order tracking
  */
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     TouchableOpacity,
     ActivityIndicator,
+    AppState,
+    AppStateStatus,
 } from 'react-native';
-import { getOrder, sendArrivalEvent, getRestaurant, getLeaveAdvisory, LeaveAdvisory } from '../services/api';
-import { startLocationTracking, stopLocationTracking } from '../services/location';
+import { getOrder, sendArrivalEvent, getRestaurant, getLeaveAdvisory, LeaveAdvisory, sendLocationSample } from '../services/api';
+import {
+    getPermissionLevel,
+    requestPermissions,
+    startLocationTracking,
+    stopLocationTracking,
+    triggerImmediateVicinityCheck,
+    TrackingPermissionLevel,
+} from '../services/location';
 import { theme } from '../theme';
 
 const STATUS_LABELS: { [key: string]: { label: string; color: string; emoji: string } } = {
@@ -55,6 +64,11 @@ export default function OrderScreen({ navigation, route }: Props) {
     const [order, setOrder] = useState<any>(null);
     const [leaveAdvisory, setLeaveAdvisory] = useState<LeaveAdvisory | null>(null);
     const [loading, setLoading] = useState(true);
+    const [trackingPermissionLevel, setTrackingPermissionLevel] = useState<TrackingPermissionLevel>('none');
+    const [trackingPermissionEvaluated, setTrackingPermissionEvaluated] = useState(false);
+    const locationPermissionResolvedRef = useRef(false);
+    const locationPermissionGrantedRef = useRef(false);
+    const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
     useEffect(() => {
         if (!orderId) {
@@ -63,6 +77,9 @@ export default function OrderScreen({ navigation, route }: Props) {
         }
 
         let mounted = true;
+        locationPermissionResolvedRef.current = false;
+        locationPermissionGrantedRef.current = false;
+        setTrackingPermissionEvaluated(false);
 
         const init = async () => {
             await fetchOrder();
@@ -73,9 +90,27 @@ export default function OrderScreen({ navigation, route }: Props) {
             if (mounted) fetchOrder();
         }, 5000); // Poll every 5s
 
+        const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+            const wasBackground = appStateRef.current === 'background' || appStateRef.current === 'inactive';
+            appStateRef.current = nextState;
+
+            if (!mounted || !wasBackground || nextState !== 'active') {
+                return;
+            }
+
+            void (async () => {
+                await fetchOrder();
+                const checkMode = await triggerImmediateVicinityCheck();
+                if (checkMode === 'estimate') {
+                    console.log('[OrderScreen] Resume check used estimate (last-known location).');
+                }
+            })();
+        });
+
         return () => {
             mounted = false;
             clearInterval(interval);
+            appStateSubscription.remove();
         };
     }, [orderId]);
 
@@ -110,30 +145,63 @@ export default function OrderScreen({ navigation, route }: Props) {
             const status = String(data.status || '').toUpperCase();
 
             if (TRACKABLE_STATUSES.includes(status)) {
+                if (!locationPermissionResolvedRef.current) {
+                    try {
+                        locationPermissionGrantedRef.current = await requestPermissions({ requestBackground: false });
+                        const level = await getPermissionLevel();
+                        setTrackingPermissionLevel(level);
+                        setTrackingPermissionEvaluated(true);
+                    } catch (permissionError) {
+                        locationPermissionGrantedRef.current = false;
+                        setTrackingPermissionLevel('none');
+                        setTrackingPermissionEvaluated(true);
+                        console.warn('[OrderScreen] Failed to request location permission:', permissionError);
+                    }
+                    locationPermissionResolvedRef.current = true;
+                }
+
+                if (!locationPermissionGrantedRef.current) {
+                    await stopLocationTracking();
+                    return;
+                }
+
                 try {
                     const restaurant = await getRestaurant(data.restaurant_id);
                     const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
                     if (hasCoordinates) {
-                        await startLocationTracking(
-                            {
-                                latitude: Number(restaurant.latitude),
-                                longitude: Number(restaurant.longitude),
-                                restaurantId: data.restaurant_id
-                            },
-                            orderId,
-                            async (event) => {
-                                if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
-                                    await sendArrival(event);
-                                }
-                            }
-                        );
+                        try {
+                            await startLocationTracking(
+                                {
+                                    latitude: Number(restaurant.latitude),
+                                    longitude: Number(restaurant.longitude),
+                                    restaurantId: data.restaurant_id
+                                },
+                                orderId,
+                                async (event) => {
+                                    if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
+                                        await sendArrival(event);
+                                    }
+                                },
+                                async (sampleOrderId, sample) => {
+                                    try {
+                                        await sendLocationSample(sampleOrderId, sample);
+                                    } catch (sampleError) {
+                                        console.warn('[OrderScreen] Failed to send location sample:', sampleError);
+                                    }
+                                },
+                            );
+                            await triggerImmediateVicinityCheck();
+                        } catch (trackingError) {
+                            await stopLocationTracking();
+                            console.warn('[OrderScreen] Could not start location tracking:', trackingError);
+                        }
                     } else {
-                        stopLocationTracking();
+                        await stopLocationTracking();
                         console.warn('[OrderScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
                     }
                 } catch (err) {
-                    stopLocationTracking();
-                    console.warn('[OrderScreen] Could not fetch restaurant coordinates:', err);
+                    await stopLocationTracking();
+                    console.warn('[OrderScreen] Could not fetch restaurant details:', err);
                 }
             }
         } catch (error) {
@@ -178,6 +246,13 @@ export default function OrderScreen({ navigation, route }: Props) {
 
     const statusInfo = STATUS_LABELS[order?.status] || STATUS_LABELS['PENDING_NOT_SENT'];
     const arrivalLabel = order?.arrival_status ? ARRIVAL_LABELS[order.arrival_status] : null;
+    const locationNotice = !trackingPermissionEvaluated
+        ? null
+        : trackingPermissionLevel === 'none'
+        ? 'Location not allowed. Allow Once or Allow While Using to enable vicinity estimates; otherwise use "I\'m Here" manual trigger.'
+        : trackingPermissionLevel === 'foreground'
+            ? 'Session mode: Allow Once/While Using can keep tracking in background while iOS shows the blue location indicator. If updates pause, we fall back to estimates until you reopen the app. Always Location is most reliable.'
+            : null;
     const estimatedWaitMinutes = leaveAdvisory
         ? Math.ceil(Math.max(0, Number(leaveAdvisory.estimated_wait_seconds || 0)) / 60)
         : 0;
@@ -194,6 +269,10 @@ export default function OrderScreen({ navigation, route }: Props) {
 
                 {arrivalLabel && (
                     <Text style={styles.arrivalStatus}>{arrivalLabel}</Text>
+                )}
+
+                {locationNotice && (
+                    <Text style={styles.locationNotice}>{locationNotice}</Text>
                 )}
 
                 {leaveAdvisory && ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(order?.status) && (
@@ -263,6 +342,17 @@ const styles = StyleSheet.create({
     statusEmoji: { fontSize: 24, marginRight: 12 },
     statusLabel: { fontSize: 18, fontWeight: '700' },
     arrivalStatus: { color: theme.colors.primary, fontSize: 16, marginBottom: 16, textAlign: 'center', fontWeight: 'bold' },
+    locationNotice: {
+        marginBottom: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: '#fef3c7',
+        color: '#92400e',
+        fontSize: 13,
+        lineHeight: 18,
+        fontWeight: '600',
+    },
     advisoryCard: {
         borderWidth: 1,
         borderColor: '#fde68a',

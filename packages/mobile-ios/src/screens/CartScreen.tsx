@@ -9,7 +9,7 @@ import {
     View,
 } from 'react-native';
 import { theme } from '../theme';
-import { createOrder, sendArrivalEvent } from '../services/api';
+import { createOrder, sendArrivalEvent, sendLocationSample } from '../services/api';
 import { upsertOrderInCache } from '../services/orderHistory';
 import { getCurrentUserProfile } from '../services/session';
 import { requestPermissions, startLocationTracking, stopLocationTracking } from '../services/location';
@@ -56,7 +56,7 @@ export default function CartScreen({ navigation }: Props) {
 
             // Keep existing background location behavior for arrival events.
             try {
-                const hasPermission = await requestPermissions();
+                const hasPermission = await requestPermissions({ requestBackground: true });
                 if (hasPermission && Number.isFinite(cartRestaurant.latitude) && Number.isFinite(cartRestaurant.longitude)) {
                     await startLocationTracking(
                         {
@@ -79,7 +79,14 @@ export default function CartScreen({ navigation }: Props) {
                             } catch (arrivalError) {
                                 console.warn('[CartScreen] Failed to send arrival event:', arrivalError);
                             }
-                        }
+                        },
+                        async (sampleOrderId, sample) => {
+                            try {
+                                await sendLocationSample(sampleOrderId, sample);
+                            } catch (sampleError) {
+                                console.warn('[CartScreen] Failed to send location sample:', sampleError);
+                            }
+                        },
                     );
                 }
             } catch (locErr) {

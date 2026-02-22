@@ -27,10 +27,22 @@ import { clearMyOrdersCache } from '../services/orderHistory';
 
 import { clearMyFavoritesCache } from '../services/favorites';
 import { clearRestaurantsCache } from '../services/restaurantsCatalog';
+import { getCurrentUserProfile } from '../services/session';
 import { useCart } from '../state/CartContext';
 
 interface Props {
     navigation: any;
+}
+
+function normalizeAvatarUri(value: unknown): string | null {
+    const uri = String(value || '').trim();
+    if (!uri) {
+        return null;
+    }
+    if (/^(https?:\/\/|file:\/\/|content:\/\/|data:image\/)/i.test(uri)) {
+        return uri;
+    }
+    return null;
 }
 
 export default function ProfileScreen({ navigation }: Props) {
@@ -38,6 +50,7 @@ export default function ProfileScreen({ navigation }: Props) {
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
 
     // Edit form state
     const [editName, setEditName] = useState('');
@@ -48,8 +61,14 @@ export default function ProfileScreen({ navigation }: Props) {
     const fetchProfile = async () => {
         try {
             const data = await getUserProfile();
-            setProfile(data);
-            setEditName(data.name || data.email?.split('@')[0] || '');
+            const sessionProfile = await getCurrentUserProfile().catch(() => null);
+            const mergedPicture = normalizeAvatarUri(data.picture) || normalizeAvatarUri(sessionProfile?.picture);
+            setAvatarLoadFailed(false);
+            setProfile({
+                ...data,
+                picture: mergedPicture || undefined,
+            });
+            setEditName(data.name || data.email?.split('@')[0] || sessionProfile?.displayName || '');
             setEditPhone(data.phone_number || '');
         } catch (error) {
             console.error('Failed to fetch profile:', error);
@@ -126,6 +145,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
             // 4. Update Profile
             const updated = await updateUserProfile({ picture: s3Url });
+            setAvatarLoadFailed(false);
             setProfile(updated);
 
             Alert.alert('Success', 'Profile picture updated');
@@ -170,10 +190,10 @@ export default function ProfileScreen({ navigation }: Props) {
         );
     }
 
-    // Use profile picture or fallback
-    const avatarSource = profile?.picture
-        ? { uri: profile.picture }
-        : require('../../assets/logo_icon_stylized.png');
+    const displayName = profile?.name || profile?.email?.split('@')[0] || 'Customer';
+    const avatarUri = normalizeAvatarUri(profile?.picture);
+    const avatarInitial = displayName.trim().charAt(0).toUpperCase() || 'C';
+    const shouldRenderAvatarImage = Boolean(avatarUri) && !avatarLoadFailed;
 
     return (
         <KeyboardAvoidingView
@@ -185,7 +205,18 @@ export default function ProfileScreen({ navigation }: Props) {
                     <View style={styles.headerColumn}>
                         <TouchableOpacity onPress={handlePickImage} disabled={uploading || editing}>
                             <View style={styles.avatarContainer}>
-                                <Image source={avatarSource} style={styles.avatarImage} resizeMode="cover" />
+                                {shouldRenderAvatarImage ? (
+                                    <Image
+                                        source={{ uri: avatarUri as string }}
+                                        style={styles.avatarImage}
+                                        resizeMode="cover"
+                                        onError={() => setAvatarLoadFailed(true)}
+                                    />
+                                ) : (
+                                    <View style={[styles.avatarImage, styles.avatarFallbackCircle]}>
+                                        <Text style={styles.avatarFallbackText}>{avatarInitial}</Text>
+                                    </View>
+                                )}
                                 <View style={styles.editIconBadge}>
                                     <Text style={styles.editIconText}>📷</Text>
                                 </View>
@@ -199,7 +230,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
                         {!editing ? (
                             <>
-                                <Text style={styles.name}>{profile?.name || profile?.email?.split('@')[0] || 'Customer'}</Text>
+                                <Text style={styles.name}>{displayName}</Text>
                                 <Text style={styles.meta}>{profile?.email}</Text>
                                 {profile?.role && profile.role !== 'customer' && (
                                     <View style={styles.roleBadge}>
@@ -305,12 +336,16 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: theme.colors.primary,
     },
-    avatarFallback: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        borderWidth: 2,
+    avatarFallbackCircle: {
+        backgroundColor: theme.colors.primary + '20',
         borderColor: theme.colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarFallbackText: {
+        ...theme.typography.h1,
+        color: theme.colors.primary,
+        fontWeight: '700',
     },
     editIconBadge: {
         position: 'absolute',

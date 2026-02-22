@@ -8,26 +8,35 @@ import {
     sendArrivalEvent,
 } from '../../services/api';
 import {
+    getPermissionLevel,
+    requestPermissions,
     startLocationTracking,
     stopLocationTracking,
+    triggerImmediateVicinityCheck,
 } from '../../services/location';
 
 jest.mock('../../services/api', () => ({
     getLeaveAdvisory: jest.fn(),
     getOrder: jest.fn(),
     getRestaurant: jest.fn(),
+    sendLocationSample: jest.fn(),
     sendArrivalEvent: jest.fn(),
 }));
 
 jest.mock('../../services/location', () => ({
+    getPermissionLevel: jest.fn(),
     requestPermissions: jest.fn(),
     startLocationTracking: jest.fn(),
     stopLocationTracking: jest.fn(),
+    triggerImmediateVicinityCheck: jest.fn(),
 }));
 
 describe('OrderScreen', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        (requestPermissions as jest.Mock).mockResolvedValue(true);
+        (getPermissionLevel as jest.Mock).mockResolvedValue('foreground');
+        (triggerImmediateVicinityCheck as jest.Mock).mockResolvedValue('exact');
     });
 
     it('renders fallback when orderId is missing', () => {

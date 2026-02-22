@@ -32,9 +32,10 @@ function primaryRestaurantImage(restaurant: Restaurant): { uri: string } | undef
 }
 
 function asFallbackRestaurant(restaurantId: string): Restaurant {
+    const normalizedId = String(restaurantId || '').trim();
     return {
-        restaurant_id: restaurantId,
-        name: `Restaurant ${restaurantId.slice(-4)}`,
+        restaurant_id: normalizedId,
+        name: `Restaurant ${normalizedId ? normalizedId.slice(-4) : 'N/A'}`,
         cuisine: 'Cuisine',
         rating: 0,
         emoji: '🍽️',

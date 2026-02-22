@@ -44,12 +44,25 @@ function orderPlacedAt(order: Order): string {
         return 'Recent';
     }
 
-    const dt = new Date(raw);
+    let dt: Date;
+    const numericRaw = Number(raw);
+    if (Number.isFinite(numericRaw)) {
+        const epochMs = numericRaw > 1_000_000_000_000 ? numericRaw : numericRaw * 1000;
+        dt = new Date(epochMs);
+    } else {
+        dt = new Date(String(raw));
+    }
+
     if (Number.isNaN(dt.getTime())) {
         return 'Recent';
     }
 
     return dt.toLocaleString();
+}
+
+function suffix(value: unknown): string {
+    const normalized = String(value || '').trim();
+    return normalized ? normalized.slice(-6) : 'N/A';
 }
 
 export default function OrdersScreen({ navigation }: Props) {
@@ -132,7 +145,10 @@ export default function OrdersScreen({ navigation }: Props) {
 
             <FlatList
                 data={orders}
-                keyExtractor={(item) => item.order_id}
+                keyExtractor={(item, index) => {
+                    const key = String((item as any)?.order_id || (item as any)?.session_id || '').trim();
+                    return key || `order-${index}`;
+                }}
                 refreshControl={(
                     <RefreshControl
                         refreshing={refreshing}
@@ -154,7 +170,9 @@ export default function OrdersScreen({ navigation }: Props) {
                 )}
                 contentContainerStyle={orders.length === 0 ? styles.emptyList : styles.list}
                 renderItem={({ item }) => {
-                    const restaurant = restaurantsById[item.restaurant_id];
+                    const orderId = String((item as any)?.order_id || (item as any)?.session_id || '').trim();
+                    const restaurantId = String((item as any)?.restaurant_id || (item as any)?.destination_id || '').trim();
+                    const restaurant = restaurantsById[restaurantId];
                     const totalItems = Array.isArray(item.items)
                         ? item.items.reduce((sum, orderItem) => sum + (Number(orderItem.qty) || 0), 0)
                         : 0;
@@ -162,11 +180,16 @@ export default function OrdersScreen({ navigation }: Props) {
                     return (
                         <TouchableOpacity
                             style={styles.card}
-                            onPress={() => navigation.navigate('Order', { orderId: item.order_id })}
+                            disabled={!orderId}
+                            onPress={() => {
+                                if (orderId) {
+                                    navigation.navigate('Order', { orderId });
+                                }
+                            }}
                         >
                             <View style={styles.cardHeader}>
                                 <Text style={styles.restaurantName} numberOfLines={1}>
-                                    {restaurant?.name || `Restaurant ${item.restaurant_id.slice(-6)}`}
+                                    {restaurant?.name || `Restaurant ${suffix(restaurantId)}`}
                                 </Text>
                                 <Text style={styles.status}>{statusLabel(item.status)}</Text>
                             </View>

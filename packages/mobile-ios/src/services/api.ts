@@ -12,10 +12,14 @@ import {
 
 let cachedAuthToken: string | null = null;
 let cachedAuthTokenExpiryMs = 0;
+let locationSampleRouteUnavailable = false;
+let locationSampleRouteWarningShown = false;
 
 export function clearAuthHeaderCache(): void {
     cachedAuthToken = null;
     cachedAuthTokenExpiryMs = 0;
+    locationSampleRouteUnavailable = false;
+    locationSampleRouteWarningShown = false;
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -74,8 +78,8 @@ export interface Order {
     items: OrderItem[];
     total_cents: number;
     arrival_status?: string;
-    created_at?: string;
-    updated_at?: string;
+    created_at?: string | number;
+    updated_at?: string | number;
 }
 
 export interface LeaveAdvisory {
@@ -92,6 +96,15 @@ export interface LeaveAdvisory {
     window_seconds?: number;
     is_estimate: boolean;
     advisory_note?: string;
+}
+
+export interface LocationSample {
+    latitude: number;
+    longitude: number;
+    sample_time?: number;
+    accuracy_m?: number;
+    speed_mps?: number;
+    heading_deg?: number;
 }
 
 export interface Restaurant {
@@ -117,6 +130,47 @@ export interface Favorite {
     created_at?: number;
 }
 
+function toFiniteNumber(value: unknown): number | undefined {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizeOrder(raw: any): Order {
+    const orderId = String(raw?.order_id || raw?.session_id || '').trim();
+    const restaurantId = String(raw?.restaurant_id || raw?.destination_id || '').trim();
+    const items = Array.isArray(raw?.items) ? raw.items : [];
+
+    return {
+        ...raw,
+        order_id: orderId,
+        restaurant_id: restaurantId,
+        status: String(raw?.status || 'PENDING_NOT_SENT'),
+        items,
+        total_cents: Math.max(0, Math.round(Number(raw?.total_cents) || 0)),
+    };
+}
+
+function normalizeRestaurant(raw: any): Restaurant {
+    const normalized: any = { ...raw };
+
+    const topLevelLatitude = toFiniteNumber(raw?.latitude);
+    const topLevelLongitude = toFiniteNumber(raw?.longitude);
+    const locationLatitude = toFiniteNumber(raw?.location?.lat ?? raw?.location?.latitude);
+    const locationLongitude = toFiniteNumber(raw?.location?.lon ?? raw?.location?.longitude);
+
+    const latitude = topLevelLatitude ?? locationLatitude;
+    const longitude = topLevelLongitude ?? locationLongitude;
+
+    if (latitude !== undefined) {
+        normalized.latitude = latitude;
+    }
+    if (longitude !== undefined) {
+        normalized.longitude = longitude;
+    }
+
+    return normalized as Restaurant;
+}
+
 /**
  * Get list of restaurants
  */
@@ -129,7 +183,8 @@ export async function getRestaurants(): Promise<Restaurant[]> {
         throw new Error('Failed to fetch restaurants');
     }
     const data = await response.json();
-    return data.restaurants;
+    const restaurants = Array.isArray(data.restaurants) ? data.restaurants : [];
+    return restaurants.map(normalizeRestaurant);
 }
 
 /**
@@ -276,7 +331,8 @@ export async function getOrder(orderId: string): Promise<Order> {
         throw new Error('Failed to fetch order');
     }
 
-    return response.json();
+    const data = await response.json();
+    return normalizeOrder(data);
 }
 
 /**
@@ -298,6 +354,52 @@ export async function sendArrivalEvent(
 
     if (!response.ok) {
         throw new Error('Failed to send arrival event');
+    }
+
+    return response.json();
+}
+
+/**
+ * Send a raw location sample for backend telemetry / AWS Location ingestion.
+ */
+export async function sendLocationSample(
+    orderId: string,
+    sample: LocationSample
+): Promise<{ received: boolean }> {
+    if (locationSampleRouteUnavailable) {
+        return { received: false };
+    }
+
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders/${orderId}/location`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...headers,
+        },
+        body: JSON.stringify(sample),
+    });
+
+    if (!response.ok) {
+        let details = '';
+        let body = '';
+        try {
+            body = await response.text();
+            details = body ? ` ${body.slice(0, 300)}` : '';
+        } catch {
+            // Ignore body parse issues; status code is still useful.
+        }
+
+        if (response.status === 404 && body.includes('"message":"Not Found"')) {
+            locationSampleRouteUnavailable = true;
+            if (!locationSampleRouteWarningShown) {
+                locationSampleRouteWarningShown = true;
+                console.warn('[API] Location sample route not found in this environment; disabling sample posts for this app session.');
+            }
+            return { received: false };
+        }
+
+        throw new Error(`Failed to send location sample (HTTP ${response.status}).${details}`);
     }
 
     return response.json();
@@ -331,7 +433,8 @@ export async function getMyOrders(): Promise<Order[]> {
         throw new Error('Failed to fetch orders');
     }
     const data = await response.json();
-    return data.orders;
+    const orders = Array.isArray(data?.orders) ? data.orders : [];
+    return orders.map((order: any) => normalizeOrder(order));
 }
 
 

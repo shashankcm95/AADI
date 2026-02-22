@@ -15,12 +15,16 @@ jest.mock('expo-location', () => ({
         Balanced: 3,
         Low: 2,
     },
+    getForegroundPermissionsAsync: jest.fn(),
+    getBackgroundPermissionsAsync: jest.fn(),
     requestForegroundPermissionsAsync: jest.fn(),
     requestBackgroundPermissionsAsync: jest.fn(),
     startLocationUpdatesAsync: jest.fn(),
     stopLocationUpdatesAsync: jest.fn(),
+    watchPositionAsync: jest.fn(),
     hasStartedLocationUpdatesAsync: jest.fn(),
     getCurrentPositionAsync: jest.fn(),
+    getLastKnownPositionAsync: jest.fn(),
 }));
 
 jest.mock('expo-task-manager', () => ({
@@ -41,6 +45,8 @@ import {
     CONFIG,
     EVENT_PRIORITY,
 } from '../location/config';
+import { getPermissionLevel, requestPermissions } from '../location';
+import * as Location from 'expo-location';
 
 // ===== determineZone Tests =====
 describe('determineZone', () => {
@@ -354,6 +360,43 @@ describe('isUserApproaching', () => {
         const result = isUserApproaching(30.26, -97.73, 30.26, -97.75, rLat, rLon);
         // Perpendicular-ish: result depends on exact geometry
         expect(typeof result).toBe('boolean');
+    });
+});
+
+// ===== Permission Handling Tests =====
+describe('permission handling', () => {
+    const mockedLocation = Location as jest.Mocked<typeof Location>;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('reports foreground capability when foreground is granted and background is denied', async () => {
+        mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ status: 'granted' } as any);
+        mockedLocation.getBackgroundPermissionsAsync.mockResolvedValue({ status: 'denied' } as any);
+
+        await expect(getPermissionLevel()).resolves.toBe('foreground');
+    });
+
+    it('reports background capability when both foreground and background are granted', async () => {
+        mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ status: 'granted' } as any);
+        mockedLocation.getBackgroundPermissionsAsync.mockResolvedValue({ status: 'granted' } as any);
+
+        await expect(getPermissionLevel()).resolves.toBe('background');
+    });
+
+    it('treats foreground grant as sufficient for requestPermissions', async () => {
+        mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ status: 'granted' } as any);
+        mockedLocation.getBackgroundPermissionsAsync.mockResolvedValue({ status: 'denied', canAskAgain: false } as any);
+
+        await expect(requestPermissions({ requestBackground: true })).resolves.toBe(true);
+    });
+
+    it('returns false when foreground permission is denied', async () => {
+        mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ status: 'denied' } as any);
+        mockedLocation.requestForegroundPermissionsAsync.mockResolvedValue({ status: 'denied' } as any);
+
+        await expect(requestPermissions()).resolves.toBe(false);
     });
 });
 

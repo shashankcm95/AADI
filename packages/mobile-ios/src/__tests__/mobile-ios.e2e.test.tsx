@@ -16,9 +16,11 @@ import {
     sendArrivalEvent,
 } from '../services/api';
 import {
+    getPermissionLevel,
     requestPermissions,
     startLocationTracking,
     stopLocationTracking,
+    triggerImmediateVicinityCheck,
 } from '../services/location';
 import { getCurrentUserProfile } from '../services/session';
 
@@ -51,13 +53,16 @@ jest.mock('../services/api', () => ({
     getLeaveAdvisory: jest.fn(),
     getOrder: jest.fn(),
     getRestaurant: jest.fn(),
+    sendLocationSample: jest.fn(),
     sendArrivalEvent: jest.fn(),
 }));
 
 jest.mock('../services/location', () => ({
+    getPermissionLevel: jest.fn(),
     requestPermissions: jest.fn(),
     startLocationTracking: jest.fn(),
     stopLocationTracking: jest.fn(),
+    triggerImmediateVicinityCheck: jest.fn(),
 }));
 
 jest.mock('../services/session', () => ({
@@ -98,6 +103,8 @@ function SeededCart({ navigation }: { navigation: any }) {
 describe('mobile-ios e2e integration', () => {
     beforeEach(() => {
         jest.resetAllMocks();
+        (getPermissionLevel as jest.Mock).mockResolvedValue('foreground');
+        (triggerImmediateVicinityCheck as jest.Mock).mockResolvedValue('exact');
 
         (getFavoritesWithCache as jest.Mock).mockResolvedValue({
             userId: 'cust_1',

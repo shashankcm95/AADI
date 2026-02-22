@@ -6,13 +6,13 @@ import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
     View,
     Text,
-    FlatList,
+    SectionList,
     TouchableOpacity,
     StyleSheet,
     Alert,
     ActivityIndicator,
 } from 'react-native';
-import { createOrder, getRestaurantMenu, Restaurant, sendArrivalEvent } from '../services/api';
+import { createOrder, getRestaurantMenu, Restaurant, sendArrivalEvent, sendLocationSample } from '../services/api';
 import {
     getFavoritesWithCache,
     setFavoriteForCurrentUser,
@@ -53,6 +53,17 @@ export default function MenuScreen({ navigation, route }: Props) {
     }, [isCartForRestaurant, restaurant?.restaurant_id]);
 
     const visibleCartItems = isCurrentRestaurantCart ? cartItems : [];
+    const menuSections = useMemo(() => {
+        const groups = new Map<string, any[]>();
+        for (const item of menuItems) {
+            const categoryName = String(item.category || '').trim() || 'Other';
+            if (!groups.has(categoryName)) {
+                groups.set(categoryName, []);
+            }
+            groups.get(categoryName)?.push(item);
+        }
+        return Array.from(groups.entries()).map(([title, data]) => ({ title, data }));
+    }, [menuItems]);
 
     useLayoutEffect(() => {
         navigation.setOptions({
@@ -177,7 +188,7 @@ export default function MenuScreen({ navigation, route }: Props) {
 
             // Try location tracking in background (non-blocking)
             try {
-                const hasPermission = await requestPermissions();
+                const hasPermission = await requestPermissions({ requestBackground: true });
                 if (hasPermission) {
                     const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
                     if (hasCoordinates) {
@@ -202,7 +213,14 @@ export default function MenuScreen({ navigation, route }: Props) {
                                 } catch (arrivalError) {
                                     console.warn('[MenuScreen] Failed to send arrival event:', arrivalError);
                                 }
-                            }
+                            },
+                            async (sampleOrderId, sample) => {
+                                try {
+                                    await sendLocationSample(sampleOrderId, sample);
+                                } catch (sampleError) {
+                                    console.warn('[MenuScreen] Failed to send location sample:', sampleError);
+                                }
+                            },
                         );
                     } else {
                         console.warn('[MenuScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
@@ -256,12 +274,18 @@ export default function MenuScreen({ navigation, route }: Props) {
                     <ActivityIndicator size="large" color={theme.colors.primary} />
                 </View>
             ) : (
-                <FlatList
-                    data={menuItems}
+                <SectionList
+                    sections={menuSections}
                     renderItem={renderMenuItem}
-                    keyExtractor={item => item.id}
+                    renderSectionHeader={({ section }) => (
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>{section.title}</Text>
+                        </View>
+                    )}
+                    keyExtractor={(item, index) => `${item.id || item.name || 'item'}-${index}`}
                     contentContainerStyle={styles.list}
                     ListEmptyComponent={<Text style={styles.emptyText}>No items available</Text>}
+                    stickySectionHeadersEnabled={false}
                 />
             )}
 
@@ -357,6 +381,17 @@ const styles = StyleSheet.create({
     itemName: { color: theme.colors.text, fontSize: 18, fontWeight: '600', fontFamily: theme.typography.header.fontFamily },
     itemDesc: { color: theme.colors.textMuted, fontSize: 14, marginTop: 4 },
     itemPrice: { color: theme.colors.accent, fontSize: 16, fontWeight: '700', marginTop: 8 },
+    sectionHeader: {
+        paddingTop: theme.spacing.sm,
+        paddingBottom: theme.spacing.xs,
+    },
+    sectionTitle: {
+        ...theme.typography.bodySm,
+        color: theme.colors.textSecondary,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
     addButton: {
         width: 44,
         height: 44,

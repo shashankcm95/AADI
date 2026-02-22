@@ -20,7 +20,18 @@ function normalizeOrders(raw: unknown): Order[] {
         return [];
     }
 
-    return raw.filter((order): order is Order => Boolean(order && typeof order === 'object' && (order as any).order_id));
+    return raw
+        .filter((order): order is Record<string, any> => Boolean(order && typeof order === 'object'))
+        .map((order) => {
+            const orderId = String(order.order_id || order.session_id || '').trim();
+            const restaurantId = String(order.restaurant_id || order.destination_id || '').trim();
+            return {
+                ...order,
+                order_id: orderId,
+                restaurant_id: restaurantId,
+            } as Order;
+        })
+        .filter((order) => Boolean(order.order_id));
 }
 
 async function readCache(userId: string): Promise<CachedOrdersPayload | null> {

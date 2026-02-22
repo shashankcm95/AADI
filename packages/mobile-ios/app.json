@@ -22,8 +22,11 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "AADI uses background location to track your arrival and send updates to the kitchen.",
         "UIBackgroundModes": [
           "location",
+          "fetch",
+          "location",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.anonymous.aadi"
     },
@@ -37,6 +40,14 @@
     },
     "web": {
       "favicon": "./assets/logo_icon_stylized_square.png"
+    },
+    "plugins": [
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5cf75307-d2b7-4e69-ab11-34e240b096d8"
+      }
     }
   }
 }

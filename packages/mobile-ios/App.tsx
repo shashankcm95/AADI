@@ -1,9 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { theme } from './src/theme';
 import { CartProvider } from './src/state/CartContext';
+import { configureNudgeNotifications } from './src/services/notifications';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -30,6 +32,10 @@ const navTheme = {
 };
 
 export default function App() {
+    useEffect(() => {
+        configureNudgeNotifications();
+    }, []);
+
     return (
         <CartProvider>
             <NavigationContainer theme={navTheme}>

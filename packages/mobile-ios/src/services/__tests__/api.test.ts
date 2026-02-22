@@ -7,6 +7,7 @@ import {
     getRestaurants,
     OrderItem,
     removeFavorite,
+    sendLocationSample,
 } from '../api';
 
 // Mock fetch
@@ -40,6 +41,22 @@ describe('API Service', () => {
                 headers: expect.objectContaining({ Authorization: 'Bearer mock-token' }),
             })
         );
+    });
+
+    it('getRestaurants maps location.lat/lon to top-level latitude/longitude', async () => {
+        const mockRestaurants = [{
+            restaurant_id: '1',
+            name: 'Geo Rest',
+            location: { lat: 30.2672, lon: -97.7431 },
+        }];
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ restaurants: mockRestaurants }),
+        });
+
+        const result = await getRestaurants();
+        expect(result[0].latitude).toBeCloseTo(30.2672, 4);
+        expect(result[0].longitude).toBeCloseTo(-97.7431, 4);
     });
 
     it('createOrder sends correct payload', async () => {
@@ -160,5 +177,77 @@ describe('API Service', () => {
 
         expect(items[0].id).toBe('local-rest_1-burger-0');
         expect(items[1].id).toBe('local-rest_1-item-1');
+    });
+
+    it('sendLocationSample posts to location telemetry endpoint', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ received: true }),
+        });
+
+        await sendLocationSample('ord_1', {
+            latitude: 30.26,
+            longitude: -97.74,
+            sample_time: 1700000000,
+        });
+
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/v1/orders/ord_1/location'),
+            expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({
+                    latitude: 30.26,
+                    longitude: -97.74,
+                    sample_time: 1700000000,
+                }),
+            })
+        );
+    });
+
+    it('sendLocationSample disables repeated posts when location route is missing', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            text: async () => '{"message":"Not Found"}',
+        });
+
+        const first = await sendLocationSample('ord_1', {
+            latitude: 30.26,
+            longitude: -97.74,
+        });
+        expect(first).toEqual({ received: false });
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+
+        (global.fetch as jest.Mock).mockClear();
+
+        const second = await sendLocationSample('ord_1', {
+            latitude: 30.27,
+            longitude: -97.73,
+        });
+        expect(second).toEqual({ received: false });
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('sendLocationSample logs route-missing warning only once under concurrent 404 responses', async () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            status: 404,
+            text: async () => '{"message":"Not Found"}',
+        });
+
+        const [a, b] = await Promise.all([
+            sendLocationSample('ord_concurrent_1', { latitude: 30.26, longitude: -97.74 }),
+            sendLocationSample('ord_concurrent_2', { latitude: 30.27, longitude: -97.73 }),
+        ]);
+
+        expect(a).toEqual({ received: false });
+        expect(b).toEqual({ received: false });
+
+        const routeWarnings = warnSpy.mock.calls.filter(([msg]) =>
+            String(msg).includes('Location sample route not found in this environment')
+        );
+        expect(routeWarnings).toHaveLength(1);
+        warnSpy.mockRestore();
     });
 });
