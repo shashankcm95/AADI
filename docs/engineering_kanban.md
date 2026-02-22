@@ -1,31 +1,39 @@
-# Engineering Recovery Kanban
+# Engineering Status Board
 
-## Team
-- SDE-Auth: Orders RBAC and ownership hardening
-- SDE-Core: Payments/menu scope cleanup
-- SDE-Test: Monorepo test reliability and fixture isolation
-- SDE-Docs: Contract/status naming alignment
-- SDE-Manager: Final quality gate
+Last updated: 2026-02-21
 
-## Board
-| Work Item | Owner | Status | Notes |
+## Current Program Status
+- Core backend services (`orders`, `restaurants`, `users`) are implemented and covered by passing Python tests.
+- `pos-integration` is now wire-ready in root infra behind `DeployPosIntegration` (default remains `false`).
+- Frontend apps are active (`customer-web`, `admin-portal`, `mobile-ios`) and wired to deployed API endpoints.
+
+## Verification Snapshot
+- `pytest -q services/orders/tests`: pass
+- `pytest -q services/restaurants/tests`: pass
+- `pytest -q services/pos-integration/tests`: pass
+- `pytest -q services/users/tests`: pass
+- `pytest -q infrastructure/tests`: pass
+- `pytest -q` (repo root): pass
+- `npm run lint --workspace=packages/admin-portal`: pass
+- `npm test --workspace=packages/mobile-ios -- --watch=false`: pass
+- `npx tsc --project packages/mobile-ios/tsconfig.ci.json --noEmit`: pass
+- `npm run test --workspace=packages/customer-web -- --run`: pass (after pinning `react`/`react-dom` at `19.1.0` and adding `@testing-library/dom`)
+
+## Open Engineering Findings
+| Priority | Area | Finding | Status |
 |---|---|---|---|
-| Fail-closed auth in Orders Lambda | SDE-Auth | Done | Missing claims now return `401`; role checks stay `403` |
-| Enforce role + ownership checks | SDE-Auth | Done | Customer vs restaurant/admin route separation maintained |
-| Remove non-scope payment modes in POS create | SDE-Core | Done | Non-`PAY_AT_RESTAURANT` now rejected with `400` |
-| Disable POS menu sync by default | SDE-Core | Done | Feature-gated via `POS_MENU_SYNC_ENABLED` |
-| Remove dead/duplicate restaurants code | SDE-Core | Done | Duplicate Cognito pre-check removed; unreachable return removed |
-| Align config/menu defaults | SDE-Core | Done | `active_menu_version=latest`; capacity defaults stored top-level |
-| Stabilize root python test gate | SDE-Test | Done | Added isolated suite runner via `tests/test_python_suites.py` |
-| Convert brittle unit script test | SDE-Test | Done | Replaced `exit(1)` script-style test with pytest fixture test |
-| Update status naming in docs | SDE-Docs | Done | Replaced legacy `SENT_TO_RESTAURANT` terms |
-| Manager gate | SDE-Manager | Done | Root `pytest -q` and per-suite tests passing |
+| High | Orders CORS | `Idempotency-Key` is used by create-order logic but not allowed in CORS headers/config. Browser clients cannot reliably send it cross-origin. | Fixed in code (pending deploy) |
+| High | CD Pipeline | CloudFront invalidation steps reference output keys not exported by infra template (`CustomerWebDistributionId`, `AdminPortalDistributionId`). | Fixed in code + infra contract test (pending deploy) |
+| High | POS Deployment | Main infrastructure stack does not include/deploy `services/pos-integration`. | Fixed in code (`DeployPosIntegration` toggle; defaults off) |
+| Medium | POS Table Wiring | POS template uses generic table names (`${AWS::StackName}-orders`, `${AWS::StackName}-menus`) that do not match nested stack output names by default. | Fixed (explicit `OrdersTableName`/`MenusTableName` params) |
+| High | Geofencing Reliability | Mobile geofencing can be skipped when restaurant coordinates are present only under `location.lat/lon`. | Fixed (backend + mobile fallback) |
+| Medium | Dispatch Trigger Configurability | Restaurant admins need control over when pending orders move to incoming/dispatch. | Fixed (`dispatch_trigger_event` in config + admin portal) |
+| Medium | AWS Geofence Cutover | Amazon Location tracker/geofence pipeline is implemented in shadow mode; AWS geofence events are not yet authoritative for state transitions. | Control plane fixed (`LocationGeofenceCutoverEnabled` + `LocationGeofenceForceShadow` rollback), rollout still pending |
+| Medium | Background Signal Loss | Mobile OS background constraints can still suppress location delivery; manual `"I'm Here"` fallback is still required for worst-case continuity. | Open (platform constraint) |
+| Low | Test Runner Isolation | Running orders + restaurants pytest files in one invocation can import the wrong `app` module due duplicate module names. | Fixed (restaurants tests bind conftest `app`; CI runs isolated suite gate) |
 
-## Manager Sign-off
-- Date: 2026-02-15
-- Gate checks:
-  - `pytest -q services/orders/tests` ✅
-  - `pytest -q services/pos-integration/tests` ✅
-  - `pytest -q services/restaurants/tests` ✅
-  - `pytest -q infrastructure/tests services/kitchen/tests tests/unit/test_admin_logic.py` ✅
-  - `pytest -q` (root gate) ✅
+## Next Execution Slice
+1. Deploy updated infra/orders/restaurants stacks so new output contracts, geofence controls, and POS wiring are live.
+2. Run shadow-vs-authoritative parity checks for AWS geofence events in staging.
+3. Enable cutover with `LocationGeofenceCutoverEnabled=true`; keep `LocationGeofenceForceShadow=true` ready as rollback switch during ramp.
+4. Decide when to enable `DeployPosIntegration=true` in production based on POS validation readiness.

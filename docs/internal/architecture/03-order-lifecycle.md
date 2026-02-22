@@ -1,267 +1,59 @@
-```markdown
-03 — Order Lifecycle & State Machine
-
-This document defines the authoritative order state machine for Arrive.
-
-If code and documentation ever disagree, this document wins.
-
-Core Philosophy
-
-Arrive treats an order as a stateful contract, not a fire-and-forget request.
-
-Key principles:
-
-Every order is always in exactly one state
-
-State transitions are explicit and guarded
-
-Capacity is reserved only when the customer is physically near
-
-Restaurants are protected from overload by design
-
-Order States (Authoritative)
-State	Meaning
-PENDING_NOT_SENT	Order exists but has not been sent to restaurant
-WAITING_FOR_CAPACITY	Customer is nearby, but restaurant is at capacity
-SENT_TO_DESTINATION	Capacity reserved and order delivered to kitchen
-EXPIRED	Order timed out before being sent
-State Diagram (Conceptual)
-PENDING_NOT_SENT
-      |
-      | vicinity = true
-      v
- ┌────────────────────┐
- │ capacity available │───▶ SENT_TO_DESTINATION
- └────────────────────┘
-      |
-      | capacity full
-      v
-WAITING_FOR_CAPACITY
-      |
-      | retry after suggested time
-      v
-(re-attempt capacity reservation)
-
-State Definitions (Detailed)
-1. PENDING_NOT_SENT
-
-Entry conditions
-
-Order created successfully
-
-expires_at set
-
-vicinity = false
-
-Allowed transitions
-
-→ SENT_TO_DESTINATION
-
-→ WAITING_FOR_CAPACITY
-
-→ EXPIRED
-
-Forbidden transitions
-
-Cannot skip directly to EXPIRED without time check
-
-Cannot return to this state once left
-
-2. WAITING_FOR_CAPACITY
-
-Meaning
-
-Customer is nearby
-
-Restaurant is currently at prep capacity
-
-System provides deterministic retry guidance
-
-Required fields
-
-waiting_since
-
-suggested_start_at
-
-vicinity = true
-
-Allowed transitions
-
-→ SENT_TO_DESTINATION (capacity frees up)
-
-→ EXPIRED
-
-Important invariant
-
-No capacity is reserved while in this state.
-
-3. SENT_TO_DESTINATION
-
-Meaning
-
-Capacity has been atomically reserved
-
-Restaurant has received the order
-
-Kitchen work may begin
-
-Required fields
-
-sent_at
-
-capacity_window_start
-
-received_by_restaurant = true
-
-Allowed transitions
-
-None (terminal for v1)
-
-Design note
-
-We intentionally do not support rollback from this state.
-
-4. EXPIRED
-
-Meaning
-
-Order exceeded its TTL before being sent
-
-No capacity was consumed
-
-Allowed transitions
-
-None (terminal)
-
-Transition Rules (Formal)
-PENDING_NOT_SENT → SENT_TO_DESTINATION
-
-Guards
-
-vicinity == true
-
-Order not expired
-
-Capacity reservation succeeds atomically
-
-Forbidden Transitions
-
-PENDING → COMPLETED (Direct jump strictly forbidden)
-PENDING → EXPIRED (If not actually timed out)
-
-Side effects
-
-Reserve prep units
-
-Write sent_at
-
-Lock capacity window
-
-PENDING_NOT_SENT → WAITING_FOR_CAPACITY
-
-Guards
-
-vicinity == true
-
-Capacity reservation fails
-
-Side effects
-
-Compute suggested_start_at
-
-Persist retry guidance
-
-WAITING_FOR_CAPACITY → SENT_TO_DESTINATION
-
-Guards
-
-Retry call after suggested_start_at
-
-Capacity reservation succeeds
-
-ANY → EXPIRED
-
-Guards
-
-now > expires_at
-
-Side effects
-
-Best-effort status update
-
-Capacity Interaction (Critical)
-
-Capacity is:
-
-Windowed (default: 10 minutes)
-
-Atomic
-
-Idempotent per order attempt
-
-Never double-counted
-
-Invariant
-
-An order may consume capacity at most once.
-
-Idempotency & Safety
-
-Repeating /vicinity calls is safe
-
-Capacity checks are atomic
-
-State transitions are guarded by DynamoDB conditions
-
-Partial failures converge to a correct state
-
-Why This Model Works
-
-Customers get predictable timing
-
-Restaurants avoid surprise overload
-
-System behavior is explainable
-
-Failures are recoverable
-
-This lifecycle is intentionally boring — and that’s exactly what makes it reliable.
-
-Next Document
-
-Next we’ll document API Endpoints precisely:
-
-Routes
-
-Request/response schemas
-
-Status codes
-
-Error semantics
-
-Idempotency guarantees
-
-When an order is dispatched (`PENDING_NOT_SENT → SENT_TO_DESTINATION`), the system sets:
-
-- `received_by_restaurant = true`
-- `received_at = sent_at`
-- `receipt_mode = SOFT`
-
-This is a **soft receipt** intended to avoid operational overhead for restaurants.
-
-If the restaurant uses an explicit acknowledgement flow, it can call:
-
-`POST /v1/restaurants/{restaurant_id}/orders/{order_id}/ack`
-
-On the first successful call:
-- `receipt_mode` is upgraded to `HARD`
-- `received_at` is overwritten with the acknowledgement timestamp
-
-- `receipt_mode` is upgraded to `HARD`
-- `received_at` is overwritten with the acknowledgement timestamp
-
-Subsequent calls are idempotent and do not change timestamps.
-
-**Version:** 2.1
-**Date:** 2026-02-12
-```
+# 03 - Order Lifecycle
+
+Version: 3.0
+Last updated: 2026-02-21
+
+## Canonical Statuses
+- `PENDING_NOT_SENT`
+- `WAITING_FOR_CAPACITY`
+- `SENT_TO_DESTINATION`
+- `IN_PROGRESS`
+- `READY`
+- `FULFILLING`
+- `COMPLETED`
+- `CANCELED`
+- `EXPIRED`
+
+## Arrival Events
+Accepted customer arrival events:
+- `5_MIN_OUT`
+- `PARKING`
+- `AT_DOOR`
+- `EXIT_VICINITY`
+
+Dispatch-eligible events: `5_MIN_OUT`, `PARKING`, `AT_DOOR`.
+Restaurant config can raise the dispatch threshold with `dispatch_trigger_event`.
+Example: if set to `PARKING`, `5_MIN_OUT` will update arrival metadata but not dispatch.
+
+Current event sources:
+- Mobile/manual client path -> `POST /v1/orders/{order_id}/vicinity` (authoritative)
+- AWS Location EventBridge geofence ENTER path -> shadow mode unless cutover flag is enabled
+
+## Transition Rules
+### Customer-side dispatch transitions
+- `PENDING_NOT_SENT` or `WAITING_FOR_CAPACITY` + dispatch-eligible event + capacity reserved
+  -> `SENT_TO_DESTINATION`
+- `PENDING_NOT_SENT` or `WAITING_FOR_CAPACITY` + dispatch-eligible event + no capacity
+  -> `WAITING_FOR_CAPACITY`
+
+### Restaurant-side progression transitions
+- `SENT_TO_DESTINATION` -> `IN_PROGRESS`
+- `IN_PROGRESS` -> `READY`
+- `READY` -> `FULFILLING`
+- `FULFILLING` -> `COMPLETED`
+
+### Other transitions
+- `PENDING_NOT_SENT` or `WAITING_FOR_CAPACITY` -> `CANCELED` (customer cancel endpoint)
+- Any status checked after expiry may return conflict and update to `EXPIRED` path
+- `EXIT_VICINITY` can auto-close `FULFILLING` orders to `COMPLETED`
+
+## Receipt Modes
+- On dispatch, order is stamped with soft receipt:
+  - `receipt_mode = SOFT`
+- Restaurant ack endpoint can upgrade to:
+  - `receipt_mode = HARD`
+
+## Invariants
+- Dispatch requires capacity reservation in normal flow.
+- Order cannot jump backward in restaurant progression chain.
+- Cancel is blocked once order is sent/in-progress/closed.

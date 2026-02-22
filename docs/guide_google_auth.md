@@ -1,66 +1,28 @@
-```markdown
-# How to Setup Google OAuth for Arrive API
+# Google Auth Integration Guide (Current State)
 
-This guide explains how to generate the `GoogleClientId` and `GoogleClientSecret` required for deployment, and how to finalize the configuration after deployment (The "Chicken & Egg" workflow).
+Last updated: 2026-02-21
 
-## Phase 1: Get the Keys (Before Deployment)
+## Important Current-State Note
+The current `infrastructure/template.yaml` defines `GoogleClientId` and `GoogleClientSecret` parameters, but does not yet provision a Cognito Google Identity Provider resource or attach it to `UserPoolClient`.
 
-1.  **Go to Google Cloud Console**: [https://console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials)
-2.  **Create a Project**: If you don't have one, create a new project (e.g., "Arrive-Staging").
-3.  **Configure OAuth Consent Screen**:
-    *   Select **External** (or Internal if you have a Google Workspace org).
-    *   Fill in App Name ("Arrive API"), Support Email, etc.
-    *   Add `amazoncognito.com` to **Authorized Domains** (or skip if not asked yet; you might need to come back here).
-    *   Click Save/Next until finished.
-4.  **Create Credentials**:
-    *   Click **+ CREATE CREDENTIALS** -> **OAuth client ID**.
-    *   **Application Type**: "Web application".
-    *   **Name**: "Cognito Staging".
-    *   **Authorized JavaScript Origins**: Leave empty or add `http://localhost:3000` for local testing.
-    *   **Authorized Redirect URIs**: 
-        *   Add `http://localhost:3000/callback` (for local testing).
-        *   *Note: We will add the Amazon Cognito URL here in Phase 2.*
-    *   Click **Create**.
-5.  **Copy the Keys**: 
-    *   Copy **Your Client ID**.
-    *   Copy **Your Client Secret**.
-    *   **Keep these safe.** You will paste them when running `sam deploy --guided`.
+Result: Google sign-in is not active in the deployed auth flow today.
 
-## Phase 2: Deploy & Finalize (After Deployment)
+## What Is Active Today
+- Cognito user pool with email/password auth.
+- OAuth Hosted UI for Cognito user pool client.
+- Role-based claims (`custom:role`, `custom:restaurant_id`) used by backend authorization.
 
-1.  **Deploy the Stack**:
-    ```bash
-    sam deploy --guided
-    # Paste your Client ID and Secret when prompted.
-    ```
-2.  **Get the Cognito Domain**:
-    *   Look at the `Outputs` section of the SAM deployment results.
-    *   Find the value for `AuthUrl` or `UserPoolId`.
-    *   Construct your Callback URL. It usually looks like:
-        `https://<stack-name>-auth-<account-id>.auth.<region>.amazoncognito.com/oauth2/idpresponse`
-        
-        *Wait! The exact URL you need to paste into Google is:*
-        `https://<your-cognito-domain>/oauth2/idpresponse`
-        
-        You can find the "Cognito Domain" in the AWS Console -> Cognito -> User Pools -> [Your Pool] -> App Integration -> Domain name.
+## If You Want To Enable Google OAuth
+1. Create Google OAuth credentials in Google Cloud Console (Web application type).
+2. Add Cognito Google IdP resources to infrastructure:
+   - `AWS::Cognito::UserPoolIdentityProvider` (provider name `Google`)
+   - Include `Google` in `UserPoolClient.SupportedIdentityProviders`
+3. Use Cognito callback URL format in Google Console:
+   - `https://<cognito-domain>/oauth2/idpresponse`
+4. Deploy infra stack and validate Hosted UI sign-in.
 
-3.  **Update Google Console**:
-    *   Go back to [Google Credentials](https://console.cloud.google.com/apis/credentials).
-    *   Edit your "Cognito Staging" client.
-    *   Under **Authorized Redirect URIs**, ADD the Cognito IDP URL:
-        `https://<your-cognito-domain>/oauth2/idpresponse`
-    *   Click **Save**.
-
-## Phase 3: Testing
-
-1.  Open the `AuthUrl` (from SAM Outputs) in a browser.
-2.  You should see the "Sign in with Google" button.
-3.  Click it. If Google redirects you back to your App (or the `/callback` endpoint), it works!
-
-## FAQ: Mobile Apps (iOS/Android)
-
-**Q: Why "Web Application" type? We are building a Mobile App.**
-A: These credentials are for **Cognito itself** (a server-side entity) to talk to Google.
-*   **Hosted UI Flow**: Your mobile app opens a browser view (SFSafariViewController/Chrome Custom Tabs) to the Cognito URL. This uses the "Web" credentials perfectly and is the recommended secure pattern (RFC 8252).
-*   **Native SDK Flow**: If you later decide to use the native Google Sign-in SDKs, you will create separate iOS/Android Client IDs in Google Console and simply specify them in the Cognito Identity Provider settings. You do **not** need to change the setup we made today; you just add to it.
-```
+## Validation Checklist
+- Hosted UI shows Google button.
+- Successful Google login returns Cognito tokens.
+- Backend routes still enforce role checks via claims.
+- Post-confirmation flow still creates/updates profile records correctly.

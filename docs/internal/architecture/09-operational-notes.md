@@ -1,170 +1,39 @@
-```markdown
-09 – Operational Notes
+# 09 - Operational Notes
 
-This document covers runtime behavior, observability, operational safety, and debugging for the current backend architecture.
+Version: 3.0
+Last updated: 2026-02-21
 
-**Version:** 2.1
-**Date:** 2026-02-12
+## Deployments
+- Root infra stack: `infrastructure/template.yaml`
+- Nested services deployed by root stack:
+  - users
+  - restaurants
+  - orders
 
-9.1 Deployment Model
+POS integration can be nested via infra parameter:
+- `DeployPosIntegration=true` deploys `services/pos-integration/template.yaml`
+- default remains `false` for staged rollout/testing
 
-Runtime: AWS Lambda (Python 3.11)
+Amazon Location resources are now provisioned by root infra:
+- Tracker (device positions)
+- Geofence collection (restaurant geofences)
+- Tracker consumer association (geofence evaluation)
 
-IaC: AWS SAM (template.yaml)
+## CI/CD Workflows
+- `ci.yml`: backend tests + template validation + frontend lint/build
+- `cd.yml`: backend deploy + frontend build/deploy/invalidation
+- `mobile-eas.yml`: mobile validate + optional EAS build
 
-Environment: arrive-dev (single environment so far)
+## Health Endpoints
+- Users: `GET /v1/users/health` (auth none)
+- Restaurants: `GET /v1/restaurants/health` (currently still under default authorizer)
 
-Deploy Command:
+## Logging
+- Orders service uses structured JSON logs via `services/orders/src/logger.py`.
+- Geofence EventBridge consumer logs in `services/orders/src/geofence_events.py`.
+- Other services primarily use print/logging defaults.
 
-```bash
-sam build
-sam deploy
-```
-
-⚠️ Note: `sam build --clean` is not supported. To force a clean build, remove `.aws-sam/` manually.
-
-## Smoke test (local)
-
-With `sam local start-api` running:
-
-```bash
-cd services/orders
-./scripts/smoke_local.sh
-```
-
-9.2 DynamoDB Tables & Responsibilities
-
-Orders Table
-
-Purpose
-
-Source of truth for order lifecycle
-
-Key Fields
-
-- order_id (PK)
-- restaurant_id
-- status
-- created_at
-- sent_at
-- expires_at
-- prep_units_total
-- vicinity
-
-Indexes
-
-- GSI_RestaurantStatus (restaurant_id + status)
-
-Used by restaurant-facing order lists
-
-RestaurantConfig Table
-
-Purpose
-
-Per-restaurant operational configuration
-
-Key Fields
-
-- restaurant_id (PK)
-- capacity_window_seconds (default: 600)
-- max_prep_units_per_window (default: 20)
-
-Changes here take effect immediately for new vicinity checks.
-
-Capacity Table
-
-Purpose
-
-Enforces prep capacity per restaurant per time window
-
-Key Fields
-
-- restaurant_id (PK)
-- window_start (SK)
-- used_units
-- ttl
-
-Notes
-
-- Capacity is reserved optimistically
-- TTL cleanup is best-effort via DynamoDB TTL
-- Window granularity is fixed by capacity_window_seconds
-
-9.3 Capacity Reservation Semantics (Important)
-
-Capacity reservation is:
-
-✅ Atomic per window
-
-❌ Not transactional across multiple windows
-
-❌ Not released on order expiry (yet)
-
-What this means
-
-- Capacity may be over-reserved temporarily
-- System favors restaurant protection over customer immediacy
-- This is acceptable for v0 / prototype
-
-9.4 Order Lifecycle Guarantees
-
-Guaranteed
-
-- An order is only marked SENT_TO_DESTINATION if:
-  - Customer is in vicinity
-  - Capacity reservation succeeds
-- Orders past expires_at are rejected
-
-Best-Effort
-
-- TTL cleanup
-- Capacity release
-- Ordering between multiple concurrent orders
-- Idempotency for repeated vicinity calls
-
-9.5 Observability & Debugging
-
-CloudWatch Logs
-
-Each Lambda invocation logs:
-
-- Request lifecycle
-- Capacity reservation failures
-- Syntax/runtime errors
-
-Primary log group
-
-`/aws/lambda/arrive-dev-OrdersFunction-*`
-
-Tail logs
-
-```bash
-aws logs tail "/aws/lambda/arrive-dev-OrdersFunction-*" --since 10m --follow
-```
-
-Common Errors & Meaning
-
-| Error                  | Meaning                  | Action                  |
-|------------------------|--------------------------|-------------------------|
-| Internal Server Error  | Lambda exception         | Check CloudWatch logs   |
-| WAITING_FOR_CAPACITY   | Capacity exhausted       | Client should retry later |
-| NOT_FOUND              | Bad order_id             | Client bug              |
-| EXPIRED                | Order too old            | Client must recreate    |
-
-9.6 Safe Operational Practices
-
-- Never manually edit Capacity table (except during debugging)
-- Prefer changing max_prep_units_per_window instead
-- Avoid backdating timestamps
-- Do not rely on TTL for correctness
-
-9.7 Known Limitations (Explicit)
-
-- No payment integration
-- No auth / identity
-- No background workers
-- No reconciliation jobs
-- No metrics beyond logs
-
-These are intentional and documented.
-```
+## Operational Risks to Watch
+1. AWS geofence cutover is intentionally disabled by default (`LocationGeofenceCutoverEnabled=false`); rollback switch is `LocationGeofenceForceShadow`.
+3. Mobile background signal delivery can still be constrained by OS power-management behavior.
+4. POS stack can now be deployed from root infra, but should remain gated by rollout readiness (`DeployPosIntegration`).

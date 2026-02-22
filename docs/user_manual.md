@@ -1,116 +1,69 @@
-```markdown
-# Arrive Platform: User Manual
+# Arrive User and Operator Manual
 
-**Version:** 2.1  
-**Date:** 2026-02-12
+Last updated: 2026-02-21
 
----
+## 1. Prerequisites
+- Node.js 20+
+- npm 9+
+- Python 3.11+
+- AWS SAM CLI (for backend template validation/deploy)
 
-## 🚀 Getting Started
-
-Arrive is designed to be easy to run for development. The platform consists of multiple services including **Orders**, **Restaurants**, **POS Integration**, **Kitchen**, and **Frontend Apps**.
-
-### Prerequisites
-- Node.js > 18
-- Python > 3.9
-- Docker (optional, for AWS SAM local)
-
-### Installation
-
-1.  **Clone the Repository**
-    ```bash
-    git clone https://github.com/arrive-platform/arrive.git
-    cd arrive
-    ```
-
-2.  **Install Dependencies** (Root)
-    ```bash
-    npm install
-    ```
-    This will install dependencies for the root and all workspaces via Turborepo.
-
-3.  **Setup Environment**
-    Copy the example environment file:
-    ```bash
-    cp .env.example .env
-    ```
-
----
-
-## 🏃‍♂️ Running the Platform
-
-We use **Turborepo** to orchestrate the services. You can start the entire stack with one command, or run individual components.
-
-### Quick Start (Dev Mode)
-To spin up the mock server and all frontend apps:
-
+## 2. Install
+From repo root:
 ```bash
-npm run dev
+npm ci
+pip install -r infrastructure/requirements-dev.txt
+pip install -r services/orders/requirements.txt
+pip install -r services/restaurants/requirements.txt
 ```
 
-This will run parallel processes:
-- **Mock Server:** `http://localhost:3001` (Simulates Backend APIs)
-- **Customer Web:** `http://localhost:5173` (Ordering App)
-- **Admin Portal:** `http://localhost:5174` (Admin Dashboard)
-- **iOS Bundler:** `http://localhost:8081` (React Native Metro)
-
----
-
-## 📱 Using the Applications
-
-### 1. Customer Web App
-*The "Ordering" Experience*
-1.  Open `localhost:5173`.
-2.  **Select a Destination:** Choose from the demo list (e.g., "Burger Joint").
-3.  **Add Resources:** Add items to your cart (e.g., "Cheeseburger").
-4.  **Checkout:** Enter payment details (Mocked).
-5.  **Track:** You will see a "Live Status" screen showing your order progress.
-
-### 2. Admin Portal
-*The "Fulfillment" Experience*
-1.  Open `localhost:5174`.
-2.  **Login:** Enter PIN `1234`.
-3.  **Dashboard:** You will see the **Dashboard** with active sessions.
-    - **Session Cards:** Show status, ETA, and items.
-    - **Lanes:** Observe items moving from `Pending` -> `Prep` -> `Cook` -> `Plate`.
-4.  **Kanban:** Click "Kanban View" to drag-and-drop items between stages.
-
-### 3. iOS App
-*The "Arrival" Experience*
-1.  Open Expo Go on your simulator or device.
-2.  **Permission:** Allow Location permissions (Select "Allow One Time" for testing).
-3.  **Place Order:** Follow the flow.
-4.  **Arrival Simulation:**
-    - The Mock Server simulates GPS movement.
-    - Watch the Admin Portal to see the order auto-fire when the simulated user gets `5 min out`.
-
----
-
-## 🛠️ Configuration
-
-### Switching Domains
-The platform is domain-neutral. To switch from "Dining" to "Logistics":
-1.  Edit the domain-specific configurations in the services.
-2.  Update the mock data in `tools/mock-server/data/seed_restaurants.json` to reflect new resource types.
-
-### Adding a Service
-1.  Create a folder in the appropriate service directory.
-2.  Add a `README.md`.
-3.  Add entry to `package.json` workspaces.
-
----
-
-## ❓ Troubleshooting
-
-**Q: The order isn't appearing in the Admin Portal.**
-A: Ensure the `API_BASE_URL` in `.env` matches the Mock Server URL (default `http://localhost:3001`).
-
-**Q: Location isn't working on iOS.**
-A: On Simulator, use *Features > Location > Custom Location* to simulate movement.
-
-**Q: Compilation errors.**
-A: Run `python3 -m compileall services/` to verify Python syntax.
-
----
-**Support:** Contact the Platform Team.
+## 3. Run Frontends Locally
+From repo root:
+```bash
+npm run dev:customer
+npm run dev:admin
+npm run dev:ios
 ```
+
+## 4. Backend Overview for Users
+- Customer-facing APIs are consumed by customer web/mobile.
+- Restaurant/admin operations use restaurants + orders routes.
+- User profile APIs support profile edit + avatar upload URL.
+
+## 5. Core User Flows
+### Customer
+1. Sign in.
+2. Browse restaurants and menu.
+3. Place order.
+4. Send arrival updates (`5_MIN_OUT`, `PARKING`, `AT_DOOR`) or allow location-driven updates in mobile.
+5. Track order status to completion.
+
+### Restaurant Admin
+1. Sign in to admin portal.
+2. Select managed restaurant.
+3. Maintain menu/config/images.
+   - In Capacity settings, configure when pending orders should dispatch using `dispatch_trigger_event` (`5_MIN_OUT`, `PARKING`, `AT_DOOR`).
+4. Monitor incoming orders.
+5. Move orders through active lifecycle until completion.
+
+## 6. Test Commands
+```bash
+pytest -q services/orders/tests
+pytest -q services/restaurants/tests
+pytest -q services/pos-integration/tests
+pytest -q services/users/tests
+pytest -q infrastructure/tests
+pytest -q
+npm run lint --workspace=packages/admin-portal
+```
+
+## 7. Troubleshooting
+- `401/403` API errors: verify Cognito role claims (`custom:role`, `custom:restaurant_id`).
+- Missing restaurant/menu data: verify service tables and active flags.
+- Arrival updates not dispatching: verify capacity config and current window utilization.
+- AWS geofence automation currently runs in shadow mode by default; if auto-dispatch is expected, verify `LOCATION_GEOFENCE_CUTOVER_ENABLED`.
+- Avatar upload failure: verify users service bucket env and signed URL expiration window.
+
+## 8. Current Known Issues
+- POS service deployment requires manual stack path today.
+- Mobile background delivery can still be constrained by iOS/Android power-management behavior; `"I'm Here"` remains fallback.

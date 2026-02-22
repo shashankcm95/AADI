@@ -1,38 +1,40 @@
 # Mobile EAS Build Runbook
 
-## Files
-- `packages/mobile-ios/eas.json`
-- `packages/mobile-ios/tsconfig.ci.json`
-- `.github/workflows/mobile-eas.yml`
+Last updated: 2026-02-21
 
-## Required GitHub Secret
-- `EXPO_TOKEN`
+## Source of Truth
+- Workflow: `.github/workflows/mobile-eas.yml`
+- App config: `packages/mobile-ios/app.json`
+- EAS profiles: `packages/mobile-ios/eas.json`
 
-Generate a token from Expo account settings and add it to repo secrets before running the workflow.
+## Supported Build Profiles
+- `development`
+- `preview`
+- `production`
 
-## Build Profiles
-- `development`: internal dev-client build
-- `preview`: internal beta/TestFlight-style build trigger
-- `production`: release build profile with version auto-increment
+## Required Secret
+- `EXPO_TOKEN` in GitHub repository secrets.
 
-All profiles use live API environment values:
-- `EXPO_PUBLIC_RESTAURANTS_API_URL`
-- `EXPO_PUBLIC_ORDERS_API_URL`
+## CI Behavior
+- On `push`/`pull_request` for mobile paths:
+  - installs mobile workspace deps
+  - validates Expo config
+  - runs selected mobile unit tests
+  - runs TypeScript check (`tsconfig.ci.json`)
+- On `workflow_dispatch`:
+  - runs validation job first
+  - then triggers EAS iOS build with selected profile
 
-## GitHub Workflow Usage
-1. Open Actions > `Mobile EAS`
-2. Run workflow
-3. Select profile (`development` / `preview` / `production`)
-4. Choose whether to wait for completion (`wait_for_build`)
+## Manual Trigger Steps
+1. Open GitHub Actions -> `Mobile EAS`.
+2. Click `Run workflow`.
+3. Choose `profile` and `wait_for_build`.
+4. Confirm run.
 
-`pull_request` and `push` events only run validation checks (config, service tests, app typecheck).  
-Only `workflow_dispatch` triggers an EAS iOS build.
-
-## Local Commands
-From `packages/mobile-ios`:
-
+## Local Commands (from repo root)
 ```bash
-npm run eas:build:ios:dev
-npm run eas:build:ios:preview
-npm run eas:build:ios:prod
+npm ci --workspace=packages/mobile-ios
+npm test --workspace=packages/mobile-ios -- --watch=false
+npx tsc --project packages/mobile-ios/tsconfig.ci.json --noEmit
+npm run eas:build:ios:preview --workspace=packages/mobile-ios
 ```

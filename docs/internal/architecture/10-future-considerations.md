@@ -1,132 +1,22 @@
-```markdown
-10.1 Order Acknowledgement by Restaurant
-Problem
+# 10 - Future Considerations
 
-Currently:
+Version: 3.0
+Last updated: 2026-02-21
 
-Order is considered SENT_TO_DESTINATION once capacity is reserved
+## Near-Term
+1. Integrate POS service into root infrastructure deployment path.
+2. Validate AWS geofence shadow metrics and define cutover/rollback thresholds.
+3. Enable AWS geofence cutover toggle after field validation.
+4. Add stronger frontend CI reliability checks for mobile/customer-web test runners.
 
-Options
+## Mid-Term
+1. Add richer observability and metrics dashboards (dispatch rate, capacity pressure, wait-time distributions).
+2. Improve race handling for conditional update conflicts with explicit error mapping.
+3. Add stronger transactional semantics around capacity + order update coherence.
+4. Add restaurant single-item read endpoint to avoid list-filter client workaround.
 
-Soft Ack (Recommended)
-
-Restaurant UI auto-receives
-
-System assumes acceptance
-
-Hard Ack
-
-Restaurant explicitly taps “Accept”
-
-More accurate, higher operational cost
-
-Recommendation
-
-Start with soft-ack + SLA monitoring
-Add hard-ack only for high-volume restaurants
-
-10.2 Background Scheduler
-
-Introduce a worker that:
-
-Promotes WAITING_FOR_CAPACITY → SENT_TO_DESTINATION
-
-Releases expired capacity
-
-Cleans stale orders
-
-Implementation Options
-
-AWS Lambda with EventBridge scheduling
-
-Step Functions
-
-SQS delayed queues
-
-10.3 Capacity Model Enhancements
-
-Future improvements:
-
-Rolling windows instead of fixed buckets
-
-Prep unit decay over time
-
-Priority orders
-
-Per-item prep weighting
-
-10.4 Payment & No-Show Handling
-
-Potential additions:
-
-Payment authorization on SENT
-
-Capture on RECEIVED
-
-Cancellation penalties
-
-No-show tracking per customer
-
-10.5 Restaurant Experience
-
-Tablet UI
-
-Order acknowledgment
-
-Prep timers
-
-Load indicators (“5 orders ahead of you”)
-
-10.6 Customer Experience
-
-ETA confidence bands
-
-Push notifications
-
-Retry hints
-
-“Leave now / Wait X minutes” guidance
-
-10.7 Platform Hardening
-
-Authentication (Cognito)
-
-Rate limiting
-
-Structured metrics (CloudWatch EMF)
-
-Dead-letter queues
-
-Canary deployments
-
-10.8 Data & Analytics
-
-Prep unit utilization
-
-Wait time distributions
-
-Restaurant performance
-
-Capacity tuning recommendations
-
-10.9 Monorepo / Service Split
-
-Future paths:
-
-Split Orders vs Capacity
-
-Shared infra package
-
-Event-driven architecture
-
-10.10 What Will Not Be Added (By Design)
-
-Real-time kitchen scheduling
-
-Full POS replacement
-
-Complex forecasting in v1
-
-**Version:** 2.1
-**Date:** 2026-02-12
-```
+## Longer-Term
+1. Optional real-time push channel for restaurant operations.
+2. Google and additional identity providers in Cognito flow.
+3. More adaptive capacity tuning (time-of-day curves, menu-weighted costs).
+4. POS onboarding automation and key lifecycle management tooling.

@@ -1,181 +1,97 @@
-```markdown
-6 — Data Model & Access Patterns
+# 06 - Data Model
 
-This document explains what data we store, why it’s shaped this way, and how it is accessed efficiently.
-It is written to prevent the most common DynamoDB failure mode: adding queries that the model cannot support.
+Version: 3.0
+Last updated: 2026-02-21
 
-**Version:** 2.1
-**Date:** 2026-02-12
+## Orders Domain Tables
+### OrdersTable
+Primary key:
+- `order_id` (HASH)
 
-Design Principles
+GSIs:
+- `GSI_RestaurantStatus`: (`restaurant_id`, `status`)
+- `GSI_CustomerOrders`: (`customer_id`, `created_at`)
 
-- Access-pattern first
-- Single-table per domain
-- Explicit state fields
-- TTL used only for cleanup, never correctness
-- No scans in production paths
+Representative attributes:
+- identity: `order_id`, `session_id`, `restaurant_id`, `destination_id`, `customer_id`
+- lifecycle: `status`, `arrival_status`, `created_at`, `updated_at`, `sent_at`, `expires_at`
+- timing/capacity: `capacity_window_start`, `waiting_since`, `suggested_start_at`
+- payload: `items[]`, `total_cents`, `work_units_total`, `arrive_fee_cents`, `payment_mode`
+- receipt: `receipt_mode`, `received_at`, `received_by_destination`
+- telemetry: `last_location_lat`, `last_location_lon`, `last_location_sample_time`, `last_location_received_at`
+- geofence shadow: `geofence_shadow_last_event`, `geofence_shadow_last_event_id`, `geofence_shadow_last_received_at`
+- retention: `ttl`
 
-Tables Overview
+### CapacityTable
+Primary key:
+- `restaurant_id` (HASH)
+- `window_start` (RANGE)
 
-| Table                  | Purpose                             |
-|------------------------|-------------------------------------|
-| OrdersTable            | Source of truth for order lifecycle |
-| RestaurantConfigTable  | Per-restaurant tuning               |
-| CapacityTable          | Rolling prep capacity tracking      |
-| IdempotencyTable       | Request locking & deduplication     |
+Attributes:
+- `current_count`
+- `ttl`
 
-1. Orders Table
+### IdempotencyTable
+Primary key:
+- `idempotency_key` (HASH)
 
-**Table Name**
-- arrive-*-OrdersTable
+Attributes:
+- `status` (`PROCESSING` / `COMPLETED`)
+- `body`
+- `created_at`
+- `ttl`
 
-**Primary Key**
-- PK: order_id (string)
+### GeofenceEventsTable
+Primary key:
+- `event_id` (HASH)
 
-**Why?**
-- Orders are always uniquely addressed by ID
-- Simplifies idempotency
-- Keeps write paths simple
+Attributes:
+- `created_at`
+- `ttl`
 
-**Core Attributes**
+## Restaurants Domain Tables
+### RestaurantsTable
+Primary key:
+- `restaurant_id`
 
-| Attribute     | Type   | Description              |
-|---------------|--------|--------------------------|
-| order_id      | string | Primary identifier       |
-| restaurant_id | string | Owning restaurant        |
-| status        | string | Order state              |
-| created_at    | number | Epoch seconds            |
-| expires_at    | number | Soft expiry              |
-| sent_at       | number | When sent to restaurant  |
-| received_at   | number | Restaurant ack time      |
-| vicinity      | boolean| Customer proximity       |
-| prep_units_total | number | Capacity weight       |
-| total_cents   | number | Price                    |
-| items         | list   | Order contents           |
+GSIs:
+- `GSI_ActiveRestaurants`: (`is_active`, `name`)
+- `GSI_Cuisine`: (`cuisine`, `name`)
+- `GSI_PriceTier`: (`price_tier`, `name`)
 
-**Order Status Values**
+### MenusTable
+Composite key:
+- `restaurant_id`
+- `menu_version` (uses `latest`)
 
-| Status               | Meaning                      |
-|----------------------|------------------------------|
-| PENDING_NOT_SENT     | Created but not eligible     |
-| WAITING_FOR_CAPACITY | Blocked by throughput        |
-| SENT_TO_DESTINATION   | Accepted into kitchen        |
-| EXPIRED              | TTL or business expiry       |
+### RestaurantConfigTable
+Primary key:
+- `restaurant_id`
 
-Status is not derived. It is explicit and authoritative.
+Attributes include:
+- `max_concurrent_orders`
+- `capacity_window_seconds`
+- `pos_enabled`
+- `pos_connections[]`
 
-**Orders GSI**
+### FavoritesTable
+Composite key:
+- `customer_id`
+- `restaurant_id`
 
-- GSI: GSI_RestaurantStatus
-- PK: restaurant_id
-- SK: status
+## Users Domain
+### UsersTable
+Primary key:
+- `user_id`
 
-**Access Patterns Supported**
+Attributes include:
+- `email`, `role`, `name`, `phone_number`, `picture`, timestamps
 
-- “Show me all SENT orders for restaurant”
-- “Show me all WAITING orders”
-- Kitchen dashboard views
+## POS Integration Domain
+### PosApiKeysTable
+Primary key:
+- `api_key`
 
-**Sorting**
-
-Results are sorted in application code by:
-- sent_at (preferred)
-- fallback: created_at
-
-2. Restaurant Config Table
-
-**Table Name**
-- arrive-*-RestaurantConfigTable
-
-**Primary Key**
-- PK: restaurant_id
-
-**Attributes**
-
-| Attribute                 | Type   | Purpose               |
-|---------------------------|--------|-----------------------|
-| restaurant_id             | string | Identifier            |
-| capacity_window_seconds   | number | Window size           |
-| max_prep_units_per_window | number | Throughput cap        |
-
-**Why separate table?**
-
-- Rarely changes
-- Read-heavy
-- Allows experimentation per restaurant
-- No impact on order write paths
-
-3. Capacity Table
-
-**Table Name**
-- arrive-*-CapacityTable
-
-**Composite Primary Key**
-- PK: restaurant_id
-- SK: window_start (number)
-
-**Attributes**
-
-| Attribute     | Type   | Description         |
-|---------------|--------|---------------------|
-| restaurant_id | string | Owner               |
-| window_start  | number | Rounded epoch       |
-| used_units    | number | Reserved prep units |
-| ttl           | number | Auto-cleanup        |
-
-**Capacity Write Pattern**
-
-Atomic reservation:
-- ADD used_units :add
-- CONDITION used_units + :add <= :max
-
-This ensures:
-- No overbooking
-- No locks
-- No race conditions
-
-**TTL Strategy**
-
-| Table    | TTL Field  | Purpose                  |
-|----------|------------|--------------------------|
-| Orders   | expires_at | Cleanup abandoned orders |
-| Capacity | ttl        | Drop old windows         |
-
-TTL is best-effort.
-Business logic never relies on TTL execution timing.
-
-**Forbidden Access Patterns**
-
-- ❌ Scan all orders
-- ❌ Query capacity without window key
-- ❌ Derive state from timestamps
-- ❌ Cross-table transactions
-
-**Future-Proofing**
-
-This model supports:
-- Multiple prep lanes
-- Priority orders
-- Restaurant overrides
-- Predictive capacity models
-- Manual capacity release
-
-Without table redesign.
-
-**Mental Model**
-
-- Orders describe intent
-- Capacity describes reality
-- Config describes policy
-
-**Next Document**
-
-Next we document the API surface:
-
-- docs/04-api-reference.md
-
-  - Endpoints
-  - Request/response schemas
-  - Status transitions
-  - Error codes
-```
+### PosWebhookLogsTable
+Primary key:
+- `webhook_id`
