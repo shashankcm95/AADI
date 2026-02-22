@@ -15,6 +15,27 @@ Parameters:
     Description: Google OAuth 2.0 Client Secret
     Default: "PLACEHOLDER_CLIENT_SECRET"
     NoEcho: true
+  LocationGeofenceCutoverEnabled:
+    Type: String
+    Description: If true, AWS geofence ENTER events can authoritatively transition pending/waiting orders
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  LocationGeofenceForceShadow:
+    Type: String
+    Description: Emergency rollback switch for geofence cutover; true keeps consumer in shadow mode
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  DeployPosIntegration:
+    Type: String
+    Description: Deploy POS integration nested stack (kept optional while rollout/testing is staged)
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
 
 Globals:
   Function:
@@ -37,6 +58,9 @@ Globals:
             issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
             audience:
               - !Ref UserPoolClient
+
+Conditions:
+  DeployPosIntegrationEnabled: !Equals [!Ref DeployPosIntegration, "true"]
 
 Resources:
   # -------------------------------------------------------------------------
@@ -142,6 +166,27 @@ Resources:
       SourceArn: !GetAtt UserPool.Arn
 
   # -------------------------------------------------------------------------
+  # Amazon Location (Geofence event pipeline)
+  # -------------------------------------------------------------------------
+  LocationTracker:
+    Type: AWS::Location::Tracker
+    Properties:
+      TrackerName: !Sub "${AWS::StackName}-arrival-tracker"
+      PositionFiltering: AccuracyBased
+      EventBridgeEnabled: true
+
+  LocationGeofenceCollection:
+    Type: AWS::Location::GeofenceCollection
+    Properties:
+      CollectionName: !Sub "${AWS::StackName}-arrival-geofences"
+
+  LocationTrackerConsumer:
+    Type: AWS::Location::TrackerConsumer
+    Properties:
+      TrackerName: !Ref LocationTracker
+      ConsumerArn: !GetAtt LocationGeofenceCollection.Arn
+
+  # -------------------------------------------------------------------------
   # Nested Stacks (Microservices)
   # -------------------------------------------------------------------------
 
@@ -166,6 +211,7 @@ Resources:
         UserPoolClientId: !Ref UserPoolClient
         CorsAllowOrigin: !Sub "https://${CustomerWebDistribution.DomainName}"
         CorsAllowOriginAdmin: !Sub "https://${AdminPortalDistribution.DomainName}"
+        LocationGeofenceCollectionName: !Ref LocationGeofenceCollection
 
   OrdersService:
     Type: AWS::Serverless::Application
@@ -177,6 +223,19 @@ Resources:
         RestaurantConfigTableName: !GetAtt RestaurantsService.Outputs.RestaurantConfigTableName
         CorsAllowOrigin: !Sub "https://${CustomerWebDistribution.DomainName}"
         CorsAllowOriginAdmin: !Sub "https://${AdminPortalDistribution.DomainName}"
+        LocationTrackerName: !Ref LocationTracker
+        LocationGeofenceCollectionName: !Ref LocationGeofenceCollection
+        LocationGeofenceCutoverEnabled: !Ref LocationGeofenceCutoverEnabled
+        LocationGeofenceForceShadow: !Ref LocationGeofenceForceShadow
+
+  PosIntegrationService:
+    Type: AWS::Serverless::Application
+    Condition: DeployPosIntegrationEnabled
+    Properties:
+      Location: ../services/pos-integration/template.yaml
+      Parameters:
+        OrdersTableName: !GetAtt OrdersService.Outputs.OrdersTableName
+        MenusTableName: !GetAtt RestaurantsService.Outputs.MenusTableName
 
   # -------------------------------------------------------------------------
   # Frontend Hosting (S3)
@@ -314,9 +373,17 @@ Outputs:
     Description: "CloudFront URL for Customer Web"
     Value: !Sub "https://${CustomerWebDistribution.DomainName}"
 
+  CustomerWebDistributionId:
+    Description: "CloudFront Distribution ID for Customer Web"
+    Value: !Ref CustomerWebDistribution
+
   AdminPortalURL:
     Description: "CloudFront URL for Admin Portal"
     Value: !Sub "https://${AdminPortalDistribution.DomainName}"
+
+  AdminPortalDistributionId:
+    Description: "CloudFront Distribution ID for Admin Portal"
+    Value: !Ref AdminPortalDistribution
 
   UsersApiUrl:
     Description: "API Endpoint for Users Service"
@@ -329,3 +396,24 @@ Outputs:
   OrdersApiUrl:
     Description: "API Endpoint for Orders Service"
     Value: !GetAtt OrdersService.Outputs.OrdersApi
+
+  PosIntegrationApiUrl:
+    Condition: DeployPosIntegrationEnabled
+    Description: "API Endpoint for POS Integration Service"
+    Value: !GetAtt PosIntegrationService.Outputs.PosIntegrationApi
+
+  LocationTrackerName:
+    Description: "Amazon Location tracker name used for customer device positions"
+    Value: !Ref LocationTracker
+
+  LocationTrackerArn:
+    Description: "Amazon Location tracker ARN"
+    Value: !GetAtt LocationTracker.Arn
+
+  LocationGeofenceCollectionName:
+    Description: "Amazon Location geofence collection name"
+    Value: !Ref LocationGeofenceCollection
+
+  LocationGeofenceCollectionArn:
+    Description: "Amazon Location geofence collection ARN"
+    Value: !GetAtt LocationGeofenceCollection.Arn

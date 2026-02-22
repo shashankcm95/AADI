@@ -1,0 +1,74 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+INFRA_TEMPLATE = ROOT / "infrastructure" / "template.yaml"
+ORDERS_TEMPLATE = ROOT / "services" / "orders" / "template.yaml"
+RESTAURANTS_TEMPLATE = ROOT / "services" / "restaurants" / "template.yaml"
+POS_TEMPLATE = ROOT / "services" / "pos-integration" / "template.yaml"
+CD_WORKFLOW = ROOT / ".github" / "workflows" / "cd.yml"
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def test_orders_template_allows_idempotency_header_and_exports_orders_table_name():
+    text = _read(ORDERS_TEMPLATE)
+    assert 'Idempotency-Key' in text
+    assert 'OrdersTableName:' in text
+    assert 'LocationGeofenceForceShadow' in text
+
+
+def test_restaurants_template_exports_menus_table_name():
+    text = _read(RESTAURANTS_TEMPLATE)
+    assert 'MenusTableName:' in text
+
+
+def test_pos_template_uses_explicit_cross_service_table_parameters():
+    text = _read(POS_TEMPLATE)
+    assert 'OrdersTableName:' in text
+    assert 'MenusTableName:' in text
+    assert 'HasOrdersTableName' in text
+    assert 'HasMenusTableName' in text
+
+
+def test_root_infra_exposes_cloudfront_distribution_outputs_and_pos_toggle():
+    text = _read(INFRA_TEMPLATE)
+    assert 'CustomerWebDistributionId:' in text
+    assert 'AdminPortalDistributionId:' in text
+    assert 'DeployPosIntegration:' in text
+    assert 'PosIntegrationService:' in text
+    assert 'LocationGeofenceCutoverEnabled:' in text
+    assert 'LocationGeofenceForceShadow:' in text
+
+
+def test_cd_workflow_uses_exported_distribution_output_keys():
+    text = _read(CD_WORKFLOW)
+    assert "OutputKey=='CustomerWebDistributionId'" in text
+    assert "OutputKey=='AdminPortalDistributionId'" in text
+
+
+def test_ci_workflow_runs_mobile_checks():
+    ci_workflow = _read(ROOT / ".github" / "workflows" / "ci.yml")
+    assert "mobile-check:" in ci_workflow
+    assert "npm run test --workspace=packages/mobile-ios -- --runInBand" in ci_workflow
+
+
+def test_cd_workflow_verifies_critical_api_routes_post_deploy():
+    text = _read(CD_WORKFLOW)
+    assert "Verify Deployed API Route Contracts" in text
+    assert "./scripts/verify_http_api_routes.sh \"$ORDERS_API_URL\"" in text
+    assert "POST /v1/orders/{order_id}/location" in text
+    assert "./scripts/verify_http_api_routes.sh \"$USERS_API_URL\"" in text
+    assert "POST /v1/users/me/avatar/upload-url" in text
+
+
+def test_cd_workflow_runs_authenticated_post_deploy_smoke():
+    text = _read(CD_WORKFLOW)
+    assert "Acquire Smoke Test Token" in text
+    assert "SMOKE_TEST_USERNAME" in text
+    assert "SMOKE_TEST_PASSWORD" in text
+    assert "aws cognito-idp initiate-auth" in text
+    assert "Run Authenticated Post-Deploy Smoke" in text
+    assert "./scripts/smoke_authenticated_order_flow.sh" in text

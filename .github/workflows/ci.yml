@@ -47,6 +47,9 @@ jobs:
           pip install -r requirements.txt 2>/dev/null || true
           python -m pytest tests/ -v
 
+      - name: Run Isolated Python Suite Gate
+        run: python -m pytest tests/test_python_suites.py -q
+
       - name: Run Linter (Ruff)
         run: ruff check services/orders/src services/restaurants/src
 
@@ -70,3 +73,20 @@ jobs:
       
       - name: Build & Lint
         run: npx turbo run lint build --filter=client --filter=admin-portal
+
+  mobile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Mobile Unit Tests
+        env:
+          CI: "true"
+        run: npm run test --workspace=packages/mobile-ios -- --runInBand

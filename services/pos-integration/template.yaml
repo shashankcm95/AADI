@@ -5,6 +5,20 @@ Description: >
   POS Integration Layer for Toast, Square, Clover, and other POS systems.
   Authenticates via API keys (X-POS-API-Key header), not Cognito JWT.
 
+Parameters:
+  OrdersTableName:
+    Type: String
+    Description: Orders table name from the orders stack
+    Default: ""
+  MenusTableName:
+    Type: String
+    Description: Menus table name from the restaurants stack
+    Default: ""
+
+Conditions:
+  HasOrdersTableName: !Not [!Equals [!Ref OrdersTableName, ""]]
+  HasMenusTableName: !Not [!Equals [!Ref MenusTableName, ""]]
+
 Globals:
   Function:
     Timeout: 15
@@ -51,8 +65,14 @@ Resources:
           POS_API_KEYS_TABLE: !Ref PosApiKeysTable
           POS_WEBHOOK_LOGS_TABLE: !Ref PosWebhookLogsTable
           # Cross-service table references (passed via stack parameters in production)
-          ORDERS_TABLE: !Sub "${AWS::StackName}-orders"
-          MENUS_TABLE: !Sub "${AWS::StackName}-menus"
+          ORDERS_TABLE: !If
+            - HasOrdersTableName
+            - !Ref OrdersTableName
+            - !Sub "${AWS::StackName}-orders"
+          MENUS_TABLE: !If
+            - HasMenusTableName
+            - !Ref MenusTableName
+            - !Sub "${AWS::StackName}-menus"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PosApiKeysTable
@@ -69,8 +89,30 @@ Resources:
                 - dynamodb:Query
                 - dynamodb:Scan
               Resource:
-                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-orders*"
-                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AWS::StackName}-menus*"
+                - !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ResolvedOrdersTableName}"
+                  - ResolvedOrdersTableName: !If
+                      - HasOrdersTableName
+                      - !Ref OrdersTableName
+                      - !Sub "${AWS::StackName}-orders"
+                - !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ResolvedOrdersTableName}/index/*"
+                  - ResolvedOrdersTableName: !If
+                      - HasOrdersTableName
+                      - !Ref OrdersTableName
+                      - !Sub "${AWS::StackName}-orders"
+                - !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ResolvedMenusTableName}"
+                  - ResolvedMenusTableName: !If
+                      - HasMenusTableName
+                      - !Ref MenusTableName
+                      - !Sub "${AWS::StackName}-menus"
+                - !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ResolvedMenusTableName}/index/*"
+                  - ResolvedMenusTableName: !If
+                      - HasMenusTableName
+                      - !Ref MenusTableName
+                      - !Sub "${AWS::StackName}-menus"
       Events:
         # POS → Arrive: Push a new order
         PosCreateOrder:
@@ -78,56 +120,42 @@ Resources:
           Properties:
             Path: /v1/pos/orders
             Method: POST
-            Auth:
-              Authorizer: NONE
         # POS ← Arrive: List orders for the restaurant
         PosListOrders:
           Type: HttpApi
           Properties:
             Path: /v1/pos/orders
             Method: GET
-            Auth:
-              Authorizer: NONE
         # POS → Arrive: Update order status
         PosUpdateStatus:
           Type: HttpApi
           Properties:
             Path: /v1/pos/orders/{order_id}/status
             Method: POST
-            Auth:
-              Authorizer: NONE
         # POS → Arrive: Force fire an order (manual override)
         PosForceFireOrder:
           Type: HttpApi
           Properties:
             Path: /v1/pos/orders/{order_id}/fire
             Method: POST
-            Auth:
-              Authorizer: NONE
         # POS ← Arrive: Get menu
         PosGetMenu:
           Type: HttpApi
           Properties:
             Path: /v1/pos/menu
             Method: GET
-            Auth:
-              Authorizer: NONE
         # POS → Arrive: Sync menu
         PosSyncMenu:
           Type: HttpApi
           Properties:
             Path: /v1/pos/menu/sync
             Method: POST
-            Auth:
-              Authorizer: NONE
         # POS → Arrive: Generic webhook
         PosWebhook:
           Type: HttpApi
           Properties:
             Path: /v1/pos/webhook
             Method: POST
-            Auth:
-              Authorizer: NONE
 
 Outputs:
   PosIntegrationApi:

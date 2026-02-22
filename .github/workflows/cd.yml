@@ -43,6 +43,85 @@ jobs:
           echo "CUSTOMER_BUCKET=$CUSTOMER_BUCKET" >> $GITHUB_ENV
           echo "ADMIN_BUCKET=$ADMIN_BUCKET" >> $GITHUB_ENV
 
+      - name: Verify Deployed API Route Contracts
+        run: |
+          set -euo pipefail
+          STACK_NAME=arrive-dev
+          ORDERS_API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='OrdersApiUrl'].OutputValue" --output text)
+          USERS_API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='UsersApiUrl'].OutputValue" --output text)
+          RESTAURANTS_API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='RestaurantsApiUrl'].OutputValue" --output text)
+
+          for API_NAME in ORDERS_API_URL USERS_API_URL RESTAURANTS_API_URL; do
+            API_VALUE="${!API_NAME}"
+            if [ -z "$API_VALUE" ] || [ "$API_VALUE" = "None" ]; then
+              echo "::error::Missing CloudFormation output for $API_NAME"
+              exit 1
+            fi
+          done
+
+          ./scripts/verify_http_api_routes.sh "$ORDERS_API_URL" \
+            "POST /v1/orders" \
+            "GET /v1/orders" \
+            "GET /v1/orders/{order_id}" \
+            "GET /v1/orders/{order_id}/advisory" \
+            "POST /v1/orders/{order_id}/vicinity" \
+            "POST /v1/orders/{order_id}/location"
+
+          ./scripts/verify_http_api_routes.sh "$USERS_API_URL" \
+            "GET /v1/users/me" \
+            "PUT /v1/users/me" \
+            "POST /v1/users/me/avatar/upload-url"
+
+          ./scripts/verify_http_api_routes.sh "$RESTAURANTS_API_URL" \
+            "GET /v1/restaurants" \
+            "GET /v1/restaurants/{restaurant_id}/menu"
+
+      - name: Acquire Smoke Test Token
+        id: smoke-token
+        env:
+          SMOKE_TEST_USERNAME: ${{ secrets.SMOKE_TEST_USERNAME }}
+          SMOKE_TEST_PASSWORD: ${{ secrets.SMOKE_TEST_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SMOKE_TEST_USERNAME:-}" ] || [ -z "${SMOKE_TEST_PASSWORD:-}" ]; then
+            echo "::error::Missing required secrets SMOKE_TEST_USERNAME / SMOKE_TEST_PASSWORD"
+            exit 1
+          fi
+
+          STACK_NAME=arrive-dev
+          USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" --output text)
+          if [ -z "$USER_POOL_CLIENT_ID" ] || [ "$USER_POOL_CLIENT_ID" = "None" ]; then
+            echo "::error::Missing CloudFormation output UserPoolClientId for stack $STACK_NAME"
+            exit 1
+          fi
+
+          ID_TOKEN=$(aws cognito-idp initiate-auth \
+            --auth-flow USER_PASSWORD_AUTH \
+            --client-id "$USER_POOL_CLIENT_ID" \
+            --auth-parameters "USERNAME=$SMOKE_TEST_USERNAME,PASSWORD=$SMOKE_TEST_PASSWORD" \
+            --query 'AuthenticationResult.IdToken' \
+            --output text)
+
+          if [ -z "$ID_TOKEN" ] || [ "$ID_TOKEN" = "None" ]; then
+            echo "::error::Failed to acquire smoke-test ID token from Cognito"
+            exit 1
+          fi
+
+          echo "::add-mask::$ID_TOKEN"
+          echo "id_token=$ID_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Run Authenticated Post-Deploy Smoke
+        env:
+          SMOKE_ID_TOKEN: ${{ steps.smoke-token.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          STACK_NAME=arrive-dev
+          ORDERS_API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='OrdersApiUrl'].OutputValue" --output text)
+          RESTAURANTS_API_URL=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='RestaurantsApiUrl'].OutputValue" --output text)
+
+          ./scripts/smoke_authenticated_order_flow.sh "$ORDERS_API_URL" "$RESTAURANTS_API_URL" "$SMOKE_ID_TOKEN"
+
   deploy-frontend:
     needs: deploy
     runs-on: ubuntu-latest
@@ -78,10 +157,12 @@ jobs:
       - name: Invalidate Customer Web CloudFront
         run: |
           CF_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='CustomerWebDistributionId'].OutputValue" --output text)
-          if [ "$CF_ID" != "None" ] && [ -n "$CF_ID" ]; then
-            aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
-            echo "Invalidated CloudFront distribution $CF_ID"
+          if [ "$CF_ID" = "None" ] || [ -z "$CF_ID" ]; then
+            echo "::error::Missing CloudFormation output CustomerWebDistributionId for stack $STACK_NAME"
+            exit 1
           fi
+          aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
+          echo "Invalidated CloudFront distribution $CF_ID"
 
       - name: Deploy Admin Portal
         run: |
@@ -92,7 +173,9 @@ jobs:
       - name: Invalidate Admin Portal CloudFront
         run: |
           CF_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='AdminPortalDistributionId'].OutputValue" --output text)
-          if [ "$CF_ID" != "None" ] && [ -n "$CF_ID" ]; then
-            aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
-            echo "Invalidated CloudFront distribution $CF_ID"
+          if [ "$CF_ID" = "None" ] || [ -z "$CF_ID" ]; then
+            echo "::error::Missing CloudFormation output AdminPortalDistributionId for stack $STACK_NAME"
+            exit 1
           fi
+          aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*"
+          echo "Invalidated CloudFront distribution $CF_ID"
