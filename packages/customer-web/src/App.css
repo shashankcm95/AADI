@@ -318,6 +318,23 @@ section>h2 {
   gap: 0.8rem;
 }
 
+.menu-categories {
+  display: grid;
+  gap: 1rem;
+}
+
+.menu-category-block {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.menu-category-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+}
+
 .menu-item {
   padding: 0.9rem;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
