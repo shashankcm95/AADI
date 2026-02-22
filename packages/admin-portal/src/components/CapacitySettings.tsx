@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '../aws-exports'
 
+type ZoneKey = 'ZONE_1' | 'ZONE_2' | 'ZONE_3';
+
 interface CapacityConfig {
     max_concurrent_orders: number;
     capacity_window_seconds: number;
+    dispatch_trigger_zone: ZoneKey;
+    zone_distances_m: Record<ZoneKey, number>;
+    zone_labels: Record<ZoneKey, string>;
 }
 
 interface CapacitySettingsProps {
@@ -13,7 +18,21 @@ interface CapacitySettingsProps {
 }
 
 export default function CapacitySettings({ restaurantId, token, onClose }: CapacitySettingsProps) {
-    const [config, setConfig] = useState<CapacityConfig>({ max_concurrent_orders: 10, capacity_window_seconds: 300 })
+    const [config, setConfig] = useState<CapacityConfig>({
+        max_concurrent_orders: 10,
+        capacity_window_seconds: 300,
+        dispatch_trigger_zone: 'ZONE_1',
+        zone_distances_m: {
+            ZONE_1: 1500,
+            ZONE_2: 150,
+            ZONE_3: 30,
+        },
+        zone_labels: {
+            ZONE_1: 'Zone 1',
+            ZONE_2: 'Zone 2',
+            ZONE_3: 'Zone 3',
+        },
+    })
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState<string | null>(null)
@@ -31,9 +50,21 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
             })
             if (res.ok) {
                 const data = await res.json()
+                const fallbackZone = mapEventToZone(data.dispatch_trigger_event)
                 setConfig({
                     max_concurrent_orders: data.max_concurrent_orders,
-                    capacity_window_seconds: data.capacity_window_seconds
+                    capacity_window_seconds: data.capacity_window_seconds,
+                    dispatch_trigger_zone: data.dispatch_trigger_zone || fallbackZone,
+                    zone_distances_m: {
+                        ZONE_1: Number(data.zone_distances_m?.ZONE_1 ?? 1500),
+                        ZONE_2: Number(data.zone_distances_m?.ZONE_2 ?? 150),
+                        ZONE_3: Number(data.zone_distances_m?.ZONE_3 ?? 30),
+                    },
+                    zone_labels: {
+                        ZONE_1: String(data.zone_labels?.ZONE_1 ?? 'Zone 1'),
+                        ZONE_2: String(data.zone_labels?.ZONE_2 ?? 'Zone 2'),
+                        ZONE_3: String(data.zone_labels?.ZONE_3 ?? 'Zone 3'),
+                    },
                 })
             } else {
                 setError("Failed to load settings")
@@ -56,7 +87,11 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(config)
+                body: JSON.stringify({
+                    max_concurrent_orders: config.max_concurrent_orders,
+                    capacity_window_seconds: config.capacity_window_seconds,
+                    dispatch_trigger_zone: config.dispatch_trigger_zone,
+                })
             })
 
             if (res.ok) {
@@ -117,6 +152,27 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
                     </select>
                 </div>
 
+                <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem' }}>
+                        Dispatch Trigger Zone
+                    </label>
+                    <select
+                        value={config.dispatch_trigger_zone}
+                        onChange={(e) => setConfig({
+                            ...config,
+                            dispatch_trigger_zone: e.target.value as ZoneKey
+                        })}
+                        style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px' }}
+                    >
+                        <option value="ZONE_1">{config.zone_labels.ZONE_1} ({config.zone_distances_m.ZONE_1}m)</option>
+                        <option value="ZONE_2">{config.zone_labels.ZONE_2} ({config.zone_distances_m.ZONE_2}m)</option>
+                        <option value="ZONE_3">{config.zone_labels.ZONE_3} ({config.zone_distances_m.ZONE_3}m)</option>
+                    </select>
+                    <small style={{ color: '#666' }}>
+                        Controls when pending orders move to Incoming. Distances are managed by Super Admin.
+                    </small>
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem' }}>
                     <button
                         onClick={onClose}
@@ -136,4 +192,11 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
             </div>
         </div>
     )
+}
+
+function mapEventToZone(raw: unknown): ZoneKey {
+    const event = String(raw || '').toUpperCase()
+    if (event === 'PARKING') return 'ZONE_2'
+    if (event === 'AT_DOOR') return 'ZONE_3'
+    return 'ZONE_1'
 }

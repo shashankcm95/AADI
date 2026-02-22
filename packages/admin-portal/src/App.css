@@ -591,19 +591,23 @@ body {
 }
 
 .kanban-lane[data-lane='pending'] .kanban-lane-header {
-  background: linear-gradient(135deg, rgba(115, 195, 197, 0.28) 0%, rgba(83, 184, 186, 0.24) 100%);
+  background: linear-gradient(135deg, rgba(115, 195, 197, 0.24) 0%, rgba(83, 184, 186, 0.2) 100%);
+}
+
+.kanban-lane[data-lane='waiting'] .kanban-lane-header {
+  background: linear-gradient(135deg, rgba(115, 195, 197, 0.38) 0%, rgba(83, 184, 186, 0.3) 100%);
 }
 
 .kanban-lane[data-lane='incoming'] .kanban-lane-header {
-  background: linear-gradient(135deg, rgba(115, 195, 197, 0.46) 0%, rgba(83, 184, 186, 0.4) 100%);
+  background: linear-gradient(135deg, rgba(83, 184, 186, 0.62) 0%, rgba(33, 98, 186, 0.5) 100%);
 }
 
 .kanban-lane[data-lane='active'] .kanban-lane-header {
-  background: linear-gradient(135deg, rgba(83, 184, 186, 0.82) 0%, rgba(33, 98, 186, 0.76) 100%);
+  background: linear-gradient(135deg, rgba(83, 184, 186, 0.88) 0%, rgba(33, 98, 186, 0.8) 100%);
 }
 
 .kanban-lane[data-lane='completed'] .kanban-lane-header {
-  background: linear-gradient(135deg, #2a6abc 0%, #1f4f9f 100%);
+  background: linear-gradient(135deg, #2162BA 0%, #1f4f9f 100%);
 }
 
 .kanban-lane[data-lane='active'] .kanban-lane-header h3,

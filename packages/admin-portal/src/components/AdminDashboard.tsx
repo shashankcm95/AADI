@@ -12,6 +12,20 @@ interface AdminDashboardProps {
     signOut: () => void;
 }
 
+type ZoneKey = 'ZONE_1' | 'ZONE_2' | 'ZONE_3';
+type ZoneDistances = Record<ZoneKey, number>;
+type ZoneLabels = Record<ZoneKey, string>;
+const DEFAULT_ZONE_DISTANCES: ZoneDistances = {
+    ZONE_1: 1500,
+    ZONE_2: 150,
+    ZONE_3: 30,
+}
+const DEFAULT_ZONE_LABELS: ZoneLabels = {
+    ZONE_1: 'Zone 1',
+    ZONE_2: 'Zone 2',
+    ZONE_3: 'Zone 3',
+}
+
 import { fetchAuthSession } from 'aws-amplify/auth'
 
 export default function AdminDashboard({ signOut }: AdminDashboardProps) {
@@ -20,6 +34,11 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
     const [showAddModal, setShowAddModal] = useState(false)
     const [editingRestaurant, setEditingRestaurant] = useState<any | null>(null)
     const [token, setToken] = useState<string | null>(null)
+    const [zoneDistances, setZoneDistances] = useState<ZoneDistances>(DEFAULT_ZONE_DISTANCES)
+    const [zoneLabels, setZoneLabels] = useState<ZoneLabels>(DEFAULT_ZONE_LABELS)
+    const [globalSaving, setGlobalSaving] = useState(false)
+    const [globalMessage, setGlobalMessage] = useState<string | null>(null)
+    const [globalError, setGlobalError] = useState<string | null>(null)
 
     useEffect(() => {
         initializeDashboard()
@@ -32,7 +51,10 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
             if (idToken) {
                 setToken(idToken)
-                fetchRestaurants(idToken)
+                await Promise.all([
+                    fetchRestaurants(idToken),
+                    fetchGlobalConfig(idToken),
+                ])
             } else {
                 console.error("No ID token found")
                 setLoading(false)
@@ -56,6 +78,30 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
             console.error("API Error:", err)
         } finally {
             setLoading(false)
+        }
+    }
+
+    async function fetchGlobalConfig(authToken: string) {
+        try {
+            const res = await fetch(`${API_BASE_URL}/v1/admin/global-config`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            })
+            if (!res.ok) {
+                return
+            }
+            const data = await res.json()
+            setZoneDistances({
+                ZONE_1: Number(data.zone_distances_m?.ZONE_1 ?? DEFAULT_ZONE_DISTANCES.ZONE_1),
+                ZONE_2: Number(data.zone_distances_m?.ZONE_2 ?? DEFAULT_ZONE_DISTANCES.ZONE_2),
+                ZONE_3: Number(data.zone_distances_m?.ZONE_3 ?? DEFAULT_ZONE_DISTANCES.ZONE_3),
+            })
+            setZoneLabels({
+                ZONE_1: String(data.zone_labels?.ZONE_1 ?? DEFAULT_ZONE_LABELS.ZONE_1),
+                ZONE_2: String(data.zone_labels?.ZONE_2 ?? DEFAULT_ZONE_LABELS.ZONE_2),
+                ZONE_3: String(data.zone_labels?.ZONE_3 ?? DEFAULT_ZONE_LABELS.ZONE_3),
+            })
+        } catch (err) {
+            console.error("Global config load error:", err)
         }
     }
 
@@ -128,6 +174,67 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         }
     }
 
+    function updateZoneDistance(zone: ZoneKey, rawValue: string) {
+        const parsed = parseInt(rawValue, 10)
+        setZoneDistances(prev => ({
+            ...prev,
+            [zone]: Number.isFinite(parsed) ? parsed : 0,
+        }))
+    }
+
+    function updateZoneLabel(zone: ZoneKey, rawValue: string) {
+        setZoneLabels(prev => ({
+            ...prev,
+            [zone]: rawValue,
+        }))
+    }
+
+    async function saveGlobalZones() {
+        if (!token) return
+
+        setGlobalSaving(true)
+        setGlobalMessage(null)
+        setGlobalError(null)
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/v1/admin/global-config`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    zone_distances_m: zoneDistances,
+                    zone_labels: zoneLabels,
+                }),
+            })
+
+            if (!res.ok) {
+                const payload = await res.json().catch(() => ({}))
+                setGlobalError(payload.error || 'Failed to save global zone settings')
+                return
+            }
+
+            const payload = await res.json()
+            setZoneDistances({
+                ZONE_1: Number(payload.zone_distances_m?.ZONE_1 ?? zoneDistances.ZONE_1),
+                ZONE_2: Number(payload.zone_distances_m?.ZONE_2 ?? zoneDistances.ZONE_2),
+                ZONE_3: Number(payload.zone_distances_m?.ZONE_3 ?? zoneDistances.ZONE_3),
+            })
+            setZoneLabels({
+                ZONE_1: String(payload.zone_labels?.ZONE_1 ?? zoneLabels.ZONE_1),
+                ZONE_2: String(payload.zone_labels?.ZONE_2 ?? zoneLabels.ZONE_2),
+                ZONE_3: String(payload.zone_labels?.ZONE_3 ?? zoneLabels.ZONE_3),
+            })
+            setGlobalMessage('Global zone settings updated.')
+        } catch (err) {
+            console.error(err)
+            setGlobalError('Network error saving global zone settings')
+        } finally {
+            setGlobalSaving(false)
+        }
+    }
+
     return (
         <div className="dashboard-container">
             <header className="dashboard-header">
@@ -149,6 +256,56 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
             </header>
 
             <div className="main-content">
+                <div style={{
+                    background: '#ffffff',
+                    borderRadius: '12px',
+                    border: '1px solid #e5e7eb',
+                    padding: '1rem',
+                    marginBottom: '1.5rem'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                        <h2 className="panel-subheader" style={{ margin: 0 }}>Global Arrival Zones</h2>
+                        <button
+                            onClick={saveGlobalZones}
+                            className="btn btn-primary"
+                            disabled={globalSaving || !token}
+                        >
+                            {globalSaving ? 'Saving...' : 'Save Zone Settings'}
+                        </button>
+                    </div>
+                    <p style={{ margin: '0.5rem 0 1rem', color: '#4b5563' }}>
+                        Zone labels and distances apply to all restaurants. Restaurant admins choose which zone triggers Pending → Incoming.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                        {(['ZONE_1', 'ZONE_2', 'ZONE_3'] as ZoneKey[]).map((zone) => (
+                            <div key={zone} style={{ display: 'grid', gap: '0.35rem', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.65rem' }}>
+                                <span style={{ fontWeight: 600 }}>{zone}</span>
+                                <label style={{ display: 'grid', gap: '0.35rem' }}>
+                                    <span style={{ color: '#374151', fontSize: '0.85rem' }}>Label</span>
+                                    <input
+                                        type="text"
+                                        value={zoneLabels[zone]}
+                                        onChange={(e) => updateZoneLabel(zone, e.target.value)}
+                                        style={{ padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                    />
+                                </label>
+                                <label style={{ display: 'grid', gap: '0.35rem' }}>
+                                    <span style={{ color: '#374151', fontSize: '0.85rem' }}>Distance (m)</span>
+                                    <input
+                                        type="number"
+                                        min={10}
+                                        value={zoneDistances[zone]}
+                                        onChange={(e) => updateZoneDistance(zone, e.target.value)}
+                                        style={{ padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                    />
+                                </label>
+                            </div>
+                        ))}
+                    </div>
+                    {globalError && <div style={{ color: '#b91c1c', marginTop: '0.75rem' }}>{globalError}</div>}
+                    {globalMessage && <div style={{ color: '#15803d', marginTop: '0.75rem' }}>{globalMessage}</div>}
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <h2 className="panel-subheader">Restaurants</h2>
                     <button onClick={() => setShowAddModal(true)} className="btn btn-primary">

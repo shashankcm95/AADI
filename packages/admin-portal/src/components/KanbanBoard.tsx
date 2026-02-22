@@ -40,7 +40,13 @@ const LANE_CONFIGS: LaneConfig[] = [
         key: 'pending',
         title: 'Pending',
         emptyText: 'No pending orders',
-        statuses: ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'],
+        statuses: ['PENDING_NOT_SENT'],
+    },
+    {
+        key: 'waiting',
+        title: 'Waiting',
+        emptyText: 'No queued orders',
+        statuses: ['WAITING_FOR_CAPACITY'],
     },
     {
         key: 'incoming',
