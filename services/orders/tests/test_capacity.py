@@ -138,6 +138,7 @@ class TestGetCapacityConfig:
         config = capacity.get_capacity_config(None, "rest_abc")
         assert config['max_concurrent_orders'] == capacity.DEFAULT_MAX_CONCURRENT
         assert config['capacity_window_seconds'] == capacity.DEFAULT_WINDOW_SECONDS
+        assert config['dispatch_trigger_event'] == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
 
     def test_returns_config_from_table(self):
         table = MagicMock()
@@ -146,11 +147,13 @@ class TestGetCapacityConfig:
                 'restaurant_id': 'rest_abc',
                 'max_concurrent_orders': 3,
                 'capacity_window_seconds': 600,
+                'dispatch_trigger_event': 'PARKING',
             }
         }
         config = capacity.get_capacity_config(table, "rest_abc")
         assert config['max_concurrent_orders'] == 3
         assert config['capacity_window_seconds'] == 600
+        assert config['dispatch_trigger_event'] == 'PARKING'
 
     def test_returns_defaults_when_config_missing(self):
         table = MagicMock()
@@ -158,12 +161,14 @@ class TestGetCapacityConfig:
         config = capacity.get_capacity_config(table, "rest_abc")
         assert config['max_concurrent_orders'] == capacity.DEFAULT_MAX_CONCURRENT
         assert config['capacity_window_seconds'] == capacity.DEFAULT_WINDOW_SECONDS
+        assert config['dispatch_trigger_event'] == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
 
     def test_returns_defaults_on_error(self):
         table = MagicMock()
         table.get_item.side_effect = Exception("Connection refused")
         config = capacity.get_capacity_config(table, "rest_abc")
         assert config['max_concurrent_orders'] == capacity.DEFAULT_MAX_CONCURRENT
+        assert config['dispatch_trigger_event'] == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
 
 
 # =============================================================================

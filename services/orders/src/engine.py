@@ -205,7 +205,8 @@ def decide_destination_status_update(
 def decide_arrival_update(
     session: Dict[str, Any],
     event_type: str,
-    now: int
+    now: int,
+    allow_dispatch_transition: bool = True,
 ) -> UpdatePlan:
     """
     Core logic for Progressive Arrival.
@@ -236,7 +237,7 @@ def decide_arrival_update(
     # Rationale: If they are parking or at the door, they are certainly ready to be processed.
     if new_arrival in ("5_MIN_OUT", "PARKING", "AT_DOOR"):
         current_status = session.get("status")
-        if current_status in (STATUS_PENDING, STATUS_WAITING):
+        if allow_dispatch_transition and current_status in (STATUS_PENDING, STATUS_WAITING):
             set_fields["status"] = STATUS_SENT  # Force send
             set_fields["sent_at"] = now
             set_fields["vicinity"] = True 

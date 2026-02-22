@@ -22,6 +22,22 @@ Parameters:
     Type: String
     Description: Allowed CORS origin for admin portal
     Default: "http://localhost:5174"
+  LocationTrackerName:
+    Type: String
+    Description: Amazon Location tracker name for customer device positions
+    Default: ""
+  LocationGeofenceCollectionName:
+    Type: String
+    Description: Amazon Location geofence collection used for arrival events
+    Default: ""
+  LocationGeofenceCutoverEnabled:
+    Type: String
+    Description: If true, geofence events can transition orders; false keeps shadow mode only
+    Default: "false"
+  LocationGeofenceForceShadow:
+    Type: String
+    Description: Emergency rollback switch; if true geofence consumer stays in shadow mode even when cutover is enabled
+    Default: "false"
 
 Globals:
   Function:
@@ -48,10 +64,15 @@ Globals:
       AllowHeaders:
         - "Authorization"
         - "Content-Type"
+        - "Idempotency-Key"
       AllowMethods:
         - "GET"
         - "POST"
         - "OPTIONS"
+
+Conditions:
+  HasLocationTrackerName: !Not [!Equals [!Ref LocationTrackerName, ""]]
+  HasLocationGeofenceCollectionName: !Not [!Equals [!Ref LocationGeofenceCollectionName, ""]]
 
 Resources:
   OrdersTable:
@@ -125,6 +146,20 @@ Resources:
         AttributeName: ttl
         Enabled: true
 
+  GeofenceEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: event_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
   OrdersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -136,6 +171,8 @@ Resources:
           CAPACITY_TABLE: !Ref CapacityTable
           IDEMPOTENCY_TABLE: !Ref IdempotencyTable
           RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTableName
+          LOCATION_TRACKER_NAME: !Ref LocationTrackerName
+          LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable
@@ -145,11 +182,24 @@ Resources:
             TableName: !Ref IdempotencyTable
         - DynamoDBReadPolicy:
             TableName: !Ref RestaurantConfigTableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - geo:BatchUpdateDevicePosition
+              Resource: !If
+                - HasLocationTrackerName
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:tracker/${LocationTrackerName}"
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:tracker/*"
       Events:
         CreateOrder:
           Type: HttpApi
           Properties:
             Path: /v1/orders
+            Method: POST
+        IngestLocation:
+          Type: HttpApi
+          Properties:
+            Path: /v1/orders/{order_id}/location
             Method: POST
         UpdateVicinity:
           Type: HttpApi
@@ -192,7 +242,54 @@ Resources:
             Path: /v1/restaurants/{restaurant_id}/orders/{order_id}/status
             Method: POST
 
+  GeofenceEventsFunction:
+    Type: AWS::Serverless::Function
+    Condition: HasLocationGeofenceCollectionName
+    Properties:
+      CodeUri: src/
+      Handler: geofence_events.lambda_handler
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+          CAPACITY_TABLE: !Ref CapacityTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTableName
+          GEOFENCE_EVENTS_TABLE: !Ref GeofenceEventsTable
+          LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
+          LOCATION_GEOFENCE_CUTOVER_ENABLED: !Ref LocationGeofenceCutoverEnabled
+          LOCATION_GEOFENCE_FORCE_SHADOW: !Ref LocationGeofenceForceShadow
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CapacityTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantConfigTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GeofenceEventsTable
+      Events:
+        ProcessLocationGeofenceEnter:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+                - aws.geo
+              detail-type:
+                - Location Geofence Event
+              detail:
+                EventType:
+                  - ENTER
+                GeofenceCollection:
+                  - !Ref LocationGeofenceCollectionName
+
 Outputs:
   OrdersApi:
     Description: "API Gateway endpoint URL for Orders Service"
     Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+
+  OrdersTableName:
+    Description: "Orders DynamoDB table name"
+    Value: !Ref OrdersTable
+
+  GeofenceEventsTableName:
+    Description: "DynamoDB table storing dedupe records for geofence events"
+    Value: !Ref GeofenceEventsTable

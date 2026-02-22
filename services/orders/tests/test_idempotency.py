@@ -139,6 +139,19 @@ class TestIdempotency:
         # Verify db.orders_table has only 1 order
         assert len(mock_tables['orders'].items) == 1
 
+    def test_lowercase_idempotency_header_is_accepted(self, mock_tables):
+        key = "uniq-key-lowercase"
+        body = {'restaurant_id': 'rest_1', 'items': [{'id': 'burger', 'qty': 1}]}
+        event = _make_event(body, headers={'idempotency-key': key})
+
+        resp1 = app.lambda_handler(event, None)
+        resp2 = app.lambda_handler(event, None)
+
+        assert resp1['statusCode'] == 201
+        assert resp2['statusCode'] == 201
+        assert json.loads(resp1['body'])['order_id'] == json.loads(resp2['body'])['order_id']
+        assert key in mock_tables['idempotency'].items
+
     def test_concurrent_request_returns_409(self, mock_tables):
         """Simulate concurrent request where lock is held but not completed."""
         key = "uniq-key-2"

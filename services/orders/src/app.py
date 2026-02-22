@@ -11,6 +11,7 @@ from handlers.customer import (
     create_order,
     get_order,
     get_leave_advisory,
+    ingest_location,
     list_customer_orders,
     update_vicinity,
     cancel_order,
@@ -31,6 +32,7 @@ CUSTOMER_ROUTES = {
     'GET /v1/orders/{order_id}',
     'GET /v1/orders/{order_id}/advisory',
     'GET /v1/orders',
+    'POST /v1/orders/{order_id}/location',
     'POST /v1/orders/{order_id}/vicinity',
     'POST /v1/orders/{order_id}/cancel',
 }
@@ -106,6 +108,9 @@ def lambda_handler(event, context):
 
             elif route_key == 'GET /v1/orders':
                 return list_customer_orders(event)
+
+            elif route_key == 'POST /v1/orders/{order_id}/location':
+                return ingest_location(path_params.get('order_id'), event, customer_id)
 
             elif route_key == 'POST /v1/orders/{order_id}/vicinity':
                 return update_vicinity(path_params.get('order_id'), event, customer_id)

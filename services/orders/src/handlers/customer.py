@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 import engine
 import capacity
 import db
+import location_bridge
 from dynamo_apply import build_update_item_kwargs
 from errors import NotFoundError
 from models import (
@@ -25,6 +26,22 @@ from logger import get_logger, Timer
 
 log = get_logger("orders.customer", service="orders")
 DISPATCH_ELIGIBLE_EVENTS = {'5_MIN_OUT', 'PARKING', 'AT_DOOR'}
+DISPATCH_EVENT_PRIORITY = {
+    '5_MIN_OUT': 1,
+    'PARKING': 2,
+    'AT_DOOR': 3,
+}
+
+
+def _get_header(event, header_name):
+    headers = event.get('headers') or {}
+    if not isinstance(headers, dict):
+        return None
+    return (
+        headers.get(header_name)
+        or headers.get(header_name.lower())
+        or headers.get(header_name.upper())
+    )
 
 
 def _sanitize_customer_name(name):
@@ -67,7 +84,7 @@ def create_order(event):
     req_log.info("create_order_started")
 
     # Idempotency Check
-    idempotency_key = event.get('headers', {}).get('Idempotency-Key')
+    idempotency_key = _get_header(event, 'Idempotency-Key')
     if idempotency_key and db.idempotency_table:
         req_log.info("idempotency_check", extra={"idempotency_key": idempotency_key})
         try:
@@ -347,6 +364,107 @@ def list_customer_orders(event):
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
 
 
+def ingest_location(order_id, event, customer_id=None):
+    req_log = log.bind(handler="ingest_location", order_id=order_id, customer_id=customer_id)
+
+    body = json.loads(event.get('body') or '{}')
+    latitude = location_bridge.coerce_finite_float(
+        body.get('latitude', body.get('lat'))
+    )
+    longitude = location_bridge.coerce_finite_float(
+        body.get('longitude', body.get('lon'))
+    )
+    if latitude is None or longitude is None:
+        req_log.warning("invalid_location_payload")
+        return {'statusCode': 400, 'body': json.dumps({'error': 'latitude/longitude are required numeric values'})}
+
+    accuracy_m = location_bridge.coerce_finite_float(body.get('accuracy_m', body.get('accuracy')))
+    speed_mps = location_bridge.coerce_finite_float(body.get('speed_mps', body.get('speed')))
+    heading_deg = location_bridge.coerce_finite_float(body.get('heading_deg', body.get('heading')))
+
+    if not db.orders_table:
+        return {'statusCode': 500, 'body': 'DB not configured'}
+
+    with Timer() as t:
+        resp = db.orders_table.get_item(Key={'order_id': order_id})
+    session = resp.get('Item')
+    req_log.info("order_fetched_for_location", extra={"found": session is not None, "duration_ms": t.elapsed_ms})
+
+    if not session:
+        raise NotFoundError()
+
+    if customer_id and session.get('customer_id') != customer_id:
+        req_log.warning("ownership_check_failed", extra={"order_customer": session.get('customer_id')})
+        raise NotFoundError()
+
+    now = int(time.time())
+    sample_time_seconds = location_bridge.coerce_epoch_seconds(
+        body.get('sample_time', body.get('timestamp')),
+        fallback_now_seconds=now,
+    )
+
+    expr_values = {
+        ':lat': Decimal(str(latitude)),
+        ':lon': Decimal(str(longitude)),
+        ':sample': sample_time_seconds,
+        ':received': now,
+        ':source': 'mobile_hybrid',
+    }
+    set_parts = [
+        'last_location_lat = :lat',
+        'last_location_lon = :lon',
+        'last_location_sample_time = :sample',
+        'last_location_received_at = :received',
+        'last_location_source = :source',
+    ]
+    if accuracy_m is not None:
+        expr_values[':acc'] = Decimal(str(accuracy_m))
+        set_parts.append('last_location_accuracy_m = :acc')
+    if speed_mps is not None:
+        expr_values[':speed'] = Decimal(str(speed_mps))
+        set_parts.append('last_location_speed_mps = :speed')
+    if heading_deg is not None:
+        expr_values[':heading'] = Decimal(str(heading_deg))
+        set_parts.append('last_location_heading_deg = :heading')
+
+    db.orders_table.update_item(
+        Key={'order_id': order_id},
+        UpdateExpression='SET ' + ', '.join(set_parts),
+        ExpressionAttributeValues=expr_values,
+    )
+
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    publish_result = location_bridge.publish_device_position(
+        device_id=customer_id or session.get('customer_id') or order_id,
+        latitude=latitude,
+        longitude=longitude,
+        sample_time_seconds=sample_time_seconds,
+        position_properties={
+            'order_id': order_id,
+            'destination_id': destination_id,
+            'source': 'mobile_hybrid',
+        },
+    )
+
+    req_log.info("location_ingested", extra={
+        "event": "location_sample",
+        "detail": json.dumps({"published": bool(publish_result.get('published'))}),
+    })
+
+    return {
+        'statusCode': 202,
+        'headers': {'Content-Type': 'application/json'},
+        'body': json.dumps({
+            'order_id': order_id,
+            'received': True,
+            'sample_time': sample_time_seconds,
+            'published_to_location': bool(publish_result.get('published')),
+            'tracker_enabled': bool(publish_result.get('tracker_enabled')),
+            'publish_reason': publish_result.get('reason'),
+        }, default=db.decimal_default),
+    }
+
+
 def update_vicinity(order_id, event, customer_id=None):
     body = json.loads(event.get('body', '{}'))
     vicinity_event = body.get('event')
@@ -385,16 +503,24 @@ def update_vicinity(order_id, event, customer_id=None):
     # Check expiry before processing
     engine.ensure_not_expired(session, now)
 
-    # Dispatch transition must reserve capacity for any dispatch-eligible arrival
-    # event when the order is still pending/waiting.
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    config = capacity.get_capacity_config(db.config_table, destination_id)
+    dispatch_trigger_event = capacity.normalize_dispatch_trigger_event(
+        config.get('dispatch_trigger_event')
+    )
+    event_priority = DISPATCH_EVENT_PRIORITY.get(vicinity_event, 0)
+    trigger_priority = DISPATCH_EVENT_PRIORITY.get(dispatch_trigger_event, 1)
+
+    # Dispatch transition must reserve capacity for a dispatch-eligible arrival
+    # event that meets the restaurant-configured trigger threshold.
     cap_result = None
     is_dispatch_candidate = (
         vicinity_event in DISPATCH_ELIGIBLE_EVENTS and
-        current_status in (STATUS_PENDING, STATUS_WAITING)
+        current_status in (STATUS_PENDING, STATUS_WAITING) and
+        event_priority >= trigger_priority
     )
 
     if is_dispatch_candidate:
-        destination_id = session.get('destination_id', session.get('restaurant_id'))
         req_log.info("dispatch_capacity_check_started", extra={"restaurant_id": destination_id, "event": vicinity_event})
 
         if db.capacity_table:
@@ -440,8 +566,13 @@ def update_vicinity(order_id, event, customer_id=None):
         if plan.response is not None:
             plan.response['arrival_status'] = vicinity_event
     else:
-        # Non-dispatch events (or already dispatched orders) use arrival-only path.
-        plan = engine.decide_arrival_update(session, vicinity_event, now)
+        # Non-dispatch events (or events below trigger threshold) use arrival-only path.
+        plan = engine.decide_arrival_update(
+            session,
+            vicinity_event,
+            now,
+            allow_dispatch_transition=False,
+        )
 
     if cap_result:
         req_log.info("capacity_decision", extra={

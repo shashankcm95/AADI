@@ -18,7 +18,7 @@ import capacity
 CORS_HEADERS = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Idempotency-Key',
 }
 
 # ---------------------------------------------------------------------------
@@ -35,11 +35,13 @@ ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
 CAPACITY_TABLE = os.environ.get('CAPACITY_TABLE')
 RESTAURANT_CONFIG_TABLE = os.environ.get('RESTAURANT_CONFIG_TABLE')
 IDEMPOTENCY_TABLE = os.environ.get('IDEMPOTENCY_TABLE')
+GEOFENCE_EVENTS_TABLE = os.environ.get('GEOFENCE_EVENTS_TABLE')
 
 orders_table = dynamodb.Table(ORDERS_TABLE) if ORDERS_TABLE else None
 capacity_table = dynamodb.Table(CAPACITY_TABLE) if CAPACITY_TABLE else None
 config_table = dynamodb.Table(RESTAURANT_CONFIG_TABLE) if RESTAURANT_CONFIG_TABLE else None
 idempotency_table = dynamodb.Table(IDEMPOTENCY_TABLE) if IDEMPOTENCY_TABLE else None
+geofence_events_table = dynamodb.Table(GEOFENCE_EVENTS_TABLE) if GEOFENCE_EVENTS_TABLE else None
 
 
 # ---------------------------------------------------------------------------

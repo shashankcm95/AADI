@@ -239,6 +239,16 @@ class TestDecideArrivalUpdate:
         assert plan.set_fields["arrival_status"] == "5_MIN_OUT"
         assert "status" not in plan.set_fields  # No status override
 
+    def test_arrival_event_does_not_dispatch_when_disabled(self):
+        plan = decide_arrival_update(
+            self._session(STATUS_PENDING),
+            "5_MIN_OUT",
+            NOW,
+            allow_dispatch_transition=False,
+        )
+        assert plan.set_fields["arrival_status"] == "5_MIN_OUT"
+        assert "status" not in plan.set_fields
+
     def test_parking_event(self):
         plan = decide_arrival_update(self._session(STATUS_SENT), "PARKING", NOW)
         assert plan.set_fields["arrival_status"] == "PARKING"

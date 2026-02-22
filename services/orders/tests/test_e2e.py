@@ -584,6 +584,40 @@ class TestCapacityGatingFlow:
         )
         assert body2.get('arrival_status') == 'AT_DOOR'
 
+    def test_dispatch_trigger_event_threshold(self, tables):
+        """
+        Restaurant-configured dispatch trigger should control pending->sent transition.
+        """
+        tables['config'].items['rest_abc']['dispatch_trigger_event'] = 'PARKING'
+
+        create = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'fries', 'qty': 1}],
+        })
+        create_resp = app.lambda_handler(create, None)
+        order_id = json.loads(create_resp['body'])['order_id']
+
+        five_min = _make_event(
+            'POST /v1/orders/{order_id}/vicinity',
+            body={'event': '5_MIN_OUT'},
+            path_params={'order_id': order_id}
+        )
+        five_min_resp = app.lambda_handler(five_min, None)
+        five_min_body = json.loads(five_min_resp['body'])
+        assert five_min_resp['statusCode'] == 200
+        assert five_min_body['status'] == 'PENDING_NOT_SENT'
+        assert five_min_body.get('arrival_status') == '5_MIN_OUT'
+
+        parking = _make_event(
+            'POST /v1/orders/{order_id}/vicinity',
+            body={'event': 'PARKING'},
+            path_params={'order_id': order_id}
+        )
+        parking_resp = app.lambda_handler(parking, None)
+        parking_body = json.loads(parking_resp['body'])
+        assert parking_resp['statusCode'] == 200
+        assert parking_body['status'] == 'SENT_TO_DESTINATION'
+
 
 # =============================================================================
 # Vicinity Non-Capacity Events

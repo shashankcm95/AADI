@@ -27,6 +27,18 @@ from boto3.dynamodb.conditions import Attr
 DEFAULT_MAX_CONCURRENT = 10
 DEFAULT_WINDOW_SECONDS = 300  # 5 minutes
 DEFAULT_TTL_PADDING = 3600    # Keep rows 1 hour past window end
+VALID_DISPATCH_TRIGGER_EVENTS = ("5_MIN_OUT", "PARKING", "AT_DOOR")
+DEFAULT_DISPATCH_TRIGGER_EVENT = "5_MIN_OUT"
+
+
+def normalize_dispatch_trigger_event(raw_value: Any) -> str:
+    """Return a normalized dispatch trigger event with safe fallback."""
+    candidate = str(raw_value or DEFAULT_DISPATCH_TRIGGER_EVENT).strip().upper()
+    if candidate == "FIVE_MIN_OUT":
+        candidate = "5_MIN_OUT"
+    if candidate not in VALID_DISPATCH_TRIGGER_EVENTS:
+        return DEFAULT_DISPATCH_TRIGGER_EVENT
+    return candidate
 
 
 def get_window_start(now: int, window_seconds: int) -> int:
@@ -128,6 +140,7 @@ def get_capacity_config(
     Returns dict with:
       - max_concurrent_orders: int
       - capacity_window_seconds: int
+      - dispatch_trigger_event: str
 
     Falls back to sensible defaults if no config exists.
     """
@@ -135,6 +148,7 @@ def get_capacity_config(
         return {
             "max_concurrent_orders": DEFAULT_MAX_CONCURRENT,
             "capacity_window_seconds": DEFAULT_WINDOW_SECONDS,
+            "dispatch_trigger_event": DEFAULT_DISPATCH_TRIGGER_EVENT,
         }
 
     try:
@@ -147,11 +161,15 @@ def get_capacity_config(
             "capacity_window_seconds": int(
                 item.get("capacity_window_seconds", DEFAULT_WINDOW_SECONDS)
             ),
+            "dispatch_trigger_event": normalize_dispatch_trigger_event(
+                item.get("dispatch_trigger_event")
+            ),
         }
     except Exception:
         return {
             "max_concurrent_orders": DEFAULT_MAX_CONCURRENT,
             "capacity_window_seconds": DEFAULT_WINDOW_SECONDS,
+            "dispatch_trigger_event": DEFAULT_DISPATCH_TRIGGER_EVENT,
         }
 
 
