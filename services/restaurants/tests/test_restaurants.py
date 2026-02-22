@@ -6,7 +6,7 @@ import pytest
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-import app
+from conftest import app as restaurants_app
 
 
 def _customer_event(route_key, restaurant_id=None, customer_id='cust_1', include_role=True):
@@ -82,10 +82,37 @@ def test_restaurants_health_check():
     event = {
         'routeKey': 'GET /v1/restaurants/health'
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     body = json.loads(response['body'])
     assert body['status'] == 'healthy'
+
+
+def test_global_config_routes_admin(mock_tables):
+    get_response = restaurants_app.lambda_handler(
+        _admin_event('GET /v1/admin/global-config'),
+        None,
+    )
+    assert get_response['statusCode'] == 200
+    get_body = json.loads(get_response['body'])
+    assert get_body['zone_distances_m']['ZONE_1'] == 1500
+
+    put_response = restaurants_app.lambda_handler(
+        _admin_event(
+            'PUT /v1/admin/global-config',
+            body={'zone_distances_m': {'ZONE_1': 1700}},
+        ),
+        None,
+    )
+    assert put_response['statusCode'] == 200
+
+
+def test_global_config_routes_non_admin_denied(mock_tables):
+    response = restaurants_app.lambda_handler(
+        _restaurant_admin_event('GET /v1/admin/global-config', assigned_restaurant_id='r1'),
+        None,
+    )
+    assert response['statusCode'] == 403
 
 def test_restaurants_list(mock_tables):
     # Seed data
@@ -96,7 +123,7 @@ def test_restaurants_list(mock_tables):
     event = {
         'routeKey': 'GET /v1/restaurants'
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     body = json.loads(response['body'])
     assert 'restaurants' in body
@@ -110,7 +137,7 @@ def test_restaurants_list_only_active(mock_tables):
     event = {
         'routeKey': 'GET /v1/restaurants'
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     body = json.loads(response['body'])
     assert len(body['restaurants']) == 1
@@ -127,7 +154,7 @@ def test_update_restaurant_active_flag(mock_tables):
         'body': json.dumps({'active': True}),
         'requestContext': {'authorizer': {'jwt': {'claims': {'custom:role': 'admin'}}}}
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     
     # Check DB
@@ -137,7 +164,7 @@ def test_update_restaurant_active_flag(mock_tables):
     
     # Update to inactive
     event['body'] = json.dumps({'active': False})
-    app.lambda_handler(event, None)
+    restaurants_app.lambda_handler(event, None)
     
     # Check DB
     item = mock_tables['restaurants'].items['r1']
@@ -153,7 +180,7 @@ def test_restaurants_filter_by_cuisine(mock_tables):
         'routeKey': 'GET /v1/restaurants',
         'queryStringParameters': {'cuisine': 'Italian'}
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     body = json.loads(response['body'])
     assert len(body['restaurants']) == 1
@@ -168,7 +195,7 @@ def test_restaurants_filter_by_price_tier(mock_tables):
         'routeKey': 'GET /v1/restaurants',
         'queryStringParameters': {'price_tier': '1'}
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     body = json.loads(response['body'])
     assert len(body['restaurants']) == 1
@@ -179,11 +206,11 @@ def test_customer_favorites_lifecycle(mock_tables):
     mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True, 'is_active': '1'}
 
     add_event = _customer_event('PUT /v1/favorites/{restaurant_id}', restaurant_id='r1')
-    add_response = app.lambda_handler(add_event, None)
+    add_response = restaurants_app.lambda_handler(add_event, None)
     assert add_response['statusCode'] == 200
 
     list_event = _customer_event('GET /v1/favorites')
-    list_response = app.lambda_handler(list_event, None)
+    list_response = restaurants_app.lambda_handler(list_event, None)
     assert list_response['statusCode'] == 200
     body = json.loads(list_response['body'])
     assert len(body['favorites']) == 1
@@ -191,10 +218,10 @@ def test_customer_favorites_lifecycle(mock_tables):
     assert body['favorites'][0]['customer_id'] == 'cust_1'
 
     delete_event = _customer_event('DELETE /v1/favorites/{restaurant_id}', restaurant_id='r1')
-    delete_response = app.lambda_handler(delete_event, None)
+    delete_response = restaurants_app.lambda_handler(delete_event, None)
     assert delete_response['statusCode'] == 200
 
-    list_after_delete = app.lambda_handler(list_event, None)
+    list_after_delete = restaurants_app.lambda_handler(list_event, None)
     assert list_after_delete['statusCode'] == 200
     body = json.loads(list_after_delete['body'])
     assert body['favorites'] == []
@@ -202,7 +229,7 @@ def test_customer_favorites_lifecycle(mock_tables):
 
 def test_customer_favorites_reject_unknown_restaurant(mock_tables):
     event = _customer_event('PUT /v1/favorites/{restaurant_id}', restaurant_id='missing')
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 404
 
 
@@ -211,7 +238,7 @@ def test_customer_favorites_reject_non_customer_role(mock_tables):
         'routeKey': 'GET /v1/favorites',
         'requestContext': {'authorizer': {'jwt': {'claims': {'custom:role': 'admin', 'sub': 'admin_1'}}}}
     }
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 403
 
 
@@ -219,7 +246,7 @@ def test_customer_favorites_roleless_user_allowed(mock_tables):
     mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True, 'is_active': '1'}
 
     add_event = _customer_event('PUT /v1/favorites/{restaurant_id}', restaurant_id='r1', include_role=False)
-    add_response = app.lambda_handler(add_event, None)
+    add_response = restaurants_app.lambda_handler(add_event, None)
     assert add_response['statusCode'] == 200
 
 
@@ -247,7 +274,7 @@ def test_create_image_upload_url_admin_success(mock_tables, monkeypatch):
             'content_type': 'image/png',
         },
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
 
     assert response['statusCode'] == 200
     payload = json.loads(response['body'])
@@ -270,7 +297,7 @@ def test_create_image_upload_url_denies_other_restaurant_admin(mock_tables):
             'content_type': 'image/png',
         },
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 403
 
 
@@ -295,7 +322,7 @@ def test_create_image_upload_url_rejects_when_limit_reached(mock_tables, monkeyp
             'content_type': 'image/png',
         },
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 400
     assert 'maximum of 5' in json.loads(response['body'])['error']
 
@@ -318,7 +345,7 @@ def test_update_restaurant_rejects_more_than_five_images(mock_tables):
         restaurant_id='r1',
         body={'restaurant_image_keys': keys},
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 400
     assert 'maximum of 5' in json.loads(response['body'])['error']
 
@@ -346,12 +373,40 @@ def test_update_restaurant_sets_image_keys_for_owner(mock_tables):
             ]
         },
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 200
     assert mock_tables['restaurants'].items['r1']['restaurant_image_keys'] == [
         'restaurants/r1/a.jpg',
         'restaurants/r1/b.jpg',
     ]
+
+
+def test_update_restaurant_syncs_geofence(mock_tables, monkeypatch):
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Rest 1',
+        'active': True,
+        'street': '123 Main',
+        'city': 'Town',
+        'state': 'CA',
+        'zip': '94000',
+        'location': {'lat': 1, 'lon': 1},
+    }
+
+    import handlers.restaurants as h_rest
+    from unittest.mock import MagicMock
+    mock_sync = MagicMock(return_value=True)
+    monkeypatch.setattr(h_rest, 'upsert_restaurant_geofences', mock_sync)
+    monkeypatch.setattr(h_rest, 'geocode_address', lambda *_: {'lat': 30.0, 'lon': -97.0})
+
+    event = _admin_event(
+        'PUT /v1/restaurants/{restaurant_id}',
+        restaurant_id='r1',
+        body={'street': '500 Market St'},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    mock_sync.assert_called_once()
 
 
 def test_delete_restaurant_success_admin(mock_tables, monkeypatch):
@@ -378,14 +433,18 @@ def test_delete_restaurant_success_admin(mock_tables, monkeypatch):
     import handlers.restaurants as h_rest
     monkeypatch.setattr(h_rest, 'cognito', MockCognito())
     monkeypatch.setattr(h_rest, 'USER_POOL_ID', 'pool-1')
+    from unittest.mock import MagicMock
+    mock_delete_geofences = MagicMock(return_value=True)
+    monkeypatch.setattr(h_rest, 'delete_restaurant_geofences', mock_delete_geofences)
 
     # Execute
     event = _admin_event('DELETE /v1/restaurants/{restaurant_id}', restaurant_id='r1')
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
 
     # Verify
     assert response['statusCode'] == 200
     assert 'r1' not in mock_tables['restaurants'].items
+    mock_delete_geofences.assert_called_once_with('r1')
     if 'config' in mock_tables:
         assert 'r1' not in mock_tables['config'].items
 
@@ -399,7 +458,7 @@ def test_delete_restaurant_denies_non_admin(mock_tables):
         assigned_restaurant_id='r1', # Owner
         restaurant_id='r1'
     )
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     assert response['statusCode'] == 403
 
 
@@ -417,7 +476,7 @@ def test_delete_restaurant_cognito_cleanup_failure_non_blocking(mock_tables, mon
     monkeypatch.setattr(h_rest, 'USER_POOL_ID', 'pool-1')
 
     event = _admin_event('DELETE /v1/restaurants/{restaurant_id}', restaurant_id='r1')
-    response = app.lambda_handler(event, None)
+    response = restaurants_app.lambda_handler(event, None)
     
     # Needs to still succeed
     assert response['statusCode'] == 200

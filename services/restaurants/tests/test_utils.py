@@ -219,3 +219,50 @@ def test_decorate_restaurant_response(monkeypatch):
     assert decorated['restaurant_images'] == ["http://restaurants/r1/1.jpg", "http://restaurants/r1/2.jpg"]
     assert decorated['image_url'] == "http://restaurants/r1/1.jpg"
     assert decorated['banner_image_url'] == "http://restaurants/r1/2.jpg"
+
+
+def test_decorate_restaurant_response_adds_top_level_coordinates(monkeypatch):
+    from decimal import Decimal
+    monkeypatch.setattr(utils, '_build_image_url', lambda k: f"http://{k}")
+
+    item = {
+        "name": "Geo Place",
+        "location": {"lat": Decimal('30.2672'), "lon": Decimal('-97.7431')},
+        "restaurant_image_keys": [],
+    }
+
+    decorated = utils._decorate_restaurant_response(item)
+    assert decorated['latitude'] == pytest.approx(30.2672)
+    assert decorated['longitude'] == pytest.approx(-97.7431)
+
+
+def test_dispatch_trigger_zone_normalization():
+    assert utils.normalize_dispatch_trigger_zone("zone_2") == "ZONE_2"
+    assert utils.normalize_dispatch_trigger_zone("parking") == "ZONE_2"
+    assert utils.normalize_dispatch_trigger_event("ZONE_3") == "AT_DOOR"
+    assert utils.normalize_dispatch_trigger_event("AT_DOOR") == "AT_DOOR"
+    assert utils.normalize_dispatch_trigger_zone("unknown") is None
+
+
+def test_get_geofence_radii_uses_global_zone_distances(monkeypatch):
+    class MockConfigTable:
+        @staticmethod
+        def get_item(Key):
+            assert Key["restaurant_id"] == "__GLOBAL__"
+            return {"Item": {"zone_distances_m": {"ZONE_1": 2000, "ZONE_2": 250, "ZONE_3": 50}}}
+
+    monkeypatch.setattr(utils, "config_table", MockConfigTable())
+    radii = utils.get_geofence_radii_meters()
+    assert radii == {"5_MIN_OUT": 2000, "PARKING": 250, "AT_DOOR": 50}
+
+
+def test_get_global_zone_labels_uses_config(monkeypatch):
+    class MockConfigTable:
+        @staticmethod
+        def get_item(Key):
+            assert Key["restaurant_id"] == "__GLOBAL__"
+            return {"Item": {"zone_labels": {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Door"}}}
+
+    monkeypatch.setattr(utils, "config_table", MockConfigTable())
+    labels = utils.get_global_zone_labels()
+    assert labels == {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Door"}

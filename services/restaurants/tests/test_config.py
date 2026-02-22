@@ -1,11 +1,8 @@
-import pytest
 import json
-import time
-import os
-import sys
+import pytest
 
 # conftest.py adds src/ to path and handles module cleanup
-import app
+from conftest import app as restaurants_app
 
 def test_get_config_defaults(mock_tables):
     # 1. Setup - Mock tables are already injected into app by the fixture
@@ -33,13 +30,17 @@ def test_get_config_defaults(mock_tables):
         }
     }
     
-    resp = app.get_config(event, "r1")
+    resp = restaurants_app.get_config(event, "r1")
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     
     # Should return defaults mixed with overrides
     assert body["max_concurrent_orders"] == 10
     assert body["capacity_window_seconds"] == 300
+    assert body["dispatch_trigger_zone"] == "ZONE_1"
+    assert body["dispatch_trigger_event"] == "5_MIN_OUT"
+    assert body["zone_distances_m"] == {"ZONE_1": 1500, "ZONE_2": 150, "ZONE_3": 30}
+    assert body["zone_labels"] == {"ZONE_1": "Zone 1", "ZONE_2": "Zone 2", "ZONE_3": "Zone 3"}
     assert body["operating_hours"] == "9-5"
 
 def test_update_config_and_get(mock_tables):
@@ -53,7 +54,8 @@ def test_update_config_and_get(mock_tables):
     event = {
         "body": json.dumps({
             "max_concurrent_orders": 25,
-            "capacity_window_seconds": 600
+            "capacity_window_seconds": 600,
+            "dispatch_trigger_zone": "ZONE_2",
         }),
         "requestContext": {
             "authorizer": {
@@ -67,7 +69,7 @@ def test_update_config_and_get(mock_tables):
         }
     }
     
-    resp = app.update_config(event, "r1")
+    resp = restaurants_app.update_config(event, "r1")
     assert resp["statusCode"] == 200
     
     # 3. Verify in DB
@@ -75,6 +77,8 @@ def test_update_config_and_get(mock_tables):
     item = item_resp["Item"]
     assert item["max_concurrent_orders"] == 25
     assert item["capacity_window_seconds"] == 600
+    assert item["dispatch_trigger_zone"] == "ZONE_2"
+    assert item["dispatch_trigger_event"] == "PARKING"
     
     # 4. Verify via get_config
     get_event = {
@@ -89,10 +93,12 @@ def test_update_config_and_get(mock_tables):
             }
         }
     }
-    resp = app.get_config(get_event, "r1")
+    resp = restaurants_app.get_config(get_event, "r1")
     body = json.loads(resp["body"])
     assert body["max_concurrent_orders"] == 25
     assert body["capacity_window_seconds"] == 600
+    assert body["dispatch_trigger_zone"] == "ZONE_2"
+    assert body["dispatch_trigger_event"] == "PARKING"
 
 def test_update_config_rbac_denial(mock_tables):
     event = {
@@ -109,8 +115,51 @@ def test_update_config_rbac_denial(mock_tables):
         }
     }
     
-    resp = app.update_config(event, "r1")
+    resp = restaurants_app.update_config(event, "r1")
     assert resp["statusCode"] == 403
+
+
+def test_update_config_rejects_invalid_dispatch_trigger(mock_tables):
+    config_table = mock_tables['config']
+    config_table.put_item(Item={"restaurant_id": "r1"})
+
+    event = _owner_event(body={"dispatch_trigger_event": "EARLY"})
+    resp = restaurants_app.update_config(event, "r1")
+    assert resp["statusCode"] == 400
+    assert "dispatch_trigger_event" in json.loads(resp["body"])["error"]
+
+
+def test_update_config_rejects_invalid_dispatch_zone(mock_tables):
+    config_table = mock_tables['config']
+    config_table.put_item(Item={"restaurant_id": "r1"})
+
+    event = _owner_event(body={"dispatch_trigger_zone": "ZONE_9"})
+    resp = restaurants_app.update_config(event, "r1")
+    assert resp["statusCode"] == 400
+    assert "dispatch_trigger_zone" in json.loads(resp["body"])["error"]
+
+
+def test_update_config_legacy_event_sets_zone(mock_tables):
+    config_table = mock_tables['config']
+    config_table.put_item(Item={"restaurant_id": "r1"})
+
+    resp = restaurants_app.update_config(_owner_event(body={"dispatch_trigger_event": "AT_DOOR"}), "r1")
+    assert resp["statusCode"] == 200
+    item = config_table.get_item(Key={"restaurant_id": "r1"})["Item"]
+    assert item["dispatch_trigger_event"] == "AT_DOOR"
+    assert item["dispatch_trigger_zone"] == "ZONE_3"
+
+
+def test_update_config_rejects_mismatched_zone_and_event(mock_tables):
+    config_table = mock_tables['config']
+    config_table.put_item(Item={"restaurant_id": "r1"})
+
+    resp = restaurants_app.update_config(
+        _owner_event(body={"dispatch_trigger_zone": "ZONE_1", "dispatch_trigger_event": "AT_DOOR"}),
+        "r1",
+    )
+    assert resp["statusCode"] == 400
+    assert "do not match" in json.loads(resp["body"])["error"]
 
 
 # ── Helper ──
@@ -133,11 +182,28 @@ def _owner_event(body=None):
     return event
 
 
+def _admin_event(body=None):
+    event = {
+        "requestContext": {
+            "authorizer": {
+                "jwt": {
+                    "claims": {
+                        "custom:role": "admin",
+                    }
+                }
+            }
+        }
+    }
+    if body is not None:
+        event["body"] = json.dumps(body)
+    return event
+
+
 def test_get_config_includes_pos_defaults(mock_tables):
     """get_config returns pos_enabled=false and empty pos_connections by default."""
     mock_tables['config'].put_item(Item={"restaurant_id": "r1"})
 
-    resp = app.get_config(_owner_event(), "r1")
+    resp = restaurants_app.get_config(_owner_event(), "r1")
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     assert body["pos_enabled"] is False
@@ -149,7 +215,7 @@ def test_update_config_pos_connections_lifecycle(mock_tables):
     mock_tables['config'].put_item(Item={"restaurant_id": "r1"})
 
     # 1. Add a POS connection
-    resp = app.update_config(_owner_event(body={
+    resp = restaurants_app.update_config(_owner_event(body={
         "pos_enabled": True,
         "pos_connections": [
             {
@@ -164,7 +230,7 @@ def test_update_config_pos_connections_lifecycle(mock_tables):
     assert resp["statusCode"] == 200
 
     # 2. GET should return masked secret
-    resp = app.get_config(_owner_event(), "r1")
+    resp = restaurants_app.get_config(_owner_event(), "r1")
     body = json.loads(resp["body"])
     assert body["pos_enabled"] is True
     assert len(body["pos_connections"]) == 1
@@ -175,7 +241,7 @@ def test_update_config_pos_connections_lifecycle(mock_tables):
 
     # 3. Re-save with masked secret → should preserve original
     conn_id = conn["connection_id"]
-    resp = app.update_config(_owner_event(body={
+    resp = restaurants_app.update_config(_owner_event(body={
         "pos_connections": [
             {
                 "connection_id": conn_id,
@@ -199,7 +265,7 @@ def test_update_config_pos_rejects_http_url(mock_tables):
     """Non-HTTPS webhook URLs should be rejected."""
     mock_tables['config'].put_item(Item={"restaurant_id": "r1"})
 
-    resp = app.update_config(_owner_event(body={
+    resp = restaurants_app.update_config(_owner_event(body={
         "pos_connections": [{"webhook_url": "http://insecure.example.com", "provider": "custom"}]
     }), "r1")
     assert resp["statusCode"] == 400
@@ -210,7 +276,7 @@ def test_update_config_pos_rejects_invalid_provider(mock_tables):
     """Invalid POS provider should be rejected."""
     mock_tables['config'].put_item(Item={"restaurant_id": "r1"})
 
-    resp = app.update_config(_owner_event(body={
+    resp = restaurants_app.update_config(_owner_event(body={
         "pos_connections": [{"webhook_url": "https://ok.com", "provider": "stripe"}]
     }), "r1")
     assert resp["statusCode"] == 400
@@ -225,7 +291,82 @@ def test_update_config_pos_rejects_too_many_connections(mock_tables):
         {"webhook_url": f"https://hook{i}.com", "provider": "custom"}
         for i in range(6)
     ]
-    resp = app.update_config(_owner_event(body={"pos_connections": connections}), "r1")
+    resp = restaurants_app.update_config(_owner_event(body={"pos_connections": connections}), "r1")
     assert resp["statusCode"] == 400
     assert "5" in json.loads(resp["body"])["error"]
 
+
+def test_get_global_config_admin_defaults(mock_tables):
+    resp = restaurants_app.get_global_config(_admin_event())
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["zone_distances_m"] == {"ZONE_1": 1500, "ZONE_2": 150, "ZONE_3": 30}
+    assert body["zone_labels"] == {"ZONE_1": "Zone 1", "ZONE_2": "Zone 2", "ZONE_3": "Zone 3"}
+    assert body["default_dispatch_trigger_zone"] == "ZONE_1"
+
+
+def test_get_global_config_denies_non_admin(mock_tables):
+    resp = restaurants_app.get_global_config(_owner_event())
+    assert resp["statusCode"] == 403
+
+
+def test_update_global_config_updates_distances_and_resyncs(mock_tables, monkeypatch):
+    import handlers.config as h_config
+
+    sync_calls = []
+
+    def _fake_upsert(restaurant_id, location):
+        sync_calls.append((restaurant_id, location))
+        return True
+
+    monkeypatch.setattr(h_config, "upsert_restaurant_geofences", _fake_upsert)
+
+    resp = restaurants_app.update_global_config(
+        _admin_event(body={
+            "zone_distances_m": {"ZONE_1": 1800, "ZONE_3": 45},
+            "zone_labels": {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Doorstep"},
+        })
+    )
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["zone_distances_m"] == {"ZONE_1": 1800, "ZONE_2": 150, "ZONE_3": 45}
+    assert body["zone_labels"] == {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Doorstep"}
+
+    global_item = mock_tables["config"].get_item(Key={"restaurant_id": "__GLOBAL__"})["Item"]
+    assert global_item["zone_distances_m"] == {"ZONE_1": 1800, "ZONE_2": 150, "ZONE_3": 45}
+    assert global_item["zone_labels"] == {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Doorstep"}
+    assert len(sync_calls) >= 1
+    assert body["geofence_sync"]["attempted"] >= 1
+
+
+def test_update_global_config_rejects_invalid_distance(mock_tables):
+    resp = restaurants_app.update_global_config(
+        _admin_event(body={"zone_distances_m": {"ZONE_1": "abc"}})
+    )
+    assert resp["statusCode"] == 400
+    assert "ZONE_1" in json.loads(resp["body"])["error"]
+
+
+def test_update_global_config_rejects_empty_label(mock_tables):
+    resp = restaurants_app.update_global_config(
+        _admin_event(body={"zone_labels": {"ZONE_1": "  "}})
+    )
+    assert resp["statusCode"] == 400
+    assert "cannot be empty" in json.loads(resp["body"])["error"]
+
+
+def test_update_global_config_updates_labels_only(mock_tables):
+    resp = restaurants_app.update_global_config(
+        _admin_event(body={"zone_labels": {"ZONE_2": "Parking"}})
+    )
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["zone_labels"]["ZONE_2"] == "Parking"
+    assert body["zone_distances_m"] == {"ZONE_1": 1500, "ZONE_2": 150, "ZONE_3": 30}
+
+
+def test_update_global_config_denies_non_admin(mock_tables):
+    resp = restaurants_app.update_global_config(
+        _owner_event(body={"zone_distances_m": {"ZONE_1": 1700}})
+    )
+    assert resp["statusCode"] == 403

@@ -11,6 +11,8 @@ from utils import (
     CORS_HEADERS, decimal_default, get_user_claims,
     restaurants_table, config_table, cognito, USER_POOL_ID,
     geocode_address, _normalize_restaurant_image_keys, _decorate_restaurant_response,
+    upsert_restaurant_geofences, delete_restaurant_geofences,
+    DEFAULT_DISPATCH_TRIGGER_ZONE, ZONE_EVENT_MAP,
     menus_table,
 )
 
@@ -212,6 +214,8 @@ def create_restaurant(event):
             'active_menu_version': 'latest',
             'max_concurrent_orders': 10,
             'capacity_window_seconds': 300,
+            'dispatch_trigger_zone': DEFAULT_DISPATCH_TRIGGER_ZONE,
+            'dispatch_trigger_event': ZONE_EVENT_MAP[DEFAULT_DISPATCH_TRIGGER_ZONE],
             'configuration': {
                 'operating_hours': body.get('operating_hours', '9:00-22:00'),
                 'timezone': body.get('timezone', 'UTC')
@@ -221,6 +225,10 @@ def create_restaurant(event):
 
         restaurants_table.put_item(Item=restaurant_item)
         config_table.put_item(Item=config_item)
+
+        # Keep AWS Location geofences in sync for automated arrival detection.
+        if not upsert_restaurant_geofences(restaurant_id, location):
+            print(f"Geofence sync skipped or failed for restaurant {restaurant_id}")
 
         user_created = False
         contact_email = body.get('contact_email')
@@ -396,6 +404,9 @@ def update_restaurant(event, restaurant_id):
             ExpressionAttributeValues=expr_attr_values
         )
 
+        if not upsert_restaurant_geofences(restaurant_id, location):
+            print(f"Geofence update skipped or failed for restaurant {restaurant_id}")
+
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
@@ -452,6 +463,8 @@ def delete_restaurant(event, restaurant_id):
                 print(f"Cognito cleanup failed (non-blocking): {e}")
 
         restaurants_table.delete_item(Key={'restaurant_id': restaurant_id})
+        if not delete_restaurant_geofences(restaurant_id):
+            print(f"Geofence delete skipped or failed for restaurant {restaurant_id}")
         if config_table:
             config_table.delete_item(Key={'restaurant_id': restaurant_id})
         if menus_table:

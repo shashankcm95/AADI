@@ -16,7 +16,7 @@ from handlers.restaurants import (
     list_restaurants, create_restaurant, update_restaurant, delete_restaurant,
 )
 from handlers.menu import get_menu, update_menu
-from handlers.config import get_config, update_config
+from handlers.config import get_config, update_config, get_global_config, update_global_config
 from handlers.favorites import list_favorites, add_favorite, remove_favorite
 from handlers.images import create_image_upload_url
 
@@ -91,6 +91,12 @@ def lambda_handler(event, context):
 
         elif route_key == 'PUT /v1/restaurants/{restaurant_id}/config':
             return update_config(event, path_params.get('restaurant_id'))
+
+        elif route_key == 'GET /v1/admin/global-config':
+            return get_global_config(event)
+
+        elif route_key == 'PUT /v1/admin/global-config':
+            return update_global_config(event)
 
         elif route_key == 'POST /v1/restaurants/{restaurant_id}/images/upload-url':
             return create_image_upload_url(event, path_params.get('restaurant_id'))

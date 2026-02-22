@@ -18,6 +18,10 @@ Parameters:
     Type: String
     Description: Allowed CORS origin for admin portal
     Default: "http://localhost:5174"
+  LocationGeofenceCollectionName:
+    Type: String
+    Description: Amazon Location geofence collection name for restaurant sync
+    Default: ""
 
 Globals:
   Function:
@@ -50,6 +54,9 @@ Globals:
         - "PUT"
         - "DELETE"
         - "OPTIONS"
+
+Conditions:
+  HasLocationGeofenceCollectionName: !Not [!Equals [!Ref LocationGeofenceCollectionName, ""]]
 
 Resources:
   RestaurantsTable:
@@ -173,6 +180,7 @@ Resources:
           RESTAURANT_IMAGES_BUCKET: !Ref RestaurantImagesBucket
           IMAGE_URL_TTL_SECONDS: 3600
           USER_POOL_ID: !Ref UserPoolId
+          LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
       Policies:
         - Statement:
             - Effect: Allow
@@ -187,6 +195,14 @@ Resources:
                 - s3:GetObject
                 - s3:PutObject
               Resource: !Sub "${RestaurantImagesBucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - geo:BatchPutGeofence
+                - geo:BatchDeleteGeofence
+              Resource: !If
+                - HasLocationGeofenceCollectionName
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/${LocationGeofenceCollectionName}"
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/*"
         - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantsTable
         - DynamoDBCrudPolicy:
@@ -236,6 +252,16 @@ Resources:
           Properties:
             Path: /v1/restaurants/{restaurant_id}/config
             Method: PUT
+        GetGlobalConfig:
+          Type: HttpApi
+          Properties:
+            Path: /v1/admin/global-config
+            Method: GET
+        UpdateGlobalConfig:
+          Type: HttpApi
+          Properties:
+            Path: /v1/admin/global-config
+            Method: PUT
         HealthCheck:
           Type: HttpApi
           Properties:
@@ -271,6 +297,10 @@ Outputs:
     Description: "Restaurants DynamoDB Table Name"
     Value: !Ref RestaurantsTable
 
+  MenusTableName:
+    Description: "Menus DynamoDB Table Name"
+    Value: !Ref MenusTable
+
   RestaurantConfigTableName:
     Description: "Restaurant Config DynamoDB Table Name"
     Value: !Ref RestaurantConfigTable
@@ -282,4 +312,3 @@ Outputs:
   RestaurantImagesBucketName:
     Description: "S3 bucket for restaurant media uploads"
     Value: !Ref RestaurantImagesBucket
-

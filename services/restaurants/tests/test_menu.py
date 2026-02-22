@@ -1,7 +1,7 @@
 import pytest
 import json
 from decimal import Decimal
-import app
+from conftest import app as restaurants_app
 
 # ── Helper ──
 def _owner_event(rest_id="r1", body=None):
@@ -50,7 +50,7 @@ def test_get_menu_success(mock_tables):
         ]
     })
     
-    resp = app.get_menu("r1")
+    resp = restaurants_app.get_menu("r1")
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     assert len(body["items"]) == 1
@@ -58,7 +58,7 @@ def test_get_menu_success(mock_tables):
     assert body["items"][0]["price"] == 10.5  # Decimal serialized to float
 
 def test_get_menu_empty_default(mock_tables):
-    resp = app.get_menu("r99")  # Non-existent
+    resp = restaurants_app.get_menu("r99")  # Non-existent
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     assert body["items"] == []
@@ -69,7 +69,7 @@ def test_update_menu_success_owner(mock_tables):
             {"name": "Pizza", "price": "15.00", "description": "Yum"}
         ]
     }
-    resp = app.update_menu(_owner_event("r1", payload), "r1")
+    resp = restaurants_app.update_menu(_owner_event("r1", payload), "r1")
     assert resp["statusCode"] == 200
     
     # Verify DB
@@ -83,7 +83,7 @@ def test_update_menu_success_owner(mock_tables):
 
 def test_update_menu_success_admin(mock_tables):
     payload = {"items": [{"name": "Salad", "price": 10}]}
-    resp = app.update_menu(_admin_event(payload), "r1")
+    resp = restaurants_app.update_menu(_admin_event(payload), "r1")
     assert resp["statusCode"] == 200
     
     item_resp = mock_tables['menus'].get_item(Key={"restaurant_id": "r1", "menu_version": "latest"})
@@ -92,12 +92,12 @@ def test_update_menu_success_admin(mock_tables):
 def test_update_menu_rbac_denial(mock_tables):
     # Wrong owner
     fields = {"items": []}
-    resp = app.update_menu(_owner_event("r2", fields), "r1")
+    resp = restaurants_app.update_menu(_owner_event("r2", fields), "r1")
     assert resp["statusCode"] == 403
 
 def test_update_menu_validation(mock_tables):
     # Not a list
-    resp = app.update_menu(_owner_event("r1", {"items": "not-list"}), "r1")
+    resp = restaurants_app.update_menu(_owner_event("r1", {"items": "not-list"}), "r1")
     assert resp["statusCode"] == 400
     
     # Missing name/price -> skipped (not error, verify logic)
@@ -108,7 +108,7 @@ def test_update_menu_validation(mock_tables):
             {"price": 5}      # No name
         ]
     }
-    resp = app.update_menu(_owner_event("r1", payload), "r1")
+    resp = restaurants_app.update_menu(_owner_event("r1", payload), "r1")
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     assert body["count"] == 1  # Only "Good" saved
@@ -126,7 +126,7 @@ def test_update_menu_price_parsing(mock_tables):
             {"name": "Item 3", "price": "invalid"}  # Should be skipped
         ]
     }
-    resp = app.update_menu(_owner_event("r1", payload), "r1")
+    resp = restaurants_app.update_menu(_owner_event("r1", payload), "r1")
     assert resp["statusCode"] == 200
     
     item = mock_tables['menus'].get_item(Key={"restaurant_id": "r1", "menu_version": "latest"})["Item"]
