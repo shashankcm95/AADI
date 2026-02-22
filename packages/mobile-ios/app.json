@@ -22,8 +22,6 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "AADI uses background location to track your arrival and send updates to the kitchen.",
         "UIBackgroundModes": [
           "location",
-          "fetch",
-          "location",
           "fetch"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -42,6 +40,14 @@
       "favicon": "./assets/logo_icon_stylized_square.png"
     },
     "plugins": [
+      [
+        "expo-location",
+        {
+          "isIosBackgroundLocationEnabled": true,
+          "locationWhenInUsePermission": "AADI needs your location to notify the restaurant when you're nearby.",
+          "locationAlwaysAndWhenInUsePermission": "AADI uses background location to track your arrival and send updates to the kitchen."
+        }
+      ],
       "expo-notifications"
     ],
     "extra": {

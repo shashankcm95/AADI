@@ -1,6 +1,6 @@
 # Arrive User and Operator Manual
 
-Last updated: 2026-02-21
+Last updated: 2026-02-22
 
 ## 1. Prerequisites
 - Node.js 20+
@@ -67,3 +67,27 @@ npm run lint --workspace=packages/admin-portal
 ## 8. Current Known Issues
 - POS service deployment requires manual stack path today.
 - Mobile background delivery can still be constrained by iOS/Android power-management behavior; `"I'm Here"` remains fallback.
+
+## 9. iOS Geofence Simulation Without Driving
+Use this for local device/simulator verification of approach events (`ENTER`/`EXIT`) while connected to Xcode.
+
+1. Generate a GPX route for the target restaurant:
+```bash
+python3 scripts/generate_geofence_gpx.py \
+  --restaurant-lat 37.7749 \
+  --restaurant-lon -122.4194 \
+  --enter-radius-m 150 \
+  --output packages/mobile-ios/ios/AADI/GeofenceTestRoute.gpx
+```
+2. Open `packages/mobile-ios/ios/AADI.xcworkspace` in Xcode.
+3. Run the app on a simulator or tethered iPhone.
+4. In Xcode, select `Product -> Scheme -> Edit Scheme -> Run -> Options`.
+5. Set `Default Location` to the generated `GeofenceTestRoute.gpx`.
+6. Keep Xcode logs open and verify:
+   - mobile location samples are posted,
+   - arrival event transitions fire in expected order,
+   - backend receives location samples/geofence transitions.
+
+Notes:
+- This GPX flow is for Xcode-driven local testing only.
+- Background location permissions and `UIBackgroundModes` are runtime app settings and apply to any build environment, not only local tests.

@@ -17,6 +17,7 @@
     "dev:customer": "npm run dev --workspace=packages/customer-web",
     "dev:admin": "npm run dev --workspace=packages/admin-portal",
     "dev:ios": "npm run start --workspace=packages/mobile-ios",
+    "gpx:generate": "python3 scripts/generate_geofence_gpx.py",
     "android": "expo run:android",
     "ios": "expo run:ios"
   },
