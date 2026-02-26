@@ -41,6 +41,12 @@ jobs:
           cd services/restaurants
           python -m pytest tests/ -v
 
+      - name: Run Users Service Tests
+        run: |
+          cd services/users
+          pip install -r requirements.txt 2>/dev/null || true
+          python -m pytest tests/ -v
+
       - name: Run POS Integration Tests
         run: |
           cd services/pos-integration

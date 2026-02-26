@@ -6,9 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+SHARED_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../services/shared/python")
+)
 SRC_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../services/restaurants/src")
 )
+sys.path.insert(0, SHARED_PATH)
 sys.path.insert(0, SRC_PATH)
 sys.modules.pop("app", None)
 

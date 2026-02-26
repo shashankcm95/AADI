@@ -101,3 +101,60 @@ def test_ingest_location_enforces_ownership(customer_handler):
             _event({'latitude': 30.26, 'longitude': -97.74}),
             customer_id='cust_other',
         )
+
+
+def test_ingest_location_bootstraps_same_location_arrival(customer_handler, monkeypatch):
+    handler, orders_table = customer_handler
+    orders_table.get_item.return_value = {
+        'Item': {
+            'order_id': 'ord_1',
+            'customer_id': 'cust_1',
+            'restaurant_id': 'rest_1',
+            'status': 'PENDING_NOT_SENT',
+        }
+    }
+
+    config_table = MagicMock()
+    config_table.get_item.return_value = {
+        'Item': {
+            'restaurant_id': 'rest_1',
+            'latitude': 30.2672,
+            'longitude': -97.7431,
+            'same_location_radius_m': 50,
+        }
+    }
+    monkeypatch.setattr(db, "config_table", config_table)
+
+    mock_update_vicinity = MagicMock(return_value={
+        'statusCode': 200,
+        'body': json.dumps({
+            'status': 'SENT_TO_DESTINATION',
+            'arrival_status': 'AT_DOOR',
+            'customer_notice': {
+                'code': 'ORDER_DISPATCHED_ON_SITE'
+            }
+        }),
+    })
+    monkeypatch.setattr(handler, "update_vicinity", mock_update_vicinity)
+
+    response = handler.ingest_location(
+        'ord_1',
+        _event({
+            'latitude': 30.2672,
+            'longitude': -97.7431,
+            'sample_time': 1700000000123,
+        }),
+        customer_id='cust_1',
+    )
+
+    assert response['statusCode'] == 202
+    payload = json.loads(response['body'])
+    assert payload['same_location_bootstrap_status_code'] == 200
+    assert payload['same_location_bootstrap']['status'] == 'SENT_TO_DESTINATION'
+
+    mock_update_vicinity.assert_called_once()
+    call_args = mock_update_vicinity.call_args.args
+    assert call_args[0] == 'ord_1'
+    bootstrap_event = json.loads(call_args[1]['body'])
+    assert bootstrap_event['event'] == 'AT_DOOR'
+    assert bootstrap_event['source'] == 'same_location_bootstrap'

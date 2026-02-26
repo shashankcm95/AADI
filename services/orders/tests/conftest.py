@@ -7,6 +7,8 @@ without the sys.path.append hack in every test file.
 import sys
 import os
 
+# Add shared layer to path first (simulates Lambda Layer at runtime)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../shared/python')))
 # Add src/ to path once for all test files
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 

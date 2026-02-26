@@ -9,6 +9,7 @@ SUITES = [
     ["services/orders/tests"],
     ["services/pos-integration/tests"],
     ["services/restaurants/tests"],
+    ["services/users/tests"],
     ["infrastructure/tests"],
     ["tests/unit/test_admin_logic.py"],
 ]

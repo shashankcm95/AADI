@@ -164,14 +164,20 @@ class TestProductionReadiness:
             }
         }
         
-        # Mock update failure
-        mock_tables.orders_table.update_item.side_effect = Exception("DB Fail")
+        # Define a real exception class on the mock so the except clause can resolve
+        class ConditionalCheckFailedException(Exception):
+            pass
+        mock_tables.orders_table.meta.client.exceptions.ConditionalCheckFailedException = (
+            ConditionalCheckFailedException
+        )
+
+        # Mock update failure with a generic exception (NOT ConditionalCheckFailed)
+        # This should fall through to the general except handler
+        mock_tables.orders_table.update_item.side_effect = RuntimeError("DB Fail")
         
         # Patch capacity module interacting with handlers.customer
-        # Since handlers.customer is imported in app.py, and we are running app.lambda_handler
-        # We need to patch where it is used.
         with patch.object(customer_handlers, 'capacity') as mock_cap, \
-             patch.object(customer_handlers, 'db', mock_tables): # Ensure handler sees our mock tables
+             patch.object(customer_handlers, 'db', mock_tables):
             
             # Setup reservation success
             mock_cap.check_and_reserve_for_arrival.return_value = {
@@ -195,3 +201,53 @@ class TestProductionReadiness:
             args = mock_cap.release_slot.call_args
             # args[0] is table, [1] is dest_id, [2] is window_start
             assert args[0][2] == 1000
+
+    def test_vicinity_rollback_on_conditional_check_race(self, mock_tables):
+        """Verify capacity is released on TOCTOU race (ConditionalCheckFailed)."""
+        from unittest.mock import patch
+
+        order_id = "ord_race"
+        mock_tables.orders_table.get_item.return_value = {
+            'Item': {
+                'order_id': order_id,
+                'status': 'PENDING_NOT_SENT',
+                'restaurant_id': 'rest_1',
+                'customer_id': 'cust_123',
+                'expires_at': int(time.time()) + 300
+            }
+        }
+
+        # Define and raise ConditionalCheckFailedException
+        class ConditionalCheckFailedException(Exception):
+            pass
+        mock_tables.orders_table.meta.client.exceptions.ConditionalCheckFailedException = (
+            ConditionalCheckFailedException
+        )
+        mock_tables.orders_table.update_item.side_effect = ConditionalCheckFailedException(
+            "Condition not met"
+        )
+
+        with patch.object(customer_handlers, 'capacity') as mock_cap, \
+             patch.object(customer_handlers, 'db', mock_tables):
+
+            mock_cap.check_and_reserve_for_arrival.return_value = {
+                'reserved': True,
+                'window_start': 1000,
+                'window_seconds': 300
+            }
+
+            event = _make_event(
+                'POST /v1/orders/{order_id}/vicinity',
+                body={'event': '5_MIN_OUT'},
+                path_params={'order_id': order_id}
+            )
+
+            resp = app.lambda_handler(event, None)
+            # Race returns 200 with the current order state (idempotent)
+            assert resp['statusCode'] == 200
+            body = json.loads(resp['body'])
+            assert body.get('idempotent') is True
+
+            # Verify capacity was rolled back
+            mock_cap.release_slot.assert_called_once()
+

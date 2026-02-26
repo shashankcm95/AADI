@@ -4,6 +4,10 @@ import os
 import sys
 import importlib
 
+# Add shared layer to path first (simulates Lambda Layer at runtime)
+_SHARED_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../shared/python'))
+if _SHARED_DIR not in sys.path:
+    sys.path.insert(0, _SHARED_DIR)
 # Add src to path (insert at front so it takes priority)
 _SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src'))
 if _SRC_DIR not in sys.path:
