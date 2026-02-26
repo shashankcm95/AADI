@@ -7,6 +7,7 @@ import json
 import base64
 import time
 import uuid
+import math
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
@@ -22,7 +23,7 @@ from models import (
     STATUS_PENDING,
     STATUS_WAITING,
 )
-from logger import get_logger, Timer
+from shared.logger import get_logger, Timer
 
 log = get_logger("orders.customer", service="orders")
 DISPATCH_ELIGIBLE_EVENTS = {'5_MIN_OUT', 'PARKING', 'AT_DOOR'}
@@ -31,6 +32,193 @@ DISPATCH_EVENT_PRIORITY = {
     'PARKING': 2,
     'AT_DOOR': 3,
 }
+VICINITY_DUPLICATE_COOLDOWN_SECONDS = 8
+SAME_LOCATION_RADIUS_METERS_DEFAULT = 35
+SAME_LOCATION_BOOTSTRAP_EVENT = 'AT_DOOR'
+SAME_LOCATION_BOOTSTRAP_SOURCE = 'same_location_bootstrap'
+SAME_LOCATION_NOTICE_CODE = 'ORDER_DISPATCHED_ON_SITE'
+SAME_LOCATION_NOTICE_MESSAGE = (
+    'Order placed immediately because you are already in the restaurant zone.'
+)
+
+
+def _normalize_arrival_event(value):
+    normalized = str(value or '').strip().upper().replace('-', '_')
+    if normalized == 'FIVE_MIN_OUT':
+        normalized = '5_MIN_OUT'
+    return normalized
+
+
+def _event_priority(event_name):
+    normalized = _normalize_arrival_event(event_name)
+    return DISPATCH_EVENT_PRIORITY.get(normalized, 0)
+
+
+def _to_int_or_none(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_positive_int(value, fallback):
+    parsed = _to_int_or_none(value)
+    if parsed is None or parsed <= 0:
+        return fallback
+    return parsed
+
+
+def _haversine_distance_meters(lat1, lon1, lat2, lon2):
+    """
+    Returns great-circle distance between two coordinates in meters.
+    """
+    earth_radius_m = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(d_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * (math.sin(d_lambda / 2.0) ** 2)
+    )
+    return 2.0 * earth_radius_m * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def _extract_destination_coordinates(config_item):
+    if not isinstance(config_item, dict):
+        return None
+
+    candidates = [
+        (config_item.get('latitude'), config_item.get('longitude')),
+        (config_item.get('lat'), config_item.get('lon')),
+        (config_item.get('lat'), config_item.get('lng')),
+    ]
+
+    nested_location = config_item.get('location')
+    if isinstance(nested_location, dict):
+        candidates.extend([
+            (nested_location.get('latitude'), nested_location.get('longitude')),
+            (nested_location.get('lat'), nested_location.get('lon')),
+            (nested_location.get('lat'), nested_location.get('lng')),
+        ])
+
+    for raw_lat, raw_lon in candidates:
+        lat = location_bridge.coerce_finite_float(raw_lat)
+        lon = location_bridge.coerce_finite_float(raw_lon)
+        if lat is not None and lon is not None:
+            return (lat, lon)
+
+    return None
+
+
+def _should_suppress_vicinity_event(session, incoming_event, now):
+    """
+    Suppress stale/duplicate arrival events to reduce noisy updates.
+    """
+    current_event = _normalize_arrival_event(session.get('arrival_status'))
+    incoming = _normalize_arrival_event(incoming_event)
+    status = session.get('status')
+
+    if not current_event or not incoming:
+        return (False, None)
+
+    current_priority = _event_priority(current_event)
+    incoming_priority = _event_priority(incoming)
+
+    # Never let progression move backwards (e.g. AT_DOOR -> 5_MIN_OUT).
+    if current_priority and incoming_priority and incoming_priority < current_priority:
+        return (True, 'stale_arrival_regression')
+
+    # Duplicate events after dispatch add no signal and should be ignored.
+    if incoming == current_event and status not in (STATUS_PENDING, STATUS_WAITING):
+        return (True, 'duplicate_event')
+
+    # While still pending/waiting, allow retries but avoid hot-loop hammering.
+    if incoming == current_event and status in (STATUS_PENDING, STATUS_WAITING):
+        if VICINITY_DUPLICATE_COOLDOWN_SECONDS <= 0:
+            return (False, None)
+        last_update = _to_int_or_none(session.get('last_arrival_update'))
+        if last_update is not None and (now - last_update) < VICINITY_DUPLICATE_COOLDOWN_SECONDS:
+            return (True, 'duplicate_within_cooldown')
+
+    return (False, None)
+
+
+def _maybe_bootstrap_same_location_arrival(session, customer_id, latitude, longitude, now, req_log):
+    """
+    If customer is already physically at the destination when the order is created,
+    geofence ENTER might never fire. This bootstrap path synthesizes AT_DOOR from
+    location ingestion to avoid orders staying stuck in PENDING.
+    """
+    if not db.config_table:
+        return None
+
+    status = session.get('status')
+    if status not in (STATUS_PENDING, STATUS_WAITING):
+        return None
+
+    current_arrival = _normalize_arrival_event(session.get('arrival_status'))
+    current_priority = _event_priority(current_arrival)
+    bootstrap_priority = _event_priority(SAME_LOCATION_BOOTSTRAP_EVENT)
+
+    if status == STATUS_PENDING and current_priority >= bootstrap_priority:
+        return None
+
+    # WAITING orders still need periodic retries to grab newly freed capacity.
+    if status == STATUS_WAITING and current_priority >= bootstrap_priority:
+        last_update = _to_int_or_none(session.get('last_arrival_update'))
+        if last_update is not None and (now - last_update) < VICINITY_DUPLICATE_COOLDOWN_SECONDS:
+            return None
+
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    if not destination_id:
+        return None
+
+    try:
+        resp = db.config_table.get_item(Key={'restaurant_id': destination_id})
+        config_item = resp.get('Item', {}) if isinstance(resp, dict) else {}
+    except Exception:
+        return None
+
+    destination_coords = _extract_destination_coordinates(config_item)
+    if not destination_coords:
+        return None
+
+    dest_lat, dest_lon = destination_coords
+    distance_m = _haversine_distance_meters(latitude, longitude, dest_lat, dest_lon)
+    radius_m = _to_positive_int(
+        config_item.get('same_location_radius_m'),
+        SAME_LOCATION_RADIUS_METERS_DEFAULT,
+    )
+
+    if distance_m > radius_m:
+        return None
+
+    order_id = session.get('order_id', session.get('session_id'))
+    if not order_id:
+        return None
+
+    req_log.info("same_location_bootstrap_triggered", extra={
+        "event": SAME_LOCATION_BOOTSTRAP_EVENT,
+        "distance_m": round(distance_m, 2),
+        "radius_m": radius_m,
+    })
+
+    synthetic = {'body': json.dumps({
+        'event': SAME_LOCATION_BOOTSTRAP_EVENT,
+        'source': SAME_LOCATION_BOOTSTRAP_SOURCE,
+    })}
+    return update_vicinity(order_id, synthetic, customer_id)
+
+
+def _build_same_location_notice(status):
+    if status != 'SENT_TO_DESTINATION':
+        return None
+    return {
+        'code': SAME_LOCATION_NOTICE_CODE,
+        'message': SAME_LOCATION_NOTICE_MESSAGE,
+    }
 
 
 def _get_header(event, header_name):
@@ -393,6 +581,9 @@ def ingest_location(order_id, event, customer_id=None):
     if not session:
         raise NotFoundError()
 
+    # Bind restaurant_id for all subsequent log lines
+    req_log = req_log.bind(restaurant_id=session.get('destination_id', session.get('restaurant_id', '')))
+
     if customer_id and session.get('customer_id') != customer_id:
         req_log.warning("ownership_check_failed", extra={"order_customer": session.get('customer_id')})
         raise NotFoundError()
@@ -451,23 +642,45 @@ def ingest_location(order_id, event, customer_id=None):
         "detail": json.dumps({"published": bool(publish_result.get('published'))}),
     })
 
+    same_location_bootstrap = _maybe_bootstrap_same_location_arrival(
+        session=session,
+        customer_id=customer_id,
+        latitude=latitude,
+        longitude=longitude,
+        now=now,
+        req_log=req_log,
+    )
+
+    response_body = {
+        'order_id': order_id,
+        'received': True,
+        'sample_time': sample_time_seconds,
+        'published_to_location': bool(publish_result.get('published')),
+        'tracker_enabled': bool(publish_result.get('tracker_enabled')),
+        'publish_reason': publish_result.get('reason'),
+    }
+    if same_location_bootstrap:
+        response_body['same_location_bootstrap_status_code'] = same_location_bootstrap.get('statusCode')
+        try:
+            response_body['same_location_bootstrap'] = json.loads(
+                same_location_bootstrap.get('body') or '{}'
+            )
+        except Exception:
+            response_body['same_location_bootstrap'] = {
+                'error': 'invalid_same_location_bootstrap_payload'
+            }
+
     return {
         'statusCode': 202,
         'headers': {'Content-Type': 'application/json'},
-        'body': json.dumps({
-            'order_id': order_id,
-            'received': True,
-            'sample_time': sample_time_seconds,
-            'published_to_location': bool(publish_result.get('published')),
-            'tracker_enabled': bool(publish_result.get('tracker_enabled')),
-            'publish_reason': publish_result.get('reason'),
-        }, default=db.decimal_default),
+        'body': json.dumps(response_body, default=db.decimal_default),
     }
 
 
 def update_vicinity(order_id, event, customer_id=None):
     body = json.loads(event.get('body', '{}'))
     vicinity_event = body.get('event')
+    event_source = str(body.get('source') or '').strip().lower()
 
     req_log = log.bind(handler="update_vicinity", order_id=order_id, customer_id=customer_id)
     req_log.info("vicinity_update_started", extra={"event": vicinity_event})
@@ -490,6 +703,9 @@ def update_vicinity(order_id, event, customer_id=None):
     if not session:
         raise NotFoundError()
 
+    # Bind restaurant_id for all subsequent log lines
+    req_log = req_log.bind(restaurant_id=session.get('destination_id', session.get('restaurant_id', '')))
+
     # Ownership check
     if customer_id and session.get('customer_id') != customer_id:
         req_log.warning("ownership_check_failed", extra={"order_customer": session.get('customer_id')})
@@ -502,6 +718,25 @@ def update_vicinity(order_id, event, customer_id=None):
     
     # Check expiry before processing
     engine.ensure_not_expired(session, now)
+
+    suppress_event, suppress_reason = _should_suppress_vicinity_event(session, vicinity_event, now)
+    if suppress_event:
+        req_log.info("vicinity_update_suppressed", extra={
+            "event": vicinity_event,
+            "reason": suppress_reason,
+            "status": current_status,
+            "arrival_status": session.get('arrival_status'),
+        })
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                "session_id": session.get("session_id", session.get("order_id")),
+                "status": current_status,
+                "arrival_status": session.get("arrival_status"),
+                "suppressed": True,
+                "suppression_reason": suppress_reason,
+            }, default=db.decimal_default),
+        }
 
     destination_id = session.get('destination_id', session.get('restaurant_id'))
     config = capacity.get_capacity_config(db.config_table, destination_id)
@@ -591,12 +826,50 @@ def update_vicinity(order_id, event, customer_id=None):
         req_log.warning("vicinity_update_rejected", extra={"error": plan.response.get('error')})
         return {'statusCode': 400, 'body': json.dumps(plan.response)}
 
+    if event_source == SAME_LOCATION_BOOTSTRAP_SOURCE:
+        notice = _build_same_location_notice(plan.response.get('status'))
+        if notice:
+            req_log.info("same_location_notice_attached", extra={
+                "code": notice.get("code"),
+                "status": plan.response.get('status'),
+            })
+            if plan.response is not None:
+                plan.response['customer_notice'] = notice
+            if plan.set_fields is not None:
+                plan.set_fields['customer_notice_code'] = notice.get('code')
+                plan.set_fields['customer_notice_message'] = notice.get('message')
+                plan.set_fields['customer_notice_at'] = now
+
     kwargs = build_update_item_kwargs(order_id, plan)
     if kwargs:
         try:
             with Timer() as t:
                 db.orders_table.update_item(**kwargs)
             req_log.info("order_updated", extra={"duration_ms": t.elapsed_ms, "new_status": plan.response.get('status')})
+        except db.orders_table.meta.client.exceptions.ConditionalCheckFailedException:
+            # TOCTOU race: another request already transitioned this order.
+            # Release the capacity slot we reserved to prevent phantom exhaustion.
+            req_log.warning("conditional_check_failed_race", extra={"order_id": order_id})
+            if cap_result and cap_result.get('reserved'):
+                try:
+                    capacity.release_slot(
+                        db.capacity_table,
+                        session.get('destination_id', session.get('restaurant_id')),
+                        cap_result['window_start']
+                    )
+                    req_log.info("capacity_rollback_on_race_success")
+                except Exception as rollback_err:
+                    req_log.error("capacity_rollback_on_race_failed", extra={"detail": str(rollback_err)})
+            # Re-read order to return the current state (set by the winning request)
+            refreshed = db.orders_table.get_item(Key={'order_id': order_id}).get('Item', {})
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'status': refreshed.get('status'),
+                    'arrival_status': refreshed.get('arrival_status'),
+                    'idempotent': True,
+                }, default=db.decimal_default)
+            }
         except Exception as e:
             req_log.error("order_update_failed", extra={"error_type": type(e).__name__, "detail": str(e)})
             # Capacity rollback on failure
@@ -638,6 +911,9 @@ def cancel_order(order_id, customer_id=None):
 
     if not session:
         raise NotFoundError()
+
+    # Bind restaurant_id for all subsequent log lines
+    req_log = req_log.bind(restaurant_id=session.get('destination_id', session.get('restaurant_id', '')))
 
     # Ownership check
     if customer_id and session.get('customer_id') != customer_id:

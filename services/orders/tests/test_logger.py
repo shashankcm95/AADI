@@ -5,7 +5,7 @@ import pytest
 from io import StringIO
 
 # conftest.py adds src/ to path
-import logger
+import shared.logger as logger
 
 def test_json_formatter_structure():
     formatter = logger.JSONFormatter()
@@ -21,6 +21,7 @@ def test_json_formatter_structure():
     # Inject context manually like the logger would
     record.correlation_id = "req-123"
     record.service = "test-service"
+    record.custom_observability_field = "kept"
     
     formatted = formatter.format(record)
     data = json.loads(formatted)
@@ -30,6 +31,7 @@ def test_json_formatter_structure():
     assert data["message"] == "Hello World"
     assert data["service"] == "test-service"
     assert data["correlation_id"] == "req-123"
+    assert data["custom_observability_field"] == "kept"
     assert "timestamp" in data
 
 def test_json_formatter_exception():

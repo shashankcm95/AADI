@@ -8,9 +8,9 @@ This file is responsible only for:
   3. Dispatching to the correct handler
 """
 import json
-import traceback
 
-from utils import CORS_HEADERS, get_user_claims, restaurants_table
+from utils import CORS_HEADERS, get_user_claims, restaurants_table, make_response
+from shared.logger import get_logger, extract_correlation_id
 
 from handlers.restaurants import (
     list_restaurants, create_restaurant, update_restaurant, delete_restaurant,
@@ -20,10 +20,16 @@ from handlers.config import get_config, update_config, get_global_config, update
 from handlers.favorites import list_favorites, add_favorite, remove_favorite
 from handlers.images import create_image_upload_url
 
+log = get_logger("restaurants")
+
 
 def lambda_handler(event, context):
-    print(f"Event: {json.dumps(event)}")
     route_key = event.get('routeKey')
+    req_log = log.bind(
+        correlation_id=extract_correlation_id(event),
+        route_key=route_key,
+    )
+    req_log.info("request_received")
     path_params = event.get('pathParameters') or {}
 
     # ── Global Access Check for Restaurant Admins ──
@@ -110,13 +116,8 @@ def lambda_handler(event, context):
         elif route_key == 'DELETE /v1/favorites/{restaurant_id}':
             return remove_favorite(event, path_params.get('restaurant_id'))
 
-        return {
-            'statusCode': 404,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'error': 'Not Found'})
-        }
+        return make_response(404, {'error': 'Not Found'})
 
     except Exception as e:
-        print(f"Error: {e}")
-        traceback.print_exc()
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Internal server error'})}
+        req_log.error("unhandled_exception", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
+        return make_response(500, {'error': 'Internal server error'})

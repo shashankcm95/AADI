@@ -9,6 +9,10 @@ from decimal import Decimal
 
 import boto3
 
+from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
+from shared.auth import get_user_claims
+from shared.serialization import decimal_default, make_response
+
 
 # ---------------------------------------------------------------------------
 # DynamoDB & AWS resources (initialised once at import / cold-start)
@@ -36,16 +40,6 @@ favorites_table = dynamodb.Table(FAVORITES_TABLE) if FAVORITES_TABLE else None
 s3_client = boto3.client('s3')
 _location_client = None
 
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-CORS_HEADERS = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-}
-
 GLOBAL_CONFIG_ID = '__GLOBAL__'
 DEFAULT_DISPATCH_TRIGGER_ZONE = 'ZONE_1'
 ZONE_EVENT_MAP = {
@@ -69,10 +63,6 @@ DEFAULT_ZONE_LABELS = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def decimal_default(obj):
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
 
 
 def _coerce_positive_int(value, minimum=1, maximum=50_000):
@@ -170,26 +160,7 @@ def get_geofence_radii_meters():
     return radii
 
 
-def get_user_claims(event):
-    """Extract user claims from the event."""
-    try:
-        claims = event['requestContext']['authorizer']['jwt']['claims']
-        role = claims.get('custom:role') or claims.get('role')
-        restaurant_id = claims.get('custom:restaurant_id') or claims.get('restaurant_id')
-        customer_id = claims.get('sub')
 
-        # Legacy/federated users may not carry custom role attributes.
-        if not role and customer_id and not restaurant_id:
-            role = 'customer'
-
-        return {
-            'role': role,
-            'restaurant_id': restaurant_id,
-            'customer_id': customer_id,
-            'username': claims.get('cognito:username') or claims.get('username')
-        }
-    except (KeyError, TypeError):
-        return {}
 
 
 def _is_admin_or_owner(claims, restaurant_id):

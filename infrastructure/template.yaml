@@ -187,6 +187,21 @@ Resources:
       ConsumerArn: !GetAtt LocationGeofenceCollection.Arn
 
   # -------------------------------------------------------------------------
+  # Shared Lambda Layer
+  # -------------------------------------------------------------------------
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${AWS::StackName}-shared"
+      Description: Cross-cutting utilities (CORS, auth, serialization, logger)
+      ContentUri: ../services/shared
+      CompatibleRuntimes:
+        - python3.11
+      CompatibleArchitectures:
+        - arm64
+      RetentionPolicy: Retain
+
+  # -------------------------------------------------------------------------
   # Nested Stacks (Microservices)
   # -------------------------------------------------------------------------
 
@@ -201,6 +216,7 @@ Resources:
         UserAvatarsBucketName: !Sub "${AWS::StackName}-user-avatars-${AWS::AccountId}"
         CorsAllowOrigin: !Sub "https://${CustomerWebDistribution.DomainName}"
         CorsAllowOriginAdmin: !Sub "https://${AdminPortalDistribution.DomainName}"
+        SharedLayerArn: !Ref SharedLayer
 
   RestaurantsService:
     Type: AWS::Serverless::Application
@@ -212,6 +228,7 @@ Resources:
         CorsAllowOrigin: !Sub "https://${CustomerWebDistribution.DomainName}"
         CorsAllowOriginAdmin: !Sub "https://${AdminPortalDistribution.DomainName}"
         LocationGeofenceCollectionName: !Ref LocationGeofenceCollection
+        SharedLayerArn: !Ref SharedLayer
 
   OrdersService:
     Type: AWS::Serverless::Application
@@ -227,6 +244,7 @@ Resources:
         LocationGeofenceCollectionName: !Ref LocationGeofenceCollection
         LocationGeofenceCutoverEnabled: !Ref LocationGeofenceCutoverEnabled
         LocationGeofenceForceShadow: !Ref LocationGeofenceForceShadow
+        SharedLayerArn: !Ref SharedLayer
 
   PosIntegrationService:
     Type: AWS::Serverless::Application

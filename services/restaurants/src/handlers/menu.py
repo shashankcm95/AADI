@@ -2,19 +2,21 @@
 import json
 import uuid
 import time
-import traceback
 from decimal import Decimal
 
 from utils import (
-    CORS_HEADERS, decimal_default, get_user_claims,
+    CORS_HEADERS, decimal_default, get_user_claims, make_response,
     menus_table,
 )
+from shared.logger import get_logger
+
+menu_log = get_logger("restaurants.menu")
 
 
 def get_menu(restaurant_id):
     """Get the active menu for a restaurant from DynamoDB."""
     if not menus_table:
-        return {'statusCode': 200, 'body': json.dumps({'menu': {'items': []}})}
+        return make_response(200, {'menu': {'items': []}})
 
     try:
         version = 'latest'
@@ -25,20 +27,16 @@ def get_menu(restaurant_id):
         item = resp.get('Item', {})
         items = item.get('items', [])
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'items': items}, default=decimal_default)
-        }
+        return make_response(200, {'items': items})
     except Exception as e:
         print(f"Menu Error: {e}")
-        return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': json.dumps({'menu': {'items': []}})}
+        return make_response(200, {'menu': {'items': []}})
 
 
 def update_menu(event, restaurant_id):
     """Update (Overwrite) the menu for a restaurant."""
     if not menus_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Menus table not configured'})}
+        return make_response(500, {'error': 'Menus table not configured'})
 
     claims = get_user_claims(event)
     user_role = claims.get('role')
@@ -48,7 +46,7 @@ def update_menu(event, restaurant_id):
     is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
 
     if not (is_admin or is_owner):
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         body = json.loads(event.get('body', '{}'))
@@ -59,7 +57,7 @@ def update_menu(event, restaurant_id):
             print(f"Sample Item: {items[0]}")
 
         if not isinstance(items, list):
-            return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Payload must contain an "items" list'})}
+            return make_response(400, {'error': 'Payload must contain an "items" list'})
 
         cleaned_items = []
         for item in items:
@@ -93,13 +91,8 @@ def update_menu(event, restaurant_id):
 
         menus_table.put_item(Item=menu_item)
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'message': 'Menu updated successfully', 'count': len(cleaned_items)})
-        }
+        return make_response(200, {'message': 'Menu updated successfully', 'count': len(cleaned_items)})
 
     except Exception as e:
-        print(f"Menu Update Error: {e}")
-        traceback.print_exc()
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        menu_log.error("menu_update_failed", extra={"restaurant_id": restaurant_id, "detail": str(e)}, exc_info=True)
+        return make_response(500, {'error': str(e)})

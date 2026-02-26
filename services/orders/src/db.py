@@ -1,5 +1,4 @@
-"""
-Shared DynamoDB references and utility functions for the orders service.
+"""Shared DynamoDB references and utility functions for the orders service.
 
 All handler modules import table references from here.
 Tests patch these module-level variables to inject in-memory mocks.
@@ -10,16 +9,10 @@ import boto3
 from decimal import Decimal
 from typing import Dict, Any, Optional
 
-import capacity
+from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
+from shared.serialization import decimal_default
 
-# ---------------------------------------------------------------------------
-# CORS headers for all responses (API Gateway handles preflight)
-# ---------------------------------------------------------------------------
-CORS_HEADERS = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Idempotency-Key',
-}
+import capacity
 
 # ---------------------------------------------------------------------------
 # Input validation allowlists
@@ -47,17 +40,13 @@ geofence_events_table = dynamodb.Table(GEOFENCE_EVENTS_TABLE) if GEOFENCE_EVENTS
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def decimal_default(obj):
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
 
 
-def make_response(status_code, body):
+def make_response(status_code, body, event=None):
     """Helper to build a response with CORS headers."""
     return {
         'statusCode': status_code,
-        'headers': CORS_HEADERS,
+        'headers': cors_headers(event),
         'body': json.dumps(body, default=str)
     }
 

@@ -13,7 +13,7 @@ import models
 import db
 from dynamo_apply import build_update_item_kwargs
 from errors import NotFoundError
-from logger import get_logger, Timer
+from shared.logger import get_logger, Timer
 
 log = get_logger("orders.restaurant", service="orders")
 
@@ -172,7 +172,11 @@ def update_order_status(order_id, restaurant_id, event):
             db.release_capacity_slot(session)
             req_log.info("capacity_slot_released", extra={"order_id": order_id})
 
-        req_log.info("status_update_completed", extra={"final_status": final_status})
+        req_log.info("status_update_completed", extra={
+            "final_status": final_status,
+            "restaurant_id": restaurant_id,
+            "order_id": order_id,
+        })
         return {
             'statusCode': 200,
             'body': json.dumps({'success': True, 'status': final_status})

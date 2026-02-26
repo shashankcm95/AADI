@@ -22,6 +22,10 @@ Parameters:
     Type: String
     Description: Amazon Location geofence collection name for restaurant sync
     Default: ""
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the shared Lambda Layer
+    Default: ""
 
 Globals:
   Function:
@@ -29,6 +33,8 @@ Globals:
     Runtime: python3.11
     Architectures:
       - arm64
+    Layers:
+      - !Ref SharedLayerArn
   HttpApi:
     Auth:
       DefaultAuthorizer: CognitoJWT
@@ -181,6 +187,8 @@ Resources:
           IMAGE_URL_TTL_SECONDS: 3600
           USER_POOL_ID: !Ref UserPoolId
           LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
+          CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
+          CORS_ALLOW_ORIGIN_ADMIN: !Ref CorsAllowOriginAdmin
       Policies:
         - Statement:
             - Effect: Allow

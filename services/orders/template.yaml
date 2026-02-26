@@ -38,6 +38,10 @@ Parameters:
     Type: String
     Description: Emergency rollback switch; if true geofence consumer stays in shadow mode even when cutover is enabled
     Default: "false"
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the shared Lambda Layer
+    Default: ""
 
 Globals:
   Function:
@@ -45,6 +49,8 @@ Globals:
     Runtime: python3.11
     Architectures:
       - arm64
+    Layers:
+      - !Ref SharedLayerArn
   HttpApi:
     Auth:
       DefaultAuthorizer: CognitoJWT
@@ -173,6 +179,8 @@ Resources:
           RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTableName
           LOCATION_TRACKER_NAME: !Ref LocationTrackerName
           LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
+          CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
+          CORS_ALLOW_ORIGIN_ADMIN: !Ref CorsAllowOriginAdmin
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref OrdersTable

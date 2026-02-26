@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 
 import db
 from handlers.customer import update_vicinity
-from logger import get_logger
+from shared.logger import get_logger
 from models import STATUS_PENDING, STATUS_WAITING
 
 log = get_logger("orders.geofence_events", service="orders")

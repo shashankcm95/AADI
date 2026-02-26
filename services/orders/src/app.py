@@ -4,7 +4,6 @@ Orders Service — Lambda Entry Point
 Slim router that dispatches API Gateway events to handler modules.
 All business logic lives in handlers/customer.py and handlers/restaurant.py.
 """
-import json
 
 import db
 from handlers.customer import (
@@ -22,7 +21,7 @@ from handlers.restaurant import (
     update_order_status,
 )
 from errors import NotFoundError, InvalidStateError, ValidationError, ExpiredError
-from logger import get_logger, extract_correlation_id, Timer
+from shared.logger import get_logger, extract_correlation_id, Timer
 
 log = get_logger("orders.router", service="orders")
 
@@ -150,5 +149,5 @@ def lambda_handler(event, context):
         except Exception as e:
             req_log.error("unhandled_exception", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
             return db.make_response(500, {'error': 'Internal server error'})
-
-    req_log.info("request_completed", extra={"route": route_key, "duration_ms": t.elapsed_ms})
+        finally:
+            req_log.info("request_completed", extra={"route": route_key, "duration_ms": t.elapsed_ms})

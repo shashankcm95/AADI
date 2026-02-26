@@ -22,6 +22,10 @@ Parameters:
     Type: String
     Description: Allowed CORS origin for admin portal
     Default: "http://localhost:5174"
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the shared Lambda Layer
+    Default: ""
 
 Globals:
   Function:
@@ -29,6 +33,8 @@ Globals:
     Runtime: python3.11
     Architectures:
       - arm64
+    Layers:
+      - !Ref SharedLayerArn
   HttpApi:
     Auth:
       DefaultAuthorizer: CognitoJWT
@@ -113,6 +119,8 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           USER_POOL_ID: !Ref UserPoolId
           AVATARS_BUCKET_NAME: !Ref UserAvatarsBucketName
+          CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
+          CORS_ALLOW_ORIGIN_ADMIN: !Ref CorsAllowOriginAdmin
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
