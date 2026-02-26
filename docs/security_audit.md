@@ -1,6 +1,6 @@
 # Security and Reliability Audit Snapshot
 
-Last updated: 2026-02-21
+Last updated: 2026-02-26
 Scope: `services/`, `packages/`, `infrastructure/`, CI/CD workflows
 
 ## Summary
@@ -9,9 +9,12 @@ The platform has strong baseline controls (Cognito auth on primary APIs, role ch
 ## Confirmed Strengths
 - Cognito JWT authorizer is enabled by default for users/restaurants/orders service APIs.
 - Orders and restaurants handlers enforce role/ownership checks.
-- POS integration uses API-key auth and permission scoping.
+- POS integration uses API-key auth and permission scoping (correct M2M pattern — no Cognito needed).
 - Idempotency and conditional writes are used on critical order flows.
-- Python test coverage across backend services is healthy and currently passing.
+- TOCTOU capacity race condition fixed with `ConditionalCheckFailedException` handling and rollback.
+- Structured JSON logging (`shared/logger.py`) replaces all `print()` and `traceback.print_exc()` calls.
+- Unified `get_user_claims()` via shared Lambda Layer with consistent role fallback.
+- Python test coverage: 280 tests across all services, running in isolated suite gate.
 
 ## Findings
 | ID | Severity | Area | Finding | Recommendation | Status |
@@ -24,6 +27,9 @@ The platform has strong baseline controls (Cognito auth on primary APIs, role ch
 | A-06 | High | Geofencing Reliability | Mobile tracking depended on top-level `latitude`/`longitude` but restaurants data commonly stores `location.lat/lon` | Normalize coordinates in backend response and mobile client fallback | Fixed |
 | A-07 | Medium | Arrival Triggering | AWS geofence integration is in shadow mode; authoritative cutover is not yet enabled | Validate shadow telemetry vs. mobile/manual triggers, then enable cutover with rollback plan | Control knobs fixed (`LocationGeofenceCutoverEnabled` + `LocationGeofenceForceShadow`), rollout pending |
 | A-08 | Low | Test Isolation | Cross-service pytest runs can collide on generic module names (`app.py`) | Use isolated suite runs and service-bound imports in tests | Fixed |
+| A-09 | Medium | Logging | Raw `print()` and `traceback.print_exc()` leaked unstructured data to CloudWatch | Replace with structured logger (`shared/logger.py`) | Fixed |
+| A-10 | High | Race Condition | TOCTOU race in capacity reservation could double-book slots under load | Use DynamoDB conditional writes with rollback on `ConditionalCheckFailedException` | Fixed |
+| A-11 | Medium | Code Duplication | CORS, auth, serialization duplicated across 3 services | Shared Lambda Layer (`services/shared/`) as single source of truth | Fixed |
 
 ## Current Residual Risk
 - Background OS restrictions can still suppress mobile updates; fallback manual arrival trigger remains necessary.

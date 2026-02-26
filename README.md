@@ -1,4 +1,3 @@
-```markdown
 # Arrive Platform
 
 > GPS-Powered Just-in-Time Kitchen Orchestration
@@ -13,12 +12,12 @@ packages/          → Frontend Apps
 
 services/          → Backend Microservices
   orders/          → Order lifecycle management
-  kitchen/         → Kitchen operations
+  users/           → User profile management
   restaurants/     → Restaurant data management
   pos-integration/ → Point of Sale integration
+  shared/          → Shared Lambda Layer (CORS, auth, serialization, logger)
 
 infrastructure/    → SAM templates, scripts, and AWS infrastructure
-tools/             → Mock server, dev utilities
 ```
 
 ## Quick Start
@@ -26,9 +25,6 @@ tools/             → Mock server, dev utilities
 ```bash
 # Install dependencies
 npm install
-
-# Start mock server
-npm run dev:mock-server
 
 # Start customer web
 npm run dev:customer
@@ -44,7 +40,6 @@ npm run dev:ios
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| Mock Server | 3001 | Development API |
 | Customer Web | 5173 | Customer ordering |
 | Admin Portal | 5174 | Admin operations |
 | iOS (Expo) | 8081 | Mobile app |
@@ -52,6 +47,21 @@ npm run dev:ios
 ## Tech Stack
 
 - **Frontend:** React, React Native, TypeScript
-- **Backend:** Python, AWS Lambda, DynamoDB
-- **Infrastructure:** AWS SAM, API Gateway
+- **Backend:** Python 3.11, AWS Lambda, DynamoDB
+- **Infrastructure:** AWS SAM, API Gateway, Cognito, S3, CloudFront, CloudWatch
+- **Shared Layer:** Cross-cutting utilities deployed as a Lambda Layer (CORS, auth, serialization, structured logger)
+- **Observability:** CloudWatch metric filters, alarms, and dashboard for order lifecycle and capacity monitoring
+
+## Testing
+
+```bash
+# Run all backend suites in isolation (recommended)
+python3 -m pytest tests/test_python_suites.py -q
+
+# Run individual service
+python3 -m pytest services/orders/tests/ -q
+python3 -m pytest services/restaurants/tests/ -q
+python3 -m pytest services/users/tests/ -q
+python3 -m pytest services/pos-integration/tests/ -q
+python3 -m pytest infrastructure/tests/ -q
 ```
