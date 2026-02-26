@@ -3,12 +3,11 @@ import json
 import base64
 import uuid
 import time
-import traceback
 from decimal import Decimal
 from boto3.dynamodb.conditions import Attr, Key
 
 from utils import (
-    CORS_HEADERS, decimal_default, get_user_claims,
+    CORS_HEADERS, decimal_default, get_user_claims, make_response,
     restaurants_table, config_table, cognito, USER_POOL_ID,
     geocode_address, _normalize_restaurant_image_keys, _decorate_restaurant_response,
     upsert_restaurant_geofences, delete_restaurant_geofences,
@@ -20,7 +19,7 @@ from utils import (
 def list_restaurants(event):
     """List restaurants from DynamoDB, filtered by role."""
     if not restaurants_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurants table not configured'})}
+        return make_response(500, {'error': 'Restaurants table not configured'})
 
     claims = get_user_claims(event)
     role = claims.get('role')
@@ -29,7 +28,7 @@ def list_restaurants(event):
     try:
         if role == 'restaurant_admin':
             if not assigned_restaurant_id:
-                return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'No restaurant assigned to this user'})}
+                return make_response(403, {'error': 'No restaurant assigned to this user'})
 
             resp = restaurants_table.get_item(Key={'restaurant_id': assigned_restaurant_id})
             item = resp.get('Item')
@@ -120,31 +119,27 @@ def list_restaurants(event):
                 json.dumps(next_key, default=decimal_default).encode()
             ).decode()
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps(result, default=decimal_default)
-        }
+        return make_response(200, result)
     except Exception as e:
         print(f"Scan Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def create_restaurant(event):
     """Create a new restaurant in DynamoDB."""
     if not restaurants_table or not config_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Tables not configured'})}
+        return make_response(500, {'error': 'Tables not configured'})
 
     claims = get_user_claims(event)
     if claims.get('role') != 'admin':
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied: Only admins can perform this action'})}
+        return make_response(403, {'error': 'Access denied: Only admins can perform this action'})
 
     try:
         body = json.loads(event.get('body', '{}'))
         name = body.get('name')
 
         if not name:
-            return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant name is required'})}
+            return make_response(400, {'error': 'Restaurant name is required'})
 
         contact_email = body.get('contact_email')
         if contact_email and USER_POOL_ID:
@@ -157,11 +152,7 @@ def create_restaurant(event):
                 )
                 if response.get('Users'):
                     print(f"User {contact_email} already exists. Blocking creation.")
-                    return {
-                        'statusCode': 409,
-                        'headers': CORS_HEADERS,
-                        'body': json.dumps({'error': f"User with email {contact_email} already exists. Please use a new email or delete the existing user."})
-                    }
+                    return make_response(409, {'error': f"User with email {contact_email} already exists. Please use a new email or delete the existing user."})
             except Exception as e:
                 print(f"Pre-check user existence failed: {e}")
                 pass
@@ -265,26 +256,22 @@ def create_restaurant(event):
             except Exception as e:
                 print(f"Failed to create Cognito user: {e}")
 
-        return {
-            'statusCode': 201,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({
-                'user_created': user_created,
-                'user_status': 'CREATED' if user_created else 'LINKED'
-            }, default=decimal_default)
-        }
+        return make_response(201, {
+            'user_created': user_created,
+            'user_status': 'CREATED' if user_created else 'LINKED'
+        })
 
     except ValueError as ve:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(ve)})}
+        return make_response(400, {'error': str(ve)})
     except Exception as e:
         print(f"Create Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def update_restaurant(event, restaurant_id):
     """Update an existing restaurant."""
     if not restaurants_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Tables not configured'})}
+        return make_response(500, {'error': 'Tables not configured'})
 
     claims = get_user_claims(event)
     user_role = claims.get('role')
@@ -294,14 +281,14 @@ def update_restaurant(event, restaurant_id):
     is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
 
     if not (is_admin or is_owner):
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         body = json.loads(event.get('body', '{}'))
 
         resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
         if 'Item' not in resp:
-            return {'statusCode': 404, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant not found'})}
+            return make_response(404, {'error': 'Restaurant not found'})
 
         existing_item = resp['Item']
 
@@ -407,30 +394,26 @@ def update_restaurant(event, restaurant_id):
         if not upsert_restaurant_geofences(restaurant_id, location):
             print(f"Geofence update skipped or failed for restaurant {restaurant_id}")
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({
-                'message': 'Restaurant updated',
-                'location': location
-            }, default=decimal_default)
-        }
+        return make_response(200, {
+            'message': 'Restaurant updated',
+            'location': location
+        })
 
     except ValueError as ve:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(ve)})}
+        return make_response(400, {'error': str(ve)})
     except Exception as e:
         print(f"Update Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def delete_restaurant(event, restaurant_id):
     """Delete a restaurant and its associated data."""
     if not restaurants_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Tables not configured'})}
+        return make_response(500, {'error': 'Tables not configured'})
 
     claims = get_user_claims(event)
     if claims.get('role') != 'admin':
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         if USER_POOL_ID:
@@ -468,10 +451,20 @@ def delete_restaurant(event, restaurant_id):
         if config_table:
             config_table.delete_item(Key={'restaurant_id': restaurant_id})
         if menus_table:
-            pass
+            try:
+                menu_resp = menus_table.query(
+                    KeyConditionExpression=Key('restaurant_id').eq(restaurant_id)
+                )
+                for menu_item in menu_resp.get('Items', []):
+                    menus_table.delete_item(Key={
+                        'restaurant_id': restaurant_id,
+                        'menu_version': menu_item['menu_version']
+                    })
+            except Exception as menu_err:
+                print(f"Menu cleanup failed (non-blocking): {menu_err}")
 
-        return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': json.dumps({'message': 'Restaurant deleted'})}
+        return make_response(200, {'message': 'Restaurant deleted'})
 
     except Exception as e:
         print(f"Delete Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})

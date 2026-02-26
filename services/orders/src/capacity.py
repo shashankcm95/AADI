@@ -15,7 +15,7 @@ DynamoDB CapacityTable schema:
   Attrs: current_count (N), ttl (N)
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from boto3.dynamodb.conditions import Attr
 
 

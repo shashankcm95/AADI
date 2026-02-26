@@ -4,7 +4,7 @@ import time
 from boto3.dynamodb.conditions import Key
 
 from utils import (
-    CORS_HEADERS, decimal_default, _require_customer,
+    CORS_HEADERS, decimal_default, _require_customer, make_response,
     favorites_table, restaurants_table,
 )
 
@@ -12,7 +12,7 @@ from utils import (
 def list_favorites(event):
     """List favorite restaurants for the authenticated customer."""
     if not favorites_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+        return make_response(500, {'error': 'Favorites table not configured'})
 
     customer_id, err = _require_customer(event)
     if err:
@@ -24,23 +24,19 @@ def list_favorites(event):
         )
         items = resp.get('Items', [])
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'favorites': items}, default=decimal_default)
-        }
+        return make_response(200, {'favorites': items})
     except Exception as e:
         print(f"List Favorites Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def add_favorite(event, restaurant_id):
     """Add one restaurant to the authenticated customer's favorites."""
     if not favorites_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+        return make_response(500, {'error': 'Favorites table not configured'})
 
     if not restaurant_id:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+        return make_response(400, {'error': 'restaurant_id is required'})
 
     customer_id, err = _require_customer(event)
     if err:
@@ -50,7 +46,7 @@ def add_favorite(event, restaurant_id):
         if restaurants_table:
             restaurant = restaurants_table.get_item(Key={'restaurant_id': restaurant_id}).get('Item')
             if not restaurant:
-                return {'statusCode': 404, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant not found'})}
+                return make_response(404, {'error': 'Restaurant not found'})
 
         item = {
             'customer_id': customer_id,
@@ -59,23 +55,19 @@ def add_favorite(event, restaurant_id):
         }
         favorites_table.put_item(Item=item)
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'favorite': item}, default=decimal_default)
-        }
+        return make_response(200, {'favorite': item})
     except Exception as e:
         print(f"Add Favorite Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def remove_favorite(event, restaurant_id):
     """Remove one restaurant from the authenticated customer's favorites."""
     if not favorites_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Favorites table not configured'})}
+        return make_response(500, {'error': 'Favorites table not configured'})
 
     if not restaurant_id:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+        return make_response(400, {'error': 'restaurant_id is required'})
 
     customer_id, err = _require_customer(event)
     if err:
@@ -88,11 +80,7 @@ def remove_favorite(event, restaurant_id):
                 'restaurant_id': restaurant_id
             }
         )
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'removed': True})
-        }
+        return make_response(200, {'removed': True})
     except Exception as e:
         print(f"Remove Favorite Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})

@@ -16,6 +16,7 @@ from utils import (
     get_global_zone_labels,
     get_global_zone_distances,
     get_user_claims,
+    make_response,
     normalize_dispatch_trigger_event,
     normalize_dispatch_trigger_zone,
     restaurants_table,
@@ -183,7 +184,7 @@ def _resync_all_restaurant_geofences():
 def get_config(event, restaurant_id):
     """Get capacity + POS configuration for a restaurant."""
     if not config_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+        return make_response(500, {'error': 'Config table not configured'})
 
     claims = get_user_claims(event)
     user_role = claims.get('role')
@@ -193,7 +194,7 @@ def get_config(event, restaurant_id):
     is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
 
     if not (is_admin or is_owner):
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         resp = config_table.get_item(Key={'restaurant_id': restaurant_id})
@@ -217,20 +218,16 @@ def get_config(event, restaurant_id):
             'pos_connections': _mask_pos_connections(item.get('pos_connections', [])),
         }
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps(response_data, default=decimal_default)
-        }
+        return make_response(200, response_data)
     except Exception as e:
         print(f"Get Config Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def update_config(event, restaurant_id):
     """Update capacity + POS configuration."""
     if not config_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+        return make_response(500, {'error': 'Config table not configured'})
 
     claims = get_user_claims(event)
     user_role = claims.get('role')
@@ -240,7 +237,7 @@ def update_config(event, restaurant_id):
     is_owner = user_role == 'restaurant_admin' and user_restaurant_id == restaurant_id
 
     if not (is_admin or is_owner):
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         body = json.loads(event.get('body', '{}'))
@@ -268,29 +265,17 @@ def update_config(event, restaurant_id):
             selected_zone = normalize_dispatch_trigger_zone(dispatch_trigger_zone)
             if not selected_zone:
                 allowed = ', '.join(sorted(VALID_DISPATCH_TRIGGER_ZONES))
-                return {
-                    'statusCode': 400,
-                    'headers': CORS_HEADERS,
-                    'body': json.dumps({'error': f'dispatch_trigger_zone must be one of: {allowed}'})
-                }
+                return make_response(400, {'error': f'dispatch_trigger_zone must be one of: {allowed}'})
             selected_event = ZONE_EVENT_MAP[selected_zone]
 
         if dispatch_trigger_event is not None:
             normalized_trigger = normalize_dispatch_trigger_event(dispatch_trigger_event)
             if not normalized_trigger:
                 allowed = ', '.join(sorted(VALID_DISPATCH_TRIGGER_EVENTS))
-                return {
-                    'statusCode': 400,
-                    'headers': CORS_HEADERS,
-                    'body': json.dumps({'error': f'dispatch_trigger_event must be one of: {allowed}'})
-                }
+                return make_response(400, {'error': f'dispatch_trigger_event must be one of: {allowed}'})
             event_zone = EVENT_ZONE_MAP[normalized_trigger]
             if selected_zone and selected_zone != event_zone:
-                return {
-                    'statusCode': 400,
-                    'headers': CORS_HEADERS,
-                    'body': json.dumps({'error': 'dispatch_trigger_zone and dispatch_trigger_event do not match'})
-                }
+                return make_response(400, {'error': 'dispatch_trigger_zone and dispatch_trigger_event do not match'})
             selected_zone = event_zone
             selected_event = normalized_trigger
 
@@ -324,12 +309,12 @@ def update_config(event, restaurant_id):
 
             cleaned, err = _validate_pos_connections(pos_connections)
             if err:
-                return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': err})}
+                return make_response(400, {'error': err})
             update_expr_parts.append("pos_connections = :pc")
             expr_values[':pc'] = cleaned
 
         if not update_expr_parts:
-            return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'No valid fields to update'})}
+            return make_response(400, {'error': 'No valid fields to update'})
 
         update_expr_parts.append("updated_at = :u")
         expr_values[':u'] = int(time.time())
@@ -340,55 +325,44 @@ def update_config(event, restaurant_id):
             ExpressionAttributeValues=expr_values
         )
 
-        return {
-            'statusCode': 200,
-            'headers': CORS_HEADERS,
-            'body': json.dumps({'message': 'Configuration updated'})
-        }
+        return make_response(200, {'message': 'Configuration updated'})
 
     except Exception as e:
         print(f"Update Config Error: {e}")
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+        return make_response(500, {'error': str(e)})
 
 
 def get_global_config(event):
     """Get platform-wide zone distance settings (admin only)."""
     if not config_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+        return make_response(500, {'error': 'Config table not configured'})
 
     claims = get_user_claims(event)
     if claims.get('role') != 'admin':
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     zone_distances = get_global_zone_distances()
-    return {
-        'statusCode': 200,
-        'headers': CORS_HEADERS,
-        'body': json.dumps(
-            {
-                'zone_distances_m': zone_distances,
-                'zone_labels': get_global_zone_labels(),
-                'zone_event_map': ZONE_EVENT_MAP,
-                'default_dispatch_trigger_zone': DEFAULT_DISPATCH_TRIGGER_ZONE,
-            },
-            default=decimal_default,
-        ),
-    }
+    return make_response(200, {
+        'zone_distances_m': zone_distances,
+        'zone_labels': get_global_zone_labels(),
+        'zone_event_map': ZONE_EVENT_MAP,
+        'default_dispatch_trigger_zone': DEFAULT_DISPATCH_TRIGGER_ZONE,
+    })
 
 
 def update_global_config(event):
     """Update platform-wide zone distances and resync AWS geofences (admin only)."""
     if not config_table:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Config table not configured'})}
+        return make_response(500, {'error': 'Config table not configured'})
 
     claims = get_user_claims(event)
     if claims.get('role') != 'admin':
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'})
 
     try:
         body = json.loads(event.get('body', '{}'))
     except Exception:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Invalid JSON body'})}
+        return make_response(400, {'error': 'Invalid JSON body'})
 
     now = int(time.time())
     existing = config_table.get_item(Key={'restaurant_id': GLOBAL_CONFIG_ID}).get('Item', {})
@@ -408,18 +382,18 @@ def update_global_config(event):
         current_zone_distances,
     )
     if distances_err:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': distances_err})}
+        return make_response(400, {'error': distances_err})
 
     normalized_zone_labels, labels_touched, labels_err = _normalize_zone_label_update(
         raw_zone_labels,
         current_zone_labels,
     )
     if labels_err:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': labels_err})}
+        return make_response(400, {'error': labels_err})
 
     global_err = _validate_global_updates(distances_touched, labels_touched)
     if global_err:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': global_err})}
+        return make_response(400, {'error': global_err})
 
     config_table.put_item(
         Item={
@@ -432,16 +406,9 @@ def update_global_config(event):
     )
 
     sync_stats = _resync_all_restaurant_geofences()
-    return {
-        'statusCode': 200,
-        'headers': CORS_HEADERS,
-        'body': json.dumps(
-            {
-                'message': 'Global zone configuration updated',
-                'zone_distances_m': normalized_zone_distances,
-                'zone_labels': normalized_zone_labels,
-                'geofence_sync': sync_stats,
-            },
-            default=decimal_default,
-        ),
-    }
+    return make_response(200, {
+        'message': 'Global zone configuration updated',
+        'zone_distances_m': normalized_zone_distances,
+        'zone_labels': normalized_zone_labels,
+        'geofence_sync': sync_stats,
+    })

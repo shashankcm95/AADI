@@ -12,7 +12,7 @@ import os
 import time
 import uuid
 import boto3
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from pos_mapper import pos_order_to_session, session_to_pos_order, pos_menu_to_resources
 
 dynamodb = boto3.resource('dynamodb')

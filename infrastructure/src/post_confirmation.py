@@ -2,11 +2,15 @@ import json
 import boto3
 import os
 import time
+import logging
 from datetime import datetime
 
 cognito = boto3.client('cognito-idp')
 dynamodb = boto3.resource('dynamodb')
 USERS_TABLE = os.environ.get('USERS_TABLE')
+
+logger = logging.getLogger("post_confirmation")
+logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
     """
@@ -14,7 +18,10 @@ def lambda_handler(event, context):
     1. Sets default 'custom:role' to 'customer' in Cognito if not set.
     2. Creates a user profile in DynamoDB UsersTable.
     """
-    print(f"Received event: {json.dumps(event)}")
+    logger.info("post_confirmation_triggered", extra={
+        "trigger_source": event.get("triggerSource"),
+        "user_pool_id": event.get("userPoolId"),
+    })
     
     try:
         request = event.get('request', {})
