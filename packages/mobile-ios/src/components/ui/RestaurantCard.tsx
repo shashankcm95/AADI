@@ -17,9 +17,7 @@ type CardLayout = 'grid' | 'list';
 interface Props {
     name: string;
     image?: ImageSourcePropType;
-    rating: number;
-    ratingCount?: number;
-    deliveryTime: string;
+    deliveryTime?: string;
     deliveryFee?: string;
     tags?: string[];
     isFavorite?: boolean;
@@ -34,8 +32,6 @@ interface Props {
 export const RestaurantCard: React.FC<Props> = ({
     name,
     image,
-    rating,
-    ratingCount = 90,
     deliveryTime,
     deliveryFee,
     tags,
@@ -48,13 +44,6 @@ export const RestaurantCard: React.FC<Props> = ({
     emoji = '🍽️',
 }) => {
     const favoriteScale = useRef(new Animated.Value(1)).current;
-
-    const ratingLabel = useMemo(() => {
-        if (!Number.isFinite(rating)) {
-            return '-';
-        }
-        return rating.toFixed(1).replace(/\.0$/, '');
-    }, [rating]);
 
     const metaTags = useMemo(() => {
         if (tags && tags.length > 0) {
@@ -132,20 +121,17 @@ export const RestaurantCard: React.FC<Props> = ({
                     <Text style={styles.name} numberOfLines={1}>
                         {name}
                     </Text>
-                    <View style={styles.ratingRow}>
-                        <Text style={styles.star}>★</Text>
-                        <Text style={styles.ratingValue}>{ratingLabel}</Text>
-                        <Text style={styles.ratingCount}>{ratingCount}+</Text>
-                    </View>
                 </View>
 
                 <Text style={styles.metaLine} numberOfLines={1}>
-                    {priceLabel} • {metaTags.join(' • ')} • {deliveryTime}
+                    {priceLabel} • {metaTags.join(' • ')}{deliveryTime ? ` • ${deliveryTime}` : ''}
                 </Text>
 
-                <Text style={styles.feeLine} numberOfLines={1}>
-                    {deliveryFee || '$0 delivery fee'}
-                </Text>
+                {deliveryFee ? (
+                    <Text style={styles.feeLine} numberOfLines={1}>
+                        {deliveryFee}
+                    </Text>
+                ) : null}
             </View>
         </TouchableOpacity>
     );
@@ -239,31 +225,6 @@ const styles = StyleSheet.create({
         ...theme.typography.h3,
         color: theme.colors.text,
         flex: 1,
-    },
-    ratingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderRadius: theme.radii.chip,
-        backgroundColor: theme.colors.offWhite,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        paddingHorizontal: theme.spacing.sm,
-        paddingVertical: theme.spacing.xs,
-    },
-    star: {
-        fontSize: 11,
-        color: theme.colors.gold,
-        marginRight: 2,
-    },
-    ratingValue: {
-        ...theme.typography.caption,
-        color: theme.colors.text,
-        fontWeight: '700',
-        marginRight: 4,
-    },
-    ratingCount: {
-        ...theme.typography.caption,
-        color: theme.colors.textSecondary,
     },
     metaLine: {
         ...theme.typography.bodySm,

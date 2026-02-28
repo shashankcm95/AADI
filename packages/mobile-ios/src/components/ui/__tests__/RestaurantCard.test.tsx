@@ -10,8 +10,6 @@ describe('RestaurantCard', () => {
     const mockProps = {
         name: 'Test Restaurant',
         cuisine: 'Italian',
-        rating: 4.5,
-        ratingCount: 120,
         deliveryTime: '20-30 min',
         deliveryFee: '$1.99 delivery',
         priceTier: 2,
@@ -23,7 +21,6 @@ describe('RestaurantCard', () => {
         const { getByText, getAllByText } = render(<RestaurantCard {...mockProps} />);
 
         expect(getByText('Test Restaurant')).toBeTruthy();
-        expect(getByText('4.5')).toBeTruthy();
         expect(getByText('$1.99 delivery')).toBeTruthy();
         expect(getAllByText(/Italian/).length).toBeGreaterThan(0);
     });

@@ -179,6 +179,26 @@ describe('API Service', () => {
         expect(items[1].id).toBe('local-rest_1-item-1');
     });
 
+    it('passes category through from API response', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                items: [
+                    { id: 'item_1', name: 'Pad Thai', price_cents: 1400, category: 'Mains' },
+                    { id: 'item_2', name: 'Spring Rolls', price_cents: 800, category: 'Appetizers' },
+                    { id: 'item_3', name: 'Iced Tea', price_cents: 350 },
+                ],
+            }),
+        });
+
+        const items = await getRestaurantMenu('rest_cat');
+
+        expect(items[0].category).toBe('Mains');
+        expect(items[1].category).toBe('Appetizers');
+        // Item with no category returns category === ''
+        expect(items[2].category).toBe('');
+    });
+
     it('sendLocationSample posts to location telemetry endpoint', async () => {
         (global.fetch as jest.Mock).mockResolvedValueOnce({
             ok: true,
@@ -228,26 +248,22 @@ describe('API Service', () => {
         expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('sendLocationSample logs route-missing warning only once under concurrent 404 responses', async () => {
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-        (global.fetch as jest.Mock).mockResolvedValue({
+    it('sendLocationSample suppresses fetch after cooldown is set by a 404', async () => {
+        // First call triggers 404 and sets the cooldown timestamp.
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
             ok: false,
             status: 404,
             text: async () => '{"message":"Not Found"}',
         });
 
-        const [a, b] = await Promise.all([
-            sendLocationSample('ord_concurrent_1', { latitude: 30.26, longitude: -97.74 }),
-            sendLocationSample('ord_concurrent_2', { latitude: 30.27, longitude: -97.73 }),
-        ]);
+        const first = await sendLocationSample('ord_1', { latitude: 30.26, longitude: -97.74 });
+        expect(first).toEqual({ received: false });
+        expect(global.fetch).toHaveBeenCalledTimes(1);
 
-        expect(a).toEqual({ received: false });
-        expect(b).toEqual({ received: false });
-
-        const routeWarnings = warnSpy.mock.calls.filter(([msg]) =>
-            String(msg).includes('Location sample route not found in this environment')
-        );
-        expect(routeWarnings).toHaveLength(1);
-        warnSpy.mockRestore();
+        // Second call should be suppressed (no fetch) because cooldown is active.
+        (global.fetch as jest.Mock).mockClear();
+        const second = await sendLocationSample('ord_2', { latitude: 30.27, longitude: -97.73 });
+        expect(second).toEqual({ received: false });
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 });

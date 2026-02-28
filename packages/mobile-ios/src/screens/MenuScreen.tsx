@@ -56,7 +56,26 @@ export default function MenuScreen({ navigation, route }: Props) {
     const menuSections = useMemo(() => {
         const groups = new Map<string, any[]>();
         for (const item of menuItems) {
-            const categoryName = String(item.category || '').trim() || 'Other';
+            let categoryName = String(item.category || '').trim();
+
+            if (!categoryName || categoryName.toLowerCase() === 'other') {
+                const probe = `${item.name ?? ''} ${item.description ?? ''}`.toLowerCase();
+
+                if (/(roll|gyoza|edamame|appetizer|starter|bite|wing|salad|soup)/.test(probe)) {
+                    categoryName = 'Appetizers';
+                } else if (/(dessert|sweet|ice cream|cake|cookie|brownie|pudding)/.test(probe)) {
+                    categoryName = 'Dessert';
+                } else if (/(drink|beverage|soda|water|juice|tea|coffee)/.test(probe)) {
+                    categoryName = 'Drinks';
+                } else if (/(side|fries|rice|naan|bread)/.test(probe)) {
+                    categoryName = 'Sides';
+                } else {
+                    categoryName = 'Mains';
+                }
+
+                console.warn(`[MenuScreen] Item "${item.name}" has no category — using heuristic: "${categoryName}"`);
+            }
+
             if (!groups.has(categoryName)) {
                 groups.set(categoryName, []);
             }

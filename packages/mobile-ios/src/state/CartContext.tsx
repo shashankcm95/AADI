@@ -105,6 +105,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return cartItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
     }, [cartItems]);
 
+    // Display-only total for cart UI. The authoritative total_cents is computed
+    // server-side in create_session_model(). This value is never sent to the backend.
     const cartTotalCents = useMemo(() => {
         return cartItems.reduce((sum, item) => sum + (Number(item.price_cents) || 0) * (Number(item.qty) || 0), 0);
     }, [cartItems]);

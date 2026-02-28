@@ -12,14 +12,13 @@ import {
 
 let cachedAuthToken: string | null = null;
 let cachedAuthTokenExpiryMs = 0;
-let locationSampleRouteUnavailable = false;
-let locationSampleRouteWarningShown = false;
+// BL-005: Timestamp-based cooldown replaces permanent circuit breaker.
+let locationSampleDisabledUntil = 0;
 
 export function clearAuthHeaderCache(): void {
     cachedAuthToken = null;
     cachedAuthTokenExpiryMs = 0;
-    locationSampleRouteUnavailable = false;
-    locationSampleRouteWarningShown = false;
+    locationSampleDisabledUntil = 0;
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -68,6 +67,7 @@ export interface OrderItem {
     price_cents: number;
     qty: number;
     description?: string;
+    category?: string;
 }
 
 export interface Order {
@@ -267,6 +267,7 @@ export async function getRestaurantMenu(restaurantId: string): Promise<OrderItem
             id: rawId || fallbackId,
             name: item.name || 'Menu Item',
             description: item.description || '',
+            category: item.category || '',
             price_cents: typeof item.price_cents === 'number'
                 ? item.price_cents
                 : Math.round(Number(item.price || 0) * 100),
@@ -296,10 +297,14 @@ export async function createOrder(
         };
     });
 
+    // BL-004: Generate idempotency key to prevent duplicate orders on double-tap.
+    const idempotencyKey = crypto.randomUUID();
+
     const response = await fetch(`${ORDERS_API_BASE_URL}/v1/orders`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
             ...headers
         },
         body: JSON.stringify({
@@ -366,7 +371,7 @@ export async function sendLocationSample(
     orderId: string,
     sample: LocationSample
 ): Promise<{ received: boolean }> {
-    if (locationSampleRouteUnavailable) {
+    if (Date.now() < locationSampleDisabledUntil) {
         return { received: false };
     }
 
@@ -391,11 +396,8 @@ export async function sendLocationSample(
         }
 
         if (response.status === 404 && body.includes('"message":"Not Found"')) {
-            locationSampleRouteUnavailable = true;
-            if (!locationSampleRouteWarningShown) {
-                locationSampleRouteWarningShown = true;
-                console.warn('[API] Location sample route not found in this environment; disabling sample posts for this app session.');
-            }
+            locationSampleDisabledUntil = Date.now() + 5 * 60 * 1000;
+            console.warn('[API] Location sample route not found; retrying after 5-minute cooldown.');
             return { received: false };
         }
 

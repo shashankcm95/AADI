@@ -17,7 +17,6 @@ import { PromoBannerCard } from '../components/ui/PromoBannerCard';
 import { RestaurantCard } from '../components/ui/RestaurantCard';
 import { BottomTabBar, BottomTabItem } from '../components/ui/BottomTabBar';
 import { PrimaryButton } from '../components/ui/PrimaryButton';
-import { SecondaryButton } from '../components/ui/SecondaryButton';
 import { Restaurant } from '../services/api';
 import {
     favoriteIdsToMap,
@@ -291,11 +290,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                         }}
                         style={styles.emptyButton}
                     />
-                    <SecondaryButton
-                        label="Change location"
-                        onPress={() => Alert.alert('Location', 'Location controls will be added in the next iteration.')}
-                        style={styles.emptyButton}
-                    />
                 </View>
             );
         }
@@ -306,9 +300,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                     const image = primaryRestaurantImage(restaurant);
                     const priceTier = restaurant.price_tier || 2;
                     const cuisineTag = restaurant.cuisine || 'Cuisine';
-                    const ratingValue = Number(restaurant.rating) || 0;
-                    const deliveryWindow = index % 2 === 0 ? '20-30 min' : '15-25 min';
-
                     return (
                         <View
                             key={restaurant.restaurant_id}
@@ -323,10 +314,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                             <RestaurantCard
                                 name={restaurant.name || 'Restaurant'}
                                 image={image}
-                                rating={ratingValue}
-                                ratingCount={900 + index * 100}
-                                deliveryTime={deliveryWindow}
-                                deliveryFee={index % 2 === 0 ? '$1.99 delivery' : '$0.99 delivery'}
                                 tags={restaurant.tags && restaurant.tags.length ? restaurant.tags : [cuisineTag]}
                                 isFavorite={Boolean(favorites[restaurant.restaurant_id])}
                                 onFavoriteToggle={() => handleFavoriteToggle(restaurant.restaurant_id)}
