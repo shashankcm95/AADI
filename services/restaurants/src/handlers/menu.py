@@ -69,7 +69,7 @@ def update_menu(event, restaurant_id):
                 price_str = str(item['price']).replace('$', '').replace(',', '').strip()
                 price = Decimal(price_str)
                 item['price'] = price
-                item['price_cents'] = int(float(price) * 100)
+                item['price_cents'] = int(price * 100)
             except Exception as e:
                 print(f"Skipping key {item.get('name')} due to invalid price: {item.get('price')} - Error: {e}")
                 continue

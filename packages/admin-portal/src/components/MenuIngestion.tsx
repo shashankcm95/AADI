@@ -87,17 +87,17 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
         <div style={{ marginTop: '2rem', padding: '1rem', border: '1px solid #ddd', borderRadius: '8px', background: '#f9fafb' }}>
             <h3>Menu Ingestion</h3>
             <p style={{ fontSize: '0.9em', color: '#666' }}>
-                Upload a <strong>CSV file (.csv)</strong> with columns: <strong>Category, Name, Description, Price</strong>.
+                Upload a <strong>CSV or Excel file (.csv, .xlsx, .xls)</strong> with columns: <strong>Category, Name, Description, Price</strong>.
             </p>
 
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0' }}>
                 <input
                     type="file"
-                    accept=".csv"
+                    accept=".csv,.xlsx,.xls"
                     onChange={(e) => {
                         const file = e.target.files?.[0]
-                        if (file && !file.name.toLowerCase().endsWith('.csv')) {
-                            alert("Please upload a .csv file only.")
+                        if (file && !file.name.toLowerCase().match(/\.(csv|xlsx|xls)$/)) {
+                            alert("Please upload a .csv, .xlsx, or .xls file only.")
                             e.target.value = '' // Reset
                             return
                         }

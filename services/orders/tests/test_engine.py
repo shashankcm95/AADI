@@ -415,6 +415,15 @@ class TestValidateResourcesPayload:
         """Old 'menu_item_id' key should still be accepted."""
         validate_resources_payload([{"menu_item_id": "burger", "qty": 1}])
 
+    def test_excessive_qty_raises(self):
+        """BL-009: qty above MAX_ITEM_QTY should be rejected."""
+        with pytest.raises(ValidationError):
+            validate_resources_payload([{"id": "a", "qty": 100}])
+
+    def test_max_qty_boundary_accepted(self):
+        """BL-009: qty at exactly MAX_ITEM_QTY should pass."""
+        validate_resources_payload([{"id": "a", "qty": 99}])  # No exception
+
 
 # =============================================================================
 # validate_destination_owns_session

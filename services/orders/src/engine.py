@@ -263,22 +263,27 @@ def decide_arrival_update(
 from errors import ValidationError
 
 
+MAX_ITEM_QTY = 99
+
+
 def validate_resources_payload(resources: List[Dict[str, Any]]) -> None:
     """
     Validates resource request payload.
     """
     if not resources or len(resources) == 0:
         raise ValidationError("Session must have at least one resource")
-    
+
     for r in resources:
         # Check for new key OR legacy key
         if "id" not in r and "menu_item_id" not in r:
             raise ValidationError("Each item must have a valid id")
-        
+
         if "qty" not in r:
             raise ValidationError("Each item must have qty")
         if r.get("qty", 0) < 1:
             raise ValidationError("Quantity must be at least 1")
+        if r.get("qty", 0) > MAX_ITEM_QTY:
+            raise ValidationError(f"Item quantity must be at most {MAX_ITEM_QTY}")
 
 
 def validate_destination_owns_session(session: Dict[str, Any], destination_id: str) -> bool:

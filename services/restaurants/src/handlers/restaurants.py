@@ -1,6 +1,7 @@
 """Restaurant CRUD handlers."""
 import json
 import base64
+import re
 import uuid
 import time
 from decimal import Decimal
@@ -143,6 +144,9 @@ def create_restaurant(event):
 
         contact_email = body.get('contact_email')
         if contact_email and USER_POOL_ID:
+            # BL-006: Validate email format to prevent Cognito filter injection.
+            if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', contact_email):
+                return make_response(400, {'error': 'Invalid email format'})
             try:
                 filter_str = f"email = \"{contact_email}\""
                 response = cognito.list_users(
@@ -286,6 +290,10 @@ def update_restaurant(event, restaurant_id):
     try:
         body = json.loads(event.get('body', '{}'))
 
+        # BL-002: Only platform admins may change the 'active' field.
+        if not is_admin and 'active' in body:
+            del body['active']
+
         resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
         if 'Item' not in resp:
             return make_response(404, {'error': 'Restaurant not found'})
@@ -293,7 +301,8 @@ def update_restaurant(event, restaurant_id):
         existing_item = resp['Item']
 
         name = body.get('name', existing_item.get('name'))
-        contact_email = body.get('contact_email', existing_item.get('contact_email'))
+        # contact_email is immutable — it is the Cognito identity key for the account.
+        contact_email = existing_item.get('contact_email')
 
         street = body.get('street', existing_item.get('street', ''))
         city = body.get('city', existing_item.get('city', ''))

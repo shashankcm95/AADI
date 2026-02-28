@@ -4,6 +4,8 @@
 export default function Cart({ cart, onRemove, onPlaceOrder }) {
     if (cart.length === 0) return null
 
+    // Display-only total for cart UI. The authoritative total_cents is computed
+    // server-side in create_session_model(). This value is never sent to the backend.
     const total = cart.reduce((sum, c) => sum + (c.price_cents || 0) * c.qty, 0)
 
     return (

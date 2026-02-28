@@ -102,6 +102,7 @@ const server = http.createServer((req, res) => {
                 created_at: Date.now(),
                 customer_name: payload.customer_name || 'Guest',
                 items: payload.items || [],
+                // DEMO ONLY – server-authoritative total for mock; real total computed in create_session_model().
                 total_cents: payload.items?.reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0) || 0,
                 receipt_mode: 'SOFT',
                 vicinity: false
@@ -238,6 +239,7 @@ server.on('request', (req, res) => {
                 payment_mode: payload.payment_mode || 'PAY_AT_RESTAURANT',
                 pos_order_ref: payload.pos_order_ref || '',
                 pos_system: keyRecord.pos_system,
+                // DEMO ONLY – server-authoritative total for mock; real total computed in create_session_model().
                 total_cents: (payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0),
                 arrive_fee_cents: Math.round((payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0) * 0.02),
                 created_at: Math.floor(Date.now() / 1000),

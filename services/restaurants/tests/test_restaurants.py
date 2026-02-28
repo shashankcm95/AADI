@@ -481,3 +481,79 @@ def test_delete_restaurant_cognito_cleanup_failure_non_blocking(mock_tables, mon
     # Needs to still succeed
     assert response['statusCode'] == 200
     assert 'r1' not in mock_tables['restaurants'].items
+
+
+def test_restaurant_admin_cannot_self_reactivate(mock_tables):
+    """BL-002: restaurant_admin cannot flip their own restaurant back to active."""
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1', 'name': 'Rest 1', 'active': False,
+    }
+
+    event = _restaurant_admin_event(
+        'PUT /v1/restaurants/{restaurant_id}',
+        assigned_restaurant_id='r1',
+        restaurant_id='r1',
+        body={'active': True, 'name': 'Rest 1 Updated'},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200  # name update succeeds
+
+    # active field must NOT have been flipped
+    item = mock_tables['restaurants'].items['r1']
+    assert item.get('active') is not True
+
+
+def test_admin_can_reactivate_restaurant(mock_tables):
+    """BL-002: platform admin CAN reactivate a restaurant."""
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1', 'name': 'Rest 1', 'active': False,
+    }
+
+    event = _admin_event(
+        'PUT /v1/restaurants/{restaurant_id}',
+        restaurant_id='r1',
+        body={'active': True},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+
+    item = mock_tables['restaurants'].items['r1']
+    assert item.get('active') is True
+
+
+def test_create_restaurant_rejects_malformed_email(mock_tables, monkeypatch):
+    """BL-006: Invalid email format in contact_email returns 400."""
+    import handlers.restaurants as h_rest
+    monkeypatch.setattr(h_rest, 'USER_POOL_ID', 'pool-1')
+
+    event = _admin_event(
+        'POST /v1/restaurants',
+        body={'name': 'Test Restaurant', 'contact_email': 'test"quote@example.com'},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 400
+    body = json.loads(response['body'])
+    assert 'email' in body['error'].lower()
+
+
+def test_update_restaurant_ignores_contact_email_in_body(mock_tables):
+    """contact_email is immutable — update should preserve the original value."""
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Original Name',
+        'contact_email': 'original@example.com',
+        'street': '', 'city': '', 'state': '', 'zip': '',
+        'active': True,
+    }
+
+    event = _admin_event(
+        'PUT /v1/restaurants/{restaurant_id}',
+        restaurant_id='r1',
+        body={'name': 'Updated Name', 'contact_email': 'hacker@evil.com'},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+
+    item = mock_tables['restaurants'].items['r1']
+    assert item['contact_email'] == 'original@example.com'
+    assert item['name'] == 'Updated Name'

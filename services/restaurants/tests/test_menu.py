@@ -133,3 +133,26 @@ def test_update_menu_price_parsing(mock_tables):
     assert len(item["items"]) == 2
     assert item["items"][0]["price"] == Decimal("10.50")
     assert item["items"][1]["price"] == Decimal("1000.00")
+
+
+def test_update_menu_price_cents_precision(mock_tables):
+    """BL-001: Verify prices are stored with exact cent precision (no float drift)."""
+    payload = {
+        "items": [
+            {"name": "A", "price": "19.99"},
+            {"name": "B", "price": "10.10"},
+            {"name": "C", "price": "0.01"},
+            {"name": "D", "price": "9.99"},
+        ]
+    }
+    resp = restaurants_app.update_menu(_owner_event("r1", payload), "r1")
+    assert resp["statusCode"] == 200
+
+    item = mock_tables['menus'].get_item(
+        Key={"restaurant_id": "r1", "menu_version": "latest"}
+    )["Item"]
+    items = {i["name"]: i for i in item["items"]}
+    assert items["A"]["price_cents"] == 1999
+    assert items["B"]["price_cents"] == 1010
+    assert items["C"]["price_cents"] == 1
+    assert items["D"]["price_cents"] == 999
