@@ -86,11 +86,7 @@ def update_menu(event, restaurant_id):
             cleaned_items.append(item)
 
         if invalid_items:
-            menu_log.warning("menu_update_rejected_invalid_items", extra={"restaurant_id": restaurant_id, "invalid_count": len(invalid_items)})
-            return make_response(400, {
-                'error': f'{len(invalid_items)} item(s) failed validation',
-                'invalid_items': invalid_items,
-            })
+            menu_log.warning("menu_update_skipped_invalid_items", extra={"restaurant_id": restaurant_id, "invalid_count": len(invalid_items)})
 
         print(f"Cleaned items count: {len(cleaned_items)}")
 
@@ -104,7 +100,10 @@ def update_menu(event, restaurant_id):
 
         menus_table.put_item(Item=menu_item)
 
-        return make_response(200, {'message': 'Menu updated successfully', 'count': len(cleaned_items)})
+        result = {'message': 'Menu updated successfully', 'count': len(cleaned_items)}
+        if invalid_items:
+            result['skipped_count'] = len(invalid_items)
+        return make_response(200, result)
 
     except Exception as e:
         menu_log.error("menu_update_failed", extra={"restaurant_id": restaurant_id, "detail": str(e)}, exc_info=True)

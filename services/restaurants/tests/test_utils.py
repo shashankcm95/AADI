@@ -126,7 +126,7 @@ def test_geocode_success(monkeypatch):
         {'lat': '30.2672', 'lon': '-97.7431'}
     ]).encode()
     
-    monkeypatch.setattr(utils.urllib.request, 'urlopen', lambda req: mock_urlopen)
+    monkeypatch.setattr(utils.urllib.request, 'urlopen', lambda req, **kwargs: mock_urlopen)
     
     result = utils.geocode_address("123 Main", "Austin", "TX", "78701")
     from decimal import Decimal
@@ -152,7 +152,7 @@ def test_geocode_retry_unit_removal(monkeypatch):
 
     # We need to return a new response for each call
     iter_responses = iter(responses)
-    def mock_open(req):
+    def mock_open(req, **kwargs):
         return MockResponse(next(iter_responses))
 
     monkeypatch.setattr(utils.urllib.request, 'urlopen', mock_open)
