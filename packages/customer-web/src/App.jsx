@@ -241,14 +241,13 @@ function MainAppContent({ user, signOut }) {
       if (data.order_id) {
         setMyOrders(prev => [{ order_id: data.order_id, status: data.status }, ...prev])
         setCart([])
-        alert('🎉 Order Placed Successfully!')
+        setApiResponse({ status: res.status, data, message: 'Order Placed Successfully!' })
         setTimeout(() => {
           document.querySelector('.orders-section')?.scrollIntoView({ behavior: 'smooth' })
         }, 100)
       }
     } catch (err) {
-      setApiResponse({ error: err.message })
-      alert('Failed to place order: ' + err.message)
+      setApiResponse({ error: err.message, message: 'Failed to place order: ' + err.message })
     }
   }
 

@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getUserProfile, updateUserProfile, getAvatarUploadUrl, uploadAvatarToS3 } from '../services/api';
 
+const isSafeUrl = (url) => {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url, window.location.origin);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch { return false; }
+};
+
 export default function Profile({ user, signOut }) {
     const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [editing, setEditing] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [statusMessage, setStatusMessage] = useState(null);
 
     const [editName, setEditName] = useState('');
     const [editPhone, setEditPhone] = useState('');
@@ -24,6 +34,7 @@ export default function Profile({ user, signOut }) {
             setEditPhone(data.phone_number || '');
         } catch (err) {
             console.error('Failed to load profile', err);
+            setError('Failed to load profile. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -39,7 +50,7 @@ export default function Profile({ user, signOut }) {
             setProfile(updated);
             setEditing(false);
         } catch (err) {
-            alert('Failed to update profile');
+            setStatusMessage({ type: 'error', text: 'Failed to update profile' });
             console.error('Failed to update profile', err);
         } finally {
             setLoading(false);
@@ -69,10 +80,10 @@ export default function Profile({ user, signOut }) {
             // 4. Update Profile
             const updated = await updateUserProfile({ picture: s3Url });
             setProfile(updated);
-            alert('Profile picture updated!');
+            setStatusMessage({ type: 'success', text: 'Profile picture updated!' });
         } catch (err) {
             console.error('Upload failed', err);
-            alert('Failed to upload image');
+            setStatusMessage({ type: 'error', text: 'Failed to upload image' });
         } finally {
             setUploading(false);
         }
@@ -80,13 +91,31 @@ export default function Profile({ user, signOut }) {
 
     if (loading && !profile) return <div className="p-4">Loading profile...</div>;
 
+    if (error && !profile) {
+        return (
+            <div className="profile-container fade-in">
+                <div className="profile-card" style={{ textAlign: 'center', padding: '2rem' }}>
+                    <h3>Error</h3>
+                    <p>{error}</p>
+                    <button className="btn btn-primary" onClick={() => { setError(null); setLoading(true); loadProfile(); }}>Retry</button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="profile-container fade-in">
             <div className="profile-card">
+                {statusMessage && (
+                    <div style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 6, background: statusMessage.type === 'error' ? '#fce4ec' : '#e8f5e9', color: statusMessage.type === 'error' ? '#c62828' : '#2e7d32' }}>
+                        {statusMessage.text}
+                        <button onClick={() => setStatusMessage(null)} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                    </div>
+                )}
                 <div className="profile-header">
                     <div className="avatar-wrapper">
                         <img
-                            src={profile?.picture || '/logo_icon_stylized.png'}
+                            src={isSafeUrl(profile?.picture) ? profile.picture : '/logo_icon_stylized.png'}
                             alt="Profile"
                             className="profile-avatar"
                         />

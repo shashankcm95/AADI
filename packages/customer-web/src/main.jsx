@@ -4,11 +4,14 @@ import { Amplify } from 'aws-amplify'
 import awsConfig from './aws-exports.js'
 import './index.css'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 
 Amplify.configure(awsConfig)
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

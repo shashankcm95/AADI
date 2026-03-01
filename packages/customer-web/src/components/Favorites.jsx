@@ -1,9 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { getFavorites, removeFavorite } from '../services/api';
 
+const isSafeUrl = (url) => {
+    if (!url) return false;
+    try {
+        const parsed = new URL(url, window.location.origin);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch { return false; }
+};
+
 export default function Favorites({ restaurants, onSelectRestaurant }) {
     const [favorites, setFavorites] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [statusMessage, setStatusMessage] = useState(null);
 
     useEffect(() => {
         loadFavorites();
@@ -15,6 +25,7 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
             setFavorites(favs); // List of { restaurant_id, ... }
         } catch (err) {
             console.error('Failed to load favorites', err);
+            setError('Failed to load favorites. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -27,7 +38,7 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
             await removeFavorite(restaurantId);
             setFavorites(prev => prev.filter(f => f.restaurant_id !== restaurantId));
         } catch (err) {
-            alert('Failed to remove favorite');
+            setStatusMessage({ type: 'error', text: 'Failed to remove favorite' });
             console.error('Failed to remove favorite', err);
         }
     };
@@ -38,6 +49,16 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
     }).filter(Boolean);
 
     if (loading) return <div className="p-4">Loading favorites...</div>;
+
+    if (error) {
+        return (
+            <div className="empty-state">
+                <h3>Error</h3>
+                <p>{error}</p>
+                <button className="btn btn-primary" onClick={() => { setError(null); setLoading(true); loadFavorites(); }}>Retry</button>
+            </div>
+        );
+    }
 
     if (favoriteRestaurants.length === 0) {
         return (
@@ -51,6 +72,12 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
     return (
         <div className="favorites-grid p-4">
             <h2>Your Favorites</h2>
+            {statusMessage && (
+                <div className={`status-message ${statusMessage.type}`} style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 6, background: statusMessage.type === 'error' ? '#fce4ec' : '#e8f5e9', color: statusMessage.type === 'error' ? '#c62828' : '#2e7d32' }}>
+                    {statusMessage.text}
+                    <button onClick={() => setStatusMessage(null)} style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                </div>
+            )}
             <div className="grid">
                 {favoriteRestaurants.map(restaurant => (
                     <div
@@ -58,7 +85,7 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
                         className="restaurant-card"
                         onClick={() => onSelectRestaurant(restaurant.restaurant_id)}
                     >
-                        <div className="card-image" style={{ backgroundImage: `url(${restaurant.image_url || '/placeholder_food.jpg'})` }}>
+                        <div className="card-image" style={{ backgroundImage: `url(${isSafeUrl(restaurant.image_url) ? restaurant.image_url : '/placeholder_food.jpg'})` }}>
                             <span className="card-emoji">{restaurant.emoji}</span>
                         </div>
                         <div className="card-content">

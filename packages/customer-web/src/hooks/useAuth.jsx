@@ -19,7 +19,7 @@ export function useAuth(signOut) {
             // RBAC Check: Block Restaurant/Super Admins
             const role = payload['custom:role']
             if (role === 'admin' || role === 'restaurant_admin') {
-                alert('Access Denied: Please use the Administrator Portal for this account.')
+                console.warn('Access Denied: admin/restaurant_admin roles must use the Administrator Portal.')
                 signOut()
                 return
             }
