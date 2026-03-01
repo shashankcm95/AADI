@@ -578,3 +578,35 @@ def test_update_restaurant_ignores_contact_email_in_body(mock_tables):
     item = mock_tables['restaurants'].items['r1']
     assert item['contact_email'] == 'original@example.com'
     assert item['name'] == 'Updated Name'
+
+
+def test_admin_list_pagination_first_page(mock_tables):
+    """BL-011: admin GET /v1/restaurants with limit=2 on 3-item table returns 2 items + next_token."""
+    # conftest pre-seeds r1, r2, r3
+    event = _admin_event('GET /v1/restaurants')
+    event['queryStringParameters'] = {'limit': '2'}
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert len(body['restaurants']) == 2
+    assert 'next_token' in body
+
+
+def test_admin_list_pagination_second_page(mock_tables):
+    """BL-011: passing next_token from first page returns the remaining item with no next_token."""
+    # First page
+    event = _admin_event('GET /v1/restaurants')
+    event['queryStringParameters'] = {'limit': '2'}
+    first_resp = restaurants_app.lambda_handler(event, None)
+    assert first_resp['statusCode'] == 200
+    first_body = json.loads(first_resp['body'])
+    next_token = first_body['next_token']
+
+    # Second page
+    event2 = _admin_event('GET /v1/restaurants')
+    event2['queryStringParameters'] = {'limit': '2', 'next_token': next_token}
+    second_resp = restaurants_app.lambda_handler(event2, None)
+    assert second_resp['statusCode'] == 200
+    second_body = json.loads(second_resp['body'])
+    assert len(second_body['restaurants']) == 1
+    assert 'next_token' not in second_body

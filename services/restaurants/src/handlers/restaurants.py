@@ -63,7 +63,11 @@ def list_restaurants(event):
             next_token = query_params.get('next_token')
 
             if role == 'admin' and not cuisine_filter and not price_tier_filter:
-                scan_kwargs = {'Limit': 100}
+                try:
+                    admin_limit = min(int(query_params.get('limit', 50)), 200)
+                except (ValueError, TypeError):
+                    admin_limit = 50
+                scan_kwargs = {'Limit': admin_limit}
                 if next_token:
                     try:
                         scan_kwargs['ExclusiveStartKey'] = json.loads(

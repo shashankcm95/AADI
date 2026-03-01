@@ -298,6 +298,30 @@ Resources:
                 GeofenceCollection:
                   - !Ref LocationGeofenceCollectionName
 
+  ExpireOrdersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-expire-orders"
+      CodeUri: src/
+      Handler: expire_orders.lambda_handler
+      Environment:
+        Variables:
+          ORDERS_TABLE: !Ref OrdersTable
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+                - dynamodb:UpdateItem
+              Resource: !GetAtt OrdersTable.Arn
+      Events:
+        ScheduledExpiry:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Description: Expire abandoned PENDING/WAITING orders
+            Enabled: true
+
 Outputs:
   OrdersApi:
     Description: "API Gateway endpoint URL for Orders Service"

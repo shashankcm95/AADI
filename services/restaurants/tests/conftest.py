@@ -64,12 +64,27 @@ class InMemoryTable:
         self.items.pop(key, None)
         return {}
 
-    def scan(self, FilterExpression=None, ExpressionAttributeValues=None):
+    def scan(self, FilterExpression=None, ExpressionAttributeValues=None,
+             Limit=None, ExclusiveStartKey=None, **kwargs):
         items = list(self.items.values())
         if FilterExpression == 'active = :a':
             val = ExpressionAttributeValues[':a']
             items = [i for i in items if i.get('active') == val]
-        return {'Items': items}
+        if ExclusiveStartKey:
+            start_key = self._storage_key_from_key(ExclusiveStartKey)
+            try:
+                idx = [self._storage_key_from_item(i) for i in items].index(start_key)
+                items = items[idx + 1:]
+            except ValueError:
+                items = []
+        last_key = None
+        if Limit and len(items) > Limit:
+            last_key = {self.key_name: items[Limit - 1][self.key_name]}
+            items = items[:Limit]
+        result = {'Items': items}
+        if last_key:
+            result['LastEvaluatedKey'] = last_key
+        return result
 
     def query(self, IndexName=None, KeyConditionExpression=None, ExpressionAttributeValues=None, **kwargs):
         items = []
