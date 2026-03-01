@@ -1,11 +1,11 @@
 /**
  * Arrive Demo Mock Server
- * 
+ *
  * A simple in-memory server that simulates the backend API for demo purposes.
  * Both Client (5173) and Admin (5174) apps will call this server to share order data.
- * 
+ *
  * Run with: node mock-server.js
- * 
+ *
  * Endpoints:
  * - GET /v1/orders - List all orders
  * - POST /v1/orders - Create order
@@ -34,11 +34,26 @@ let orders = [];
 
 const PORT = 3001;
 
+// ============================================================
+// POS Integration — API Key lookup
+// ============================================================
+
+const POS_API_KEYS = {
+    'pos_test_key_toast_001': { restaurant_id: 'rest_demo_001', pos_system: 'toast', permissions: ['*'] },
+    'pos_test_key_square_001': { restaurant_id: 'rest_demo_002', pos_system: 'square', permissions: ['*'] },
+};
+
+function authenticatePosRequest(req) {
+    const apiKey = req.headers['x-pos-api-key'];
+    if (!apiKey || !POS_API_KEYS[apiKey]) return null;
+    return { api_key: apiKey, ...POS_API_KEYS[apiKey] };
+}
+
 const server = http.createServer((req, res) => {
     // CORS Headers - Allow both frontend origins
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-POS-API-Key');
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -53,7 +68,13 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
-        const payload = body ? JSON.parse(body) : {};
+        let payload = {};
+        try {
+            payload = body ? JSON.parse(body) : {};
+        } catch (e) {
+            json(res, 400, { error: 'Invalid JSON body' });
+            return;
+        }
 
         // Route: GET /v1/restaurants
         if (method === 'GET' && pathname === '/v1/restaurants') {
@@ -176,147 +197,115 @@ const server = http.createServer((req, res) => {
             return;
         }
 
+        // ============================================================
+        // POS Integration Routes (/v1/pos/*)
+        // API Key Authentication (X-POS-API-Key header)
+        // ============================================================
+        if (pathname.startsWith('/v1/pos/')) {
+            const keyRecord = authenticatePosRequest(req);
+            if (!keyRecord) {
+                json(res, 401, { error: 'Unauthorized', message: 'Missing or invalid X-POS-API-Key' });
+                return;
+            }
+
+            const restaurantId = keyRecord.restaurant_id;
+
+            // POST /v1/pos/orders — Create order from POS
+            if (method === 'POST' && pathname === '/v1/pos/orders') {
+                const order = {
+                    order_id: `ord_pos_${Date.now()}`,
+                    session_id: `ord_pos_${Date.now()}`,
+                    destination_id: restaurantId,
+                    restaurant_id: restaurantId,
+                    items: payload.items || [],
+                    status: 'PENDING_NOT_SENT',
+                    arrival_status: null,
+                    payment_mode: payload.payment_mode || 'PAY_AT_RESTAURANT',
+                    pos_order_ref: payload.pos_order_ref || '',
+                    pos_system: keyRecord.pos_system,
+                    // DEMO ONLY – server-authoritative total for mock; real total computed in create_session_model().
+                    total_cents: (payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0),
+                    arrive_fee_cents: Math.round((payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0) * 0.02),
+                    created_at: Math.floor(Date.now() / 1000),
+                    vicinity: false,
+                    tip_cents: 0,
+                };
+                orders.push(order);
+                console.log(`✅ [POS] Order Created: ${order.order_id} from ${keyRecord.pos_system}`);
+                json(res, 201, { arrive_order_id: order.order_id, pos_order_ref: order.pos_order_ref, status: order.status, arrive_fee_cents: order.arrive_fee_cents });
+                return;
+            }
+
+            // GET /v1/pos/orders — List orders for restaurant
+            if (method === 'GET' && pathname === '/v1/pos/orders') {
+                const restaurantOrders = orders.filter(o => o.restaurant_id === restaurantId);
+                json(res, 200, { orders: restaurantOrders, count: restaurantOrders.length });
+                return;
+            }
+
+            // POST /v1/pos/orders/:id/status — Update status
+            if (method === 'POST' && pathname.match(/^\/v1\/pos\/orders\/[^/]+\/status$/)) {
+                const orderId = pathname.split('/')[4];
+                const order = orders.find(o => o.order_id === orderId && o.restaurant_id === restaurantId);
+                if (order) {
+                    const statusMap = { 'PREPARING': 'IN_PROGRESS', 'READY': 'READY', 'PICKED_UP': 'FULFILLING', 'COMPLETED': 'COMPLETED' };
+                    order.status = statusMap[payload.status] || payload.status;
+                    console.log(`📋 [POS] Status Updated: ${orderId} → ${order.status}`);
+                    json(res, 200, { order_id: orderId, status: order.status });
+                } else {
+                    json(res, 404, { error: 'Order not found' });
+                }
+                return;
+            }
+
+            // POST /v1/pos/orders/:id/fire — Force fire
+            if (method === 'POST' && pathname.match(/^\/v1\/pos\/orders\/[^/]+\/fire$/)) {
+                const orderId = pathname.split('/')[4];
+                const order = orders.find(o => o.order_id === orderId && o.restaurant_id === restaurantId);
+                if (order && (order.status === 'PENDING_NOT_SENT' || order.status === 'WAITING')) {
+                    order.status = 'SENT_TO_DESTINATION';
+                    order.vicinity = true;
+                    console.log(`🔥 [POS] Force Fire: ${orderId}`);
+                    json(res, 200, { order_id: orderId, status: 'SENT_TO_DESTINATION', fired: true });
+                } else if (order) {
+                    json(res, 409, { error: 'Order not in a fireable state' });
+                } else {
+                    json(res, 404, { error: 'Order not found' });
+                }
+                return;
+            }
+
+            // GET /v1/pos/menu — Get menu
+            if (method === 'GET' && pathname === '/v1/pos/menu') {
+                const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
+                json(res, 200, { menu: restaurant?.menu || [], restaurant_id: restaurantId });
+                return;
+            }
+
+            // POST /v1/pos/menu/sync — Sync menu
+            if (method === 'POST' && pathname === '/v1/pos/menu/sync') {
+                const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
+                if (restaurant) {
+                    restaurant.menu = payload.items || [];
+                    console.log(`📝 [POS] Menu Synced: ${(payload.items || []).length} items for ${restaurantId}`);
+                }
+                json(res, 200, { synced: (payload.items || []).length, restaurant_id: restaurantId });
+                return;
+            }
+
+            // POST /v1/pos/webhook — Generic webhook
+            if (method === 'POST' && pathname === '/v1/pos/webhook') {
+                console.log(`🔔 [POS] Webhook: ${payload.event_type || 'unknown'} from ${keyRecord.pos_system}`);
+                json(res, 200, { status: 'acknowledged', event_type: payload.event_type });
+                return;
+            }
+
+            json(res, 404, { error: 'POS route not found' });
+            return;
+        }
+
         // Default 404
         json(res, 404, { error: 'Route not found' });
-    });
-});
-
-// ============================================================
-// POS Integration Routes (/v1/pos/*)
-// API Key Authentication (X-POS-API-Key header)
-// ============================================================
-
-const POS_API_KEYS = {
-    'pos_test_key_toast_001': { restaurant_id: 'rest_demo_001', pos_system: 'toast', permissions: ['*'] },
-    'pos_test_key_square_001': { restaurant_id: 'rest_demo_002', pos_system: 'square', permissions: ['*'] },
-};
-
-function authenticatePosRequest(req) {
-    const apiKey = req.headers['x-pos-api-key'];
-    if (!apiKey || !POS_API_KEYS[apiKey]) return null;
-    return { api_key: apiKey, ...POS_API_KEYS[apiKey] };
-}
-
-server.on('request', (req, res) => {
-    const { method, url } = req;
-    const parsedUrl = new URL(url, `http://${req.headers.host}`);
-    const pathname = parsedUrl.pathname;
-
-    // Only handle /v1/pos/* routes
-    if (!pathname.startsWith('/v1/pos/')) return;
-
-    // Set CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-POS-API-Key');
-
-    if (method === 'OPTIONS') { json(res, 204, ''); return; }
-
-    // Authenticate
-    const keyRecord = authenticatePosRequest(req);
-    if (!keyRecord) {
-        json(res, 401, { error: 'Unauthorized', message: 'Missing or invalid X-POS-API-Key' });
-        return;
-    }
-
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-        let payload = {};
-        try { payload = body ? JSON.parse(body) : {}; } catch (e) { }
-
-        const restaurantId = keyRecord.restaurant_id;
-
-        // POST /v1/pos/orders — Create order from POS
-        if (method === 'POST' && pathname === '/v1/pos/orders') {
-            const order = {
-                order_id: `ord_pos_${Date.now()}`,
-                session_id: `ord_pos_${Date.now()}`,
-                destination_id: restaurantId,
-                restaurant_id: restaurantId,
-                items: payload.items || [],
-                status: 'PENDING_NOT_SENT',
-                arrival_status: null,
-                payment_mode: payload.payment_mode || 'PAY_AT_RESTAURANT',
-                pos_order_ref: payload.pos_order_ref || '',
-                pos_system: keyRecord.pos_system,
-                // DEMO ONLY – server-authoritative total for mock; real total computed in create_session_model().
-                total_cents: (payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0),
-                arrive_fee_cents: Math.round((payload.items || []).reduce((sum, i) => sum + (i.price_cents || 0) * (i.qty || 1), 0) * 0.02),
-                created_at: Math.floor(Date.now() / 1000),
-                vicinity: false,
-                tip_cents: 0,
-            };
-            orders.push(order);
-            console.log(`✅ [POS] Order Created: ${order.order_id} from ${keyRecord.pos_system}`);
-            json(res, 201, { arrive_order_id: order.order_id, pos_order_ref: order.pos_order_ref, status: order.status, arrive_fee_cents: order.arrive_fee_cents });
-            return;
-        }
-
-        // GET /v1/pos/orders — List orders for restaurant
-        if (method === 'GET' && pathname === '/v1/pos/orders') {
-            const restaurantOrders = orders.filter(o => o.restaurant_id === restaurantId);
-            json(res, 200, { orders: restaurantOrders, count: restaurantOrders.length });
-            return;
-        }
-
-        // POST /v1/pos/orders/:id/status — Update status
-        if (method === 'POST' && pathname.match(/^\/v1\/pos\/orders\/[^/]+\/status$/)) {
-            const orderId = pathname.split('/')[4];
-            const order = orders.find(o => o.order_id === orderId && o.restaurant_id === restaurantId);
-            if (order) {
-                const statusMap = { 'PREPARING': 'IN_PROGRESS', 'READY': 'READY', 'PICKED_UP': 'FULFILLING', 'COMPLETED': 'COMPLETED' };
-                order.status = statusMap[payload.status] || payload.status;
-                console.log(`📋 [POS] Status Updated: ${orderId} → ${order.status}`);
-                json(res, 200, { order_id: orderId, status: order.status });
-            } else {
-                json(res, 404, { error: 'Order not found' });
-            }
-            return;
-        }
-
-        // POST /v1/pos/orders/:id/fire — Force fire
-        if (method === 'POST' && pathname.match(/^\/v1\/pos\/orders\/[^/]+\/fire$/)) {
-            const orderId = pathname.split('/')[4];
-            const order = orders.find(o => o.order_id === orderId && o.restaurant_id === restaurantId);
-            if (order && (order.status === 'PENDING_NOT_SENT' || order.status === 'WAITING')) {
-                order.status = 'SENT_TO_DESTINATION';
-                order.vicinity = true;
-                console.log(`🔥 [POS] Force Fire: ${orderId}`);
-                json(res, 200, { order_id: orderId, status: 'SENT_TO_DESTINATION', fired: true });
-            } else if (order) {
-                json(res, 409, { error: 'Order not in a fireable state' });
-            } else {
-                json(res, 404, { error: 'Order not found' });
-            }
-            return;
-        }
-
-        // GET /v1/pos/menu — Get menu
-        if (method === 'GET' && pathname === '/v1/pos/menu') {
-            const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
-            json(res, 200, { menu: restaurant?.menu || [], restaurant_id: restaurantId });
-            return;
-        }
-
-        // POST /v1/pos/menu/sync — Sync menu
-        if (method === 'POST' && pathname === '/v1/pos/menu/sync') {
-            const restaurant = RESTAURANTS.find(r => r.restaurant_id === restaurantId);
-            if (restaurant) {
-                restaurant.menu = payload.items || [];
-                console.log(`📝 [POS] Menu Synced: ${(payload.items || []).length} items for ${restaurantId}`);
-            }
-            json(res, 200, { synced: (payload.items || []).length, restaurant_id: restaurantId });
-            return;
-        }
-
-        // POST /v1/pos/webhook — Generic webhook
-        if (method === 'POST' && pathname === '/v1/pos/webhook') {
-            console.log(`🔔 [POS] Webhook: ${payload.event_type || 'unknown'} from ${keyRecord.pos_system}`);
-            json(res, 200, { status: 'acknowledged', event_type: payload.event_type });
-            return;
-        }
-
-        json(res, 404, { error: 'POS route not found' });
     });
 });
 
@@ -330,14 +319,14 @@ server.listen(PORT, '0.0.0.0', () => {
   🍽️  Arrive Demo Mock Server
   ============================
   Running on http://0.0.0.0:${PORT}
-  
+
   Accessible from network at: http://192.168.1.154:${PORT}
-  
+
   This server syncs orders between:
   - Client App (localhost:5173)
   - Admin Portal (localhost:5174)
   - iOS App (192.168.1.154:${PORT})
-  
+
   Orders are stored in memory and reset on restart.
   `);
 });

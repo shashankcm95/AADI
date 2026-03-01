@@ -42,7 +42,7 @@ echo "Deploying Backend Services..."
 echo "----------------------------------------------------------------"
 
 # Orders Service
-echo "[1/3] Deploying Orders Service..."
+echo "[1/2] Deploying Orders Service..."
 cd services/orders
 sam build
 sam deploy --stack-name ${STACK_PREFIX}-orders \
@@ -52,19 +52,8 @@ sam deploy --stack-name ${STACK_PREFIX}-orders \
     --no-fail-on-empty-changeset
 cd ../..
 
-# Kitchen Service
-echo "[2/3] Deploying Kitchen Service..."
-cd services/kitchen
-sam build
-sam deploy --stack-name ${STACK_PREFIX}-kitchen \
-    --capabilities CAPABILITY_IAM \
-    --region $AWS_REGION \
-    --resolve-s3 \
-    --no-fail-on-empty-changeset
-cd ../..
-
 # Restaurants Service
-echo "[3/3] Deploying Restaurants Service..."
+echo "[2/2] Deploying Restaurants Service..."
 cd services/restaurants
 sam build
 sam deploy --stack-name ${STACK_PREFIX}-restaurants \

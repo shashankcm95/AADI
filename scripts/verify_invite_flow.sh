@@ -3,7 +3,16 @@
 API_BASE="https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com"
 ADMIN_EMAIL="admin@aadi.com"
 PASSWORD="Password123!"
-USER_POOL_ID="us-east-1_SzP2GXCMA"
+
+USER_POOL_ID=$(aws cloudformation describe-stacks \
+  --stack-name arrive-dev \
+  --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" \
+  --output text)
+
+if [ -z "$USER_POOL_ID" ] || [ "$USER_POOL_ID" == "None" ]; then
+    echo "❌ Error: Could not find UserPoolId from stack arrive-dev"
+    exit 1
+fi
 
 # 1. Login as Super Admin
 echo "🔐 Logging in as Super Admin..."

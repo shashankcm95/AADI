@@ -21,10 +21,6 @@ fi
 echo "Building production bundle..."
 npm run build
 
-echo "----------------------------------------------------------------"
-echo "Deploying to S3..."
-echo "----------------------------------------------------------------"
-
 # Fetch Bucket Name from Infra Stack
 STACK_PREFIX=${STACK_PREFIX:-"aadi"}
 echo "Fetching Customer Web Bucket Name from stack ${STACK_PREFIX}-infra..."

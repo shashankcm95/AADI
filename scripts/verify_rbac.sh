@@ -2,6 +2,12 @@
 
 # Configuration
 API_URL=$(aws cloudformation describe-stacks --stack-name arrive-restaurants-dev --query "Stacks[0].Outputs[?OutputKey=='RestaurantsApi'].OutputValue" --output text)
+
+if [ -z "$API_URL" ] || [ "$API_URL" == "None" ]; then
+    echo "❌ Error: Could not find RestaurantsApi output from stack arrive-restaurants-dev"
+    exit 1
+fi
+
 ADMIN_EMAIL="admin@aadi.com"
 REST_EMAIL="restaurant@aadi.com"
 PASSWORD="Password123!"

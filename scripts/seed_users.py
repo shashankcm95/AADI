@@ -60,18 +60,17 @@ def seed_users():
         if 'arrive-restaurants-dev-RestaurantsTable' in name:
             restaurants_table_name = name
             break
-            
+
+    # Pre-assign a restaurant ID so it is always defined for the restaurant_admin user below
+    test_restaurant_id = str(uuid.uuid4())
+
     if not restaurants_table_name:
-        print("Could not find RestaurantsTable. Ensuring a restaurant exists might fail if we can't write to it.")
-        # fallback or just create one with random ID and hope for the best? 
-        # No, the requirement is consistency.
-        # Let's try to proceed.
+        print("Could not find RestaurantsTable. restaurant_admin will reference an unregistered restaurant.")
     else:
         print(f"Found Restaurants Table: {restaurants_table_name}")
         restaurants_table = dynamodb.Table(restaurants_table_name)
-        
+
         # Create Test Restaurant
-        test_restaurant_id = str(uuid.uuid4())
         try:
             restaurants_table.put_item(Item={
                 'restaurant_id': test_restaurant_id,
@@ -82,7 +81,6 @@ def seed_users():
             print(f"Created Test Restaurant: Test Kitchen 1 (ID: {test_restaurant_id})")
         except Exception as e:
             print(f"Error creating restaurant: {e}")
-            test_restaurant_id = str(uuid.uuid4()) # Fallback
 
     users = [
         {
