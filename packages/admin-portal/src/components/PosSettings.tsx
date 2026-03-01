@@ -65,6 +65,7 @@ export default function PosSettings({ restaurantId, token, onClose }: PosSetting
     }
 
     async function handleSave(updatedConnections?: PosConnection[], updatedEnabled?: boolean) {
+        if (saving) return
         setSaving(true)
         setMessage(null)
         setError(null)

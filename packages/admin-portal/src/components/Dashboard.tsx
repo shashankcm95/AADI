@@ -69,14 +69,16 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         try {
             const session = await fetchAuthSession()
             const idToken = session.tokens?.idToken?.toString() ?? null
-            setToken(idToken)
+            if (!idToken) {
+                setLoading(false)
+                return
+            }
 
-            // RBAC Check
+            // RBAC Check — resolve all auth state before setting token to prevent
+            // the token useEffect from firing fetchRestaurants prematurely.
             const attrs = await fetchUserAttributes()
             const role = attrs['custom:role']
             const RestId = attrs['custom:restaurant_id']
-
-
 
             if (role === 'admin') {
                 // Super Admin - no restrictions
@@ -93,10 +95,15 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             } else {
                 // Access denied or customer
                 console.error("Access Denied: Unknown Role", role)
+                setLoading(false)
                 alert("Access Denied: Customers cannot access the Admin Portal.")
                 if (signOut) signOut()
                 return
             }
+
+            // Set token last so the token useEffect fires only after role/restaurant
+            // state is already committed, avoiding a race in fetchRestaurants.
+            setToken(idToken)
 
         } catch (err) {
             console.error(err)
@@ -303,20 +310,27 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         await fetchRestaurants()
     }
 
-    // Fetch orders when restaurant changes
+    // Fetch orders and start polling when token or selected restaurant changes.
+    // showMenu/fetchMenu are intentionally excluded: toggling the menu panel must
+    // not reset order-tracking state or restart the polling interval.
     useEffect(() => {
         if (token && selectedRestaurant) {
             prevOrderIds.current = new Set()
             incomingSeenAt.current.clear()
             autoTransitionInFlight.current.clear()
             fetchOrders()
-            // If looking at menu, fetch menu
-            if (showMenu) fetchMenu()
 
             const interval = setInterval(fetchOrders, 5000)
             return () => clearInterval(interval)
         }
-    }, [token, selectedRestaurant, fetchOrders, showMenu, fetchMenu])
+    }, [token, selectedRestaurant, fetchOrders])
+
+    // Fetch menu whenever the menu panel is opened.
+    useEffect(() => {
+        if (showMenu && token && selectedRestaurant) {
+            fetchMenu()
+        }
+    }, [showMenu, token, selectedRestaurant, fetchMenu])
 
 
     function setOrderActionLoading(orderId: string, isLoading: boolean) {
