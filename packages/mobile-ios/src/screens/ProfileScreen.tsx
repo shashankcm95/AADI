@@ -267,7 +267,16 @@ export default function ProfileScreen({ navigation }: Props) {
                             </TouchableOpacity>
                         ) : (
                             <View style={styles.saveCancelRow}>
-                                <TouchableOpacity style={[styles.editButton, styles.cancelButton]} onPress={() => setEditing(false)}>
+                                <TouchableOpacity
+                                    style={[styles.editButton, styles.cancelButton]}
+                                    onPress={() => {
+                                        // BL-058: Reset edit fields to current profile values on cancel
+                                        // so stale edits don't reappear next time the form is opened.
+                                        setEditName(profile?.name || profile?.email?.split('@')[0] || '');
+                                        setEditPhone(profile?.phone_number || '');
+                                        setEditing(false);
+                                    }}
+                                >
                                     <Text style={[styles.editButtonText, styles.cancelText]}>Cancel</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={[styles.editButton, styles.saveButton]} onPress={handleSave}>

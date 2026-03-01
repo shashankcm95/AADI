@@ -68,6 +68,9 @@ export default function OrderScreen({ navigation, route }: Props) {
     const [trackingPermissionEvaluated, setTrackingPermissionEvaluated] = useState(false);
     const locationPermissionResolvedRef = useRef(false);
     const locationPermissionGrantedRef = useRef(false);
+    // BL-056 / BL-057: guard tracking setup so getRestaurant, startLocationTracking,
+    // and triggerImmediateVicinityCheck run only once per order, not on every 5s poll.
+    const trackingSetupDoneRef = useRef(false);
     const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
     useEffect(() => {
@@ -79,6 +82,7 @@ export default function OrderScreen({ navigation, route }: Props) {
         let mounted = true;
         locationPermissionResolvedRef.current = false;
         locationPermissionGrantedRef.current = false;
+        trackingSetupDoneRef.current = false;
         setTrackingPermissionEvaluated(false);
 
         const init = async () => {
@@ -165,43 +169,50 @@ export default function OrderScreen({ navigation, route }: Props) {
                     return;
                 }
 
-                try {
-                    const restaurant = await getRestaurant(data.restaurant_id);
-                    const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
-                    if (hasCoordinates) {
-                        try {
-                            await startLocationTracking(
-                                {
-                                    latitude: Number(restaurant.latitude),
-                                    longitude: Number(restaurant.longitude),
-                                    restaurantId: data.restaurant_id
-                                },
-                                orderId,
-                                async (event) => {
-                                    if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
-                                        await sendArrival(event);
-                                    }
-                                },
-                                async (sampleOrderId, sample) => {
-                                    try {
-                                        await sendLocationSample(sampleOrderId, sample);
-                                    } catch (sampleError) {
-                                        console.warn('[OrderScreen] Failed to send location sample:', sampleError);
-                                    }
-                                },
-                            );
-                            await triggerImmediateVicinityCheck();
-                        } catch (trackingError) {
+                // BL-056 / BL-057: Only set up tracking once per order. Running getRestaurant
+                // (which fetches all restaurants with no cache) and triggerImmediateVicinityCheck
+                // (which requests a fresh GPS fix) on every 5s poll wastes network and battery.
+                if (!trackingSetupDoneRef.current) {
+                    try {
+                        const restaurant = await getRestaurant(data.restaurant_id);
+                        const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
+                        if (hasCoordinates) {
+                            try {
+                                await startLocationTracking(
+                                    {
+                                        latitude: Number(restaurant.latitude),
+                                        longitude: Number(restaurant.longitude),
+                                        restaurantId: data.restaurant_id
+                                    },
+                                    orderId,
+                                    async (event) => {
+                                        if (['AT_DOOR', 'PARKING', '5_MIN_OUT'].includes(event)) {
+                                            await sendArrival(event);
+                                        }
+                                    },
+                                    async (sampleOrderId, sample) => {
+                                        try {
+                                            await sendLocationSample(sampleOrderId, sample);
+                                        } catch (sampleError) {
+                                            console.warn('[OrderScreen] Failed to send location sample:', sampleError);
+                                        }
+                                    },
+                                );
+                                await triggerImmediateVicinityCheck();
+                                trackingSetupDoneRef.current = true;
+                            } catch (trackingError) {
+                                await stopLocationTracking();
+                                console.warn('[OrderScreen] Could not start location tracking:', trackingError);
+                            }
+                        } else {
                             await stopLocationTracking();
-                            console.warn('[OrderScreen] Could not start location tracking:', trackingError);
+                            trackingSetupDoneRef.current = true;
+                            console.warn('[OrderScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
                         }
-                    } else {
+                    } catch (err) {
                         await stopLocationTracking();
-                        console.warn('[OrderScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
+                        console.warn('[OrderScreen] Could not fetch restaurant details:', err);
                     }
-                } catch (err) {
-                    await stopLocationTracking();
-                    console.warn('[OrderScreen] Could not fetch restaurant details:', err);
                 }
             }
         } catch (error) {
