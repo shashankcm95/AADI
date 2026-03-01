@@ -43,26 +43,22 @@ def lambda_handler(event, context):
             restaurant = resp.get('Item')
 
             if restaurant and not restaurant.get('active', False):
+                # Only allow listing restaurants for an inactive restaurant_admin.
+                # Explicitly block self-reactivation via PUT (BL-002).
                 allow_request = route_key == 'GET /v1/restaurants'
 
-                if not allow_request and route_key == 'PUT /v1/restaurants/{restaurant_id}':
-                    target_restaurant_id = path_params.get('restaurant_id')
-                    if target_restaurant_id == restaurant_id:
-                        try:
-                            body = json.loads(event.get('body', '{}'))
-                        except Exception:
-                            body = {}
-                        allow_request = body.get('active') is True
-
                 if not allow_request:
-                    print(f"Blocking access for inactive restaurant {restaurant_id} on route {route_key}")
+                    req_log.warning("inactive_restaurant_access_blocked", extra={
+                        "restaurant_id": restaurant_id,
+                        "route_key": route_key,
+                    })
                     return {
                         'statusCode': 403,
                         'headers': CORS_HEADERS,
                         'body': json.dumps({'error': 'Restaurant is currently inactive/on-hold. Please contact support.'})
                     }
         except Exception as e:
-            print(f"Error checking restaurant status: {e}")
+            req_log.error("restaurant_status_check_failed", extra={"error": str(e)}, exc_info=True)
             return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Internal authorization error'})}
 
     # ── Route Dispatch ──

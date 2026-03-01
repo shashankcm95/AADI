@@ -6,15 +6,18 @@ Each key maps to a restaurant_id and a set of permissions.
 """
 
 import os
+import logging
 import boto3
 import time
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger("pos.auth")
 
 dynamodb = boto3.resource('dynamodb')
 POS_API_KEYS_TABLE = os.environ.get('POS_API_KEYS_TABLE')
 
 if not POS_API_KEYS_TABLE:
-    print("WARN: POS_API_KEYS_TABLE env var not set — all API key validation will fail")
+    logger.warning("POS_API_KEYS_TABLE env var not set — all API key validation will fail")
 
 keys_table = dynamodb.Table(POS_API_KEYS_TABLE) if POS_API_KEYS_TABLE else None
 
@@ -43,11 +46,11 @@ def validate_key(api_key: str) -> Optional[Dict[str, Any]]:
             'api_key': item['api_key'],
             'restaurant_id': item['restaurant_id'],
             'pos_system': item.get('pos_system', 'generic'),
-            'permissions': item.get('permissions', ['orders:read', 'orders:write']),
+            'permissions': item.get('permissions', []),  # Fail-closed: no permissions if unset
             'created_at': item.get('created_at'),
         }
     except Exception as e:
-        print(f"API key lookup error: {e}")
+        logger.error("api_key_lookup_error", extra={"error": str(e)}, exc_info=True)
         return None
 
 

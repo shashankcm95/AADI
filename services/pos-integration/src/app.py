@@ -94,7 +94,8 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': 'Invalid JSON in request body'})
         }
     except Exception as e:
-        print(f"POS Integration Error: {e}")
+        import logging
+        logging.getLogger("pos.app").error("unhandled_exception", extra={"error": str(e)}, exc_info=True)
         return {
             'statusCode': 500,
             'body': json.dumps({'error': 'Internal Server Error'})

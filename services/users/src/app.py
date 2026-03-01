@@ -1,6 +1,8 @@
 import json
+import os
 import logging
 from handlers import users
+from shared.cors import cors_headers
 
 # Setup logging
 logger = logging.getLogger()
@@ -15,16 +17,14 @@ def lambda_handler(event, context):
     path = event.get('requestContext', {}).get('http', {}).get('path')
     request_id = event.get('requestContext', {}).get('requestId')
     logger.info("Users request received", extra={"method": http_method, "path": path, "request_id": request_id})
-    
-    # Enable CORS for OPTIONS
+
+    # Enable CORS for OPTIONS — use configured allow-list, not wildcard
     if http_method == 'OPTIONS':
+        headers = cors_headers(event)
+        headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         return {
             'statusCode': 200,
-            'headers': {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
-            },
+            'headers': headers,
             'body': ''
         }
         

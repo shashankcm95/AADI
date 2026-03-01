@@ -94,8 +94,12 @@ Resources:
           MinimumLength: 8
           RequireLowercase: true
           RequireNumbers: true
-          RequireSymbols: false
+          RequireSymbols: true
           RequireUppercase: true
+      # NOTE: PostConfirmation trigger cannot be declared here without a circular
+      # dependency (UserPool → PostConfirmationFunction → UsersService → UserPool).
+      # The trigger is attached post-deploy via a CloudFormation CustomResource below.
+      # Do NOT add LambdaConfig here.
 
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
@@ -164,6 +168,50 @@ Resources:
       FunctionName: !Ref PostConfirmationFunction
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt UserPool.Arn
+
+  # Attaches the PostConfirmation trigger to the UserPool via a CustomResource to
+  # avoid a circular dependency (UserPool → PostConfirmationFunction → UsersService → UserPool).
+  AttachPostConfirmationTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      InlineCode: |
+        import boto3, cfnresponse
+        def handler(event, context):
+            cognito = boto3.client('cognito-idp')
+            props = event['ResourceProperties']
+            try:
+                if event['RequestType'] in ('Create', 'Update'):
+                    cognito.update_user_pool(
+                        UserPoolId=props['UserPoolId'],
+                        LambdaConfig={'PostConfirmation': props['LambdaArn']}
+                    )
+                elif event['RequestType'] == 'Delete':
+                    cognito.update_user_pool(
+                        UserPoolId=props['UserPoolId'],
+                        LambdaConfig={}
+                    )
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Handler: index.handler
+      Runtime: python3.11
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:UpdateUserPool
+                - cognito-idp:DescribeUserPool
+              Resource: !GetAtt UserPool.Arn
+
+  AttachPostConfirmationTrigger:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn:
+      - PostConfirmationInvokePermission
+      - UsersService
+    Properties:
+      ServiceToken: !GetAtt AttachPostConfirmationTriggerFunction.Arn
+      UserPoolId: !Ref UserPool
+      LambdaArn: !GetAtt PostConfirmationFunction.Arn
 
   # -------------------------------------------------------------------------
   # Amazon Location (Geofence event pipeline)

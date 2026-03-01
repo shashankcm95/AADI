@@ -34,7 +34,7 @@ def lambda_handler(event, context):
         # 1. Update Cognito Attributes (Role)
         current_role = user_attributes.get('custom:role')
         if not current_role:
-            print(f"Setting default role 'customer' for user {username}")
+            logger.info("setting_default_role", extra={"username": username, "role": "customer"})
             cognito.admin_update_user_attributes(
                 UserPoolId=user_pool_id,
                 Username=username,
@@ -44,7 +44,7 @@ def lambda_handler(event, context):
             )
             current_role = 'customer'
         else:
-            print(f"User {username} already has role: {current_role}")
+            logger.info("role_already_set", extra={"username": username, "role": current_role})
 
         # 2. Create DynamoDB Profile
         if USERS_TABLE and user_id:
@@ -69,17 +69,17 @@ def lambda_handler(event, context):
                     Item=item,
                     ConditionExpression='attribute_not_exists(user_id)'
                 )
-                print(f"Created DynamoDB profile for user {user_id}")
+                logger.info("profile_created", extra={"user_id": user_id})
             except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-                print(f"Profile already exists for user {user_id}")
+                logger.info("profile_already_exists", extra={"user_id": user_id})
             except Exception as e:
-                print(f"Failed to create DynamoDB profile: {e}")
+                logger.error("profile_creation_failed", extra={"user_id": user_id, "error": str(e)})
         else:
-            print("Skipping DynamoDB profile creation: USERS_TABLE or user_id missing")
+            logger.warning("profile_creation_skipped", extra={"reason": "missing_users_table_or_user_id"})
 
         return event
         
     except Exception as e:
-        print(f"Error in post_confirmation: {e}")
+        logger.error("post_confirmation_failed", extra={"error": str(e)}, exc_info=True)
         # Return event anyway to not block sign-up, but log error
         return event

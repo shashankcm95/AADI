@@ -357,6 +357,65 @@ When a menu item reaches the heuristic fallback (no `category` field, or categor
 
 ---
 
+---
+
+## Phase 1 Code Review Findings (2026-03-01)
+
+### BL-021 — Hash POS API keys at rest
+**Severity:** High
+**Files:** `services/pos-integration/src/auth.py`, `services/pos-integration/template.yaml`
+**Problem:**
+POS API keys are stored as plaintext DynamoDB primary keys. A table dump or misconfigured IAM policy exposes all active API keys directly. Keys should be stored as SHA-256 hashes; the raw key is only presented once at creation.
+**Fix:**
+1. At key creation time, compute `sha256(raw_key)` and store that as the DynamoDB partition key.
+2. At validation time, hash the incoming header value and look up the hash.
+3. Return the raw key once at creation (never store it).
+4. Run a migration script to re-hash existing keys (requires re-issuance to POS operators).
+**Acceptance criteria:**
+- DynamoDB table contains no plaintext key values
+- Existing keys are migrated or revoked and re-issued
+- `validate_key()` hashes the input before the DynamoDB lookup
+
+---
+
+### BL-022 — Migrate CloudFront distributions from deprecated `ForwardedValues` to `CachePolicyId`
+**Severity:** Medium
+**Files:** `infrastructure/template.yaml` lines ~343, ~364
+**Problem:**
+Both `CustomerWebDistribution` and `AdminPortalDistribution` use `ForwardedValues`, which AWS deprecated in favour of managed `CachePolicyId`. This blocks using modern CloudFront features and will eventually break on newer CDK/CloudFormation schema versions.
+**Fix:** Replace `ForwardedValues` block with `CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6` (AWS managed `CachingOptimized` policy) in `DefaultCacheBehavior` for both distributions.
+**Acceptance criteria:**
+- Both CloudFront distributions deploy without `ForwardedValues`
+- Cache hit behaviour is equivalent (GET/HEAD cached, no query string or cookie forwarding)
+
+---
+
+### BL-023 — Add WAF and API Gateway throttling
+**Severity:** Medium
+**Files:** `infrastructure/template.yaml`
+**Problem:**
+No `AWS::WAFv2::WebACL` is associated with either CloudFront distribution or any API Gateway stage. No throttling limits (`ThrottlingBurstLimit` / `ThrottlingRateLimit`) are set on any API stage. The API is fully exposed to brute-force and DDoS without any rate-limiting layer.
+**Fix:**
+1. Add a `AWS::WAFv2::WebACL` with at minimum the AWS Managed Common Rule Set.
+2. Associate it with both CloudFront distributions.
+3. Set API Gateway stage throttling: `ThrottlingRateLimit: 500`, `ThrottlingBurstLimit: 200`.
+**Acceptance criteria:**
+- WAF WebACL associated with both CloudFront distributions
+- API Gateway stages have throttle settings
+- Stack deploys cleanly
+
+---
+
+### BL-024 — PostConfirmation trigger not reproducible from CloudFormation alone (FIXED via CustomResource)
+**Severity:** High (was Critical before fix)
+**Files:** `infrastructure/template.yaml`
+**Problem:**
+The `PostConfirmationFunction` had no `LambdaConfig` in the `UserPool` resource. Because of a circular dependency (`UserPool → PostConfirmationFunction → UsersService → UserPool`), the trigger could not be declared inline. In a fresh environment deploy, new user sign-ups would complete without DynamoDB profile creation or role assignment. The trigger was previously wired manually via the AWS console.
+**Fix Applied:** Added `AttachPostConfirmationTriggerFunction` (inline CustomResource Lambda) and `AttachPostConfirmationTrigger` (CustomResource) to attach the trigger post-deploy, breaking the circular dependency.
+**Status:** FIXED in this review cycle.
+
+---
+
 ## Backlog Items NOT on This List (Intentional Deferrals)
 
 | Topic | Reason deferred |
