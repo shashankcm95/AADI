@@ -1,12 +1,23 @@
 #!/bin/bash
+# Usage:
+#   export API_BASE=https://<restaurants-api-id>.execute-api.us-east-1.amazonaws.com
+#   export ORDERS_API=https://<orders-api-id>.execute-api.us-east-1.amazonaws.com
+#   export ADMIN_EMAIL=admin@example.com
+#   export CUST_EMAIL=customer@example.com
+#   export E2E_PASSWORD=<test-account-password>
+#   ./scripts/test_e2e_flow.sh
 
-# Configuration
-API_BASE="https://ph8xe60a2e.execute-api.us-east-1.amazonaws.com"
-ORDERS_API="https://5fnj76yo6i.execute-api.us-east-1.amazonaws.com"
-ADMIN_EMAIL="admin@aadi.com"
-REST_EMAIL="restaurant@aadi.com"
-CUST_EMAIL="customer@aadi.com"
-PASSWORD="Password123!"
+set -euo pipefail
+
+# Configuration — all values must be supplied via environment variables.
+# No defaults are provided to prevent accidental use of a wrong environment.
+: "${API_BASE:?Set API_BASE to the Restaurants API Gateway base URL}"
+: "${ORDERS_API:?Set ORDERS_API to the Orders API Gateway base URL}"
+: "${ADMIN_EMAIL:?Set ADMIN_EMAIL to the test admin account email}"
+: "${CUST_EMAIL:?Set CUST_EMAIL to the test customer account email}"
+: "${E2E_PASSWORD:?Set E2E_PASSWORD to the test account password}"
+
+PASSWORD="$E2E_PASSWORD"
 
 # Helper Functions
 get_token() {

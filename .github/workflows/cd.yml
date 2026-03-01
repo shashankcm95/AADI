@@ -32,7 +32,9 @@ jobs:
       - name: Build and Deploy Backend
         run: |
           sam build
-          sam deploy --fail-on-empty-changeset --stack-name arrive-dev --region us-east-1 --capabilities CAPABILITY_IAM
+          # --no-fail-on-empty-changeset: exit 0 when there are no infra changes so that
+          # frontend-only pushes don't block the deploy-frontend job that depends on this one.
+          sam deploy --no-fail-on-empty-changeset --stack-name arrive-dev --region us-east-1 --capabilities CAPABILITY_IAM
 
       - name: Get S3 Bucket Names
         id: get-buckets
