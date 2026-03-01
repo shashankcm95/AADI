@@ -475,7 +475,7 @@ class TestHappyPathLifecycle:
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
 
-        # --- 10. Status: READY → FULFILLING ---
+        # --- 9. Status: READY → FULFILLING ---
         event = _make_event(
             'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
             body={'status': 'FULFILLING'},
@@ -484,7 +484,7 @@ class TestHappyPathLifecycle:
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
 
-        # --- 11. Status: FULFILLING → COMPLETED (should release capacity slot) ---
+        # --- 10. Status: FULFILLING → COMPLETED (should release capacity slot) ---
         event = _make_event(
             'POST /v1/restaurants/{restaurant_id}/orders/{order_id}/status',
             body={'status': 'COMPLETED'},

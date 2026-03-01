@@ -121,6 +121,10 @@ def test_roleless_user_can_call_customer_create_order():
         body={"restaurant_id": "rest_1", "items": [{"id": "i1", "qty": 1}]},
     )
     resp = app.lambda_handler(event, None)
+    # Intentionally weak: we are only verifying RBAC does NOT block a roleless user
+    # on customer routes (role defaults to 'customer' when absent). Business-logic
+    # errors (400/404) are acceptable here; a 403 would mean the auth gate wrongly
+    # rejected a legitimate customer.
     assert resp["statusCode"] != 403
 
 

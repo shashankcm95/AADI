@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import App from './App';
 
 // Mock Amplify Auth to prevent network calls
@@ -10,18 +10,28 @@ vi.mock('aws-amplify/auth', () => ({
     signOut: vi.fn(),
 }));
 
+// Mock Amplify UI — bypass Authenticator challenge and render children immediately
+vi.mock('@aws-amplify/ui-react', () => ({
+    Authenticator: ({ children }) =>
+        children({ signOut: vi.fn(), user: { username: 'test-user' } }),
+}));
+
+// Mock useAuth to avoid token fetch
+vi.mock('./hooks/useAuth', () => ({
+    useAuth: () => ({ token: 'mock-token', loading: false }),
+}));
+
 // Mock API calls
 global.fetch = vi.fn(() =>
     Promise.resolve({
+        ok: true,
         json: () => Promise.resolve({ restaurants: [] }),
     })
 );
 
 describe('App Component', () => {
     it('renders without crashing', () => {
-        // In a real scenario, we'd render <App /> but since it has complex internal state 
-        // and auth dependencies, we are mocking them.
-        // This is a "Smoke Test" to ensure the test runner works.
-        expect(true).toBe(true);
+        const { container } = render(<App />);
+        expect(container.firstChild).not.toBeNull();
     });
 });

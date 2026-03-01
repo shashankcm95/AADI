@@ -86,18 +86,25 @@ def mock_tables():
 
     orders = InMemoryTable('order_id')
     idemp = InMemoryTable('idempotency_key')
-    
+    config = InMemoryTable('restaurant_id')
+
+    # Seed config table so restaurant-existence validation passes
+    config.items['rest_1'] = {'restaurant_id': 'rest_1', 'is_active': '1'}
+
     # Patch db
     orig_orders = db.orders_table
     orig_idemp = db.idempotency_table
-    
+    orig_config = db.config_table
+
     db.orders_table = orders
     db.idempotency_table = idemp
-    
-    yield {'orders': orders, 'idempotency': idemp}
-    
+    db.config_table = config
+
+    yield {'orders': orders, 'idempotency': idemp, 'config': config}
+
     db.orders_table = orig_orders
     db.idempotency_table = orig_idemp
+    db.config_table = orig_config
 
 def _make_event(body=None, headers=None):
     return {
