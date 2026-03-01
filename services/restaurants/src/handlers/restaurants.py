@@ -268,6 +268,7 @@ def create_restaurant(event):
                 print(f"Failed to create Cognito user: {e}")
 
         return make_response(201, {
+            'restaurant_id': restaurant_id,
             'user_created': user_created,
             'user_status': 'CREATED' if user_created else 'LINKED'
         })

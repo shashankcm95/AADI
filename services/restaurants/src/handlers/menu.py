@@ -2,7 +2,7 @@
 import json
 import uuid
 import time
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from utils import (
     CORS_HEADERS, decimal_default, get_user_claims, make_response,
@@ -59,25 +59,38 @@ def update_menu(event, restaurant_id):
         if not isinstance(items, list):
             return make_response(400, {'error': 'Payload must contain an "items" list'})
 
+        invalid_items = []
         cleaned_items = []
-        for item in items:
-            if not item.get('name') or item.get('price') is None:
-                print(f"Skipping item due to missing fields: {item}")
+        for idx, item in enumerate(items):
+            if not item.get('name'):
+                invalid_items.append({'index': idx, 'reason': 'missing name'})
+                continue
+            if item.get('price') is None:
+                invalid_items.append({'index': idx, 'item': item.get('name'), 'reason': 'missing price'})
                 continue
 
             try:
                 price_str = str(item['price']).replace('$', '').replace(',', '').strip()
                 price = Decimal(price_str)
                 item['price'] = price
-                item['price_cents'] = int(price * 100)
+                item['price_cents'] = int(
+                    (price * 100).to_integral_value(rounding=ROUND_HALF_UP)
+                )
             except Exception as e:
-                print(f"Skipping key {item.get('name')} due to invalid price: {item.get('price')} - Error: {e}")
+                invalid_items.append({'index': idx, 'item': item.get('name'), 'reason': f'invalid price: {item.get("price")}'})
                 continue
 
             if not item.get('id'):
                 item['id'] = str(uuid.uuid4())
 
             cleaned_items.append(item)
+
+        if invalid_items:
+            menu_log.warning("menu_update_rejected_invalid_items", extra={"restaurant_id": restaurant_id, "invalid_count": len(invalid_items)})
+            return make_response(400, {
+                'error': f'{len(invalid_items)} item(s) failed validation',
+                'invalid_items': invalid_items,
+            })
 
         print(f"Cleaned items count: {len(cleaned_items)}")
 
