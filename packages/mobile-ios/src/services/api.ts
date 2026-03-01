@@ -191,15 +191,18 @@ export async function getRestaurants(): Promise<Restaurant[]> {
  * Get single restaurant details
  */
 export async function getRestaurant(restaurantId: string): Promise<Restaurant> {
-    // Note: The backend currently only has list_restaurants. 
-    // Optimization: We should add a specific GET endpoint. 
-    // for now, we filter from the list (inefficient but works for demo).
-    const restaurants = await getRestaurants();
-    const restaurant = restaurants.find(r => r.restaurant_id === restaurantId);
-    if (!restaurant) {
-        throw new Error('Restaurant not found');
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${RESTAURANTS_API_BASE_URL}/v1/restaurants/${restaurantId}`, {
+        headers: { ...headers }
+    });
+    if (!response.ok) {
+        if (response.status === 404) {
+            throw new Error('Restaurant not found');
+        }
+        throw new Error('Failed to fetch restaurant');
     }
-    return restaurant;
+    const data = await response.json();
+    return normalizeRestaurant(data);
 }
 
 /**

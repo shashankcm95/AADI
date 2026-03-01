@@ -17,6 +17,22 @@ from utils import (
 )
 
 
+def get_restaurant(event, restaurant_id):
+    """Get a single restaurant by ID."""
+    if not restaurants_table:
+        return make_response(500, {'error': 'Restaurants table not configured'})
+
+    try:
+        resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
+        item = resp.get('Item')
+        if not item:
+            return make_response(404, {'error': 'Restaurant not found'})
+        return make_response(200, _decorate_restaurant_response(item))
+    except Exception as e:
+        print(f"Get Restaurant Error: {e}")
+        return make_response(500, {'error': 'Internal server error'})
+
+
 def list_restaurants(event):
     """List restaurants from DynamoDB, filtered by role."""
     if not restaurants_table:

@@ -114,6 +114,27 @@ def test_global_config_routes_non_admin_denied(mock_tables):
     )
     assert response['statusCode'] == 403
 
+def test_get_single_restaurant_by_id(mock_tables):
+    """BL-003: GET /v1/restaurants/{id} returns the restaurant."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True}
+
+    event = _admin_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert body['restaurant_id'] == 'r1'
+    assert body['name'] == 'Rest 1'
+
+
+def test_get_single_restaurant_not_found(mock_tables):
+    """BL-003: GET /v1/restaurants/{id} returns 404 for unknown ID."""
+    event = _admin_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='missing')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 404
+    body = json.loads(response['body'])
+    assert 'not found' in body['error'].lower()
+
+
 def test_restaurants_list(mock_tables):
     # Seed data
     mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True, 'is_active': '1'}

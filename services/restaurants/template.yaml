@@ -240,6 +240,11 @@ Resources:
           Properties:
             Path: /v1/restaurants
             Method: POST
+        GetRestaurant:
+          Type: HttpApi
+          Properties:
+            Path: /v1/restaurants/{restaurant_id}
+            Method: GET
         UpdateRestaurant:
           Type: HttpApi
           Properties:

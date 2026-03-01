@@ -13,7 +13,7 @@ from utils import CORS_HEADERS, get_user_claims, restaurants_table, make_respons
 from shared.logger import get_logger, extract_correlation_id
 
 from handlers.restaurants import (
-    list_restaurants, create_restaurant, update_restaurant, delete_restaurant,
+    get_restaurant, list_restaurants, create_restaurant, update_restaurant, delete_restaurant,
 )
 from handlers.menu import get_menu, update_menu
 from handlers.config import get_config, update_config, get_global_config, update_global_config
@@ -43,9 +43,14 @@ def lambda_handler(event, context):
             restaurant = resp.get('Item')
 
             if restaurant and not restaurant.get('active', False):
-                # Only allow listing restaurants for an inactive restaurant_admin.
-                # Explicitly block self-reactivation via PUT (BL-002).
-                allow_request = route_key == 'GET /v1/restaurants'
+                # Allow reading and updating own restaurant profile (name, address, images, etc.)
+                # while inactive. Self-reactivation is blocked by stripping the 'active' field
+                # in update_restaurant() (BL-002). All other mutation routes are blocked.
+                allow_request = route_key in (
+                    'GET /v1/restaurants',
+                    'GET /v1/restaurants/{restaurant_id}',
+                    'PUT /v1/restaurants/{restaurant_id}',
+                )
 
                 if not allow_request:
                     req_log.warning("inactive_restaurant_access_blocked", extra={
@@ -75,6 +80,9 @@ def lambda_handler(event, context):
 
         if route_key == 'POST /v1/restaurants':
             return create_restaurant(event)
+
+        if route_key == 'GET /v1/restaurants/{restaurant_id}':
+            return get_restaurant(event, path_params.get('restaurant_id'))
 
         if route_key == 'PUT /v1/restaurants/{restaurant_id}':
             return update_restaurant(event, path_params.get('restaurant_id'))

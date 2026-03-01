@@ -3,6 +3,7 @@ import {
     clearAuthHeaderCache,
     createOrder,
     getFavorites,
+    getRestaurant,
     getRestaurantMenu,
     getRestaurants,
     OrderItem,
@@ -160,6 +161,33 @@ describe('API Service', () => {
                 method: 'DELETE',
             })
         );
+    });
+
+    it('getRestaurant fetches a single restaurant by ID', async () => {
+        const mockRestaurant = { restaurant_id: 'rest_1', name: 'Test Rest', cuisine: 'Italian' };
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockRestaurant,
+        });
+
+        const result = await getRestaurant('rest_1');
+        expect(result.restaurant_id).toBe('rest_1');
+        expect(result.name).toBe('Test Rest');
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/v1/restaurants/rest_1'),
+            expect.objectContaining({
+                headers: expect.objectContaining({ Authorization: 'Bearer mock-token' }),
+            })
+        );
+    });
+
+    it('getRestaurant throws "Restaurant not found" on 404', async () => {
+        (global.fetch as jest.Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+        });
+
+        await expect(getRestaurant('missing')).rejects.toThrow('Restaurant not found');
     });
 
     it('getRestaurantMenu generates fallback IDs when backend IDs are missing', async () => {

@@ -72,7 +72,8 @@ def test_create_restaurant_as_admin(mock_tables):
 
     assert response["statusCode"] == 201
     payload = json.loads(response["body"])
-    assert payload["user_status"] in ("CREATED", "LINKED")
+    # USER_POOL_ID is unset in tests, so Cognito is skipped and user_created=False → 'LINKED'
+    assert payload["user_status"] == "LINKED"
 
     restaurants_table.put_item.assert_called_once()
     config_table.put_item.assert_called_once()
