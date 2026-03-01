@@ -369,7 +369,7 @@ function MainAppContent({ user, signOut }) {
             <MenuGrid menu={menu} onAddToCart={addToCart} />
           )}
 
-          <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} />
+          <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} isLoading={apiResponse?.loading} />
 
           <OrderList
             orders={myOrders}

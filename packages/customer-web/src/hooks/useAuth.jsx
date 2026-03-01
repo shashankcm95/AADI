@@ -28,8 +28,9 @@ export function useAuth(signOut) {
         } catch (err) {
             console.log('Not signed in', err)
             setToken(null)
+        } finally {
+            setLoading(false)
         }
-        setLoading(false)
     }, [signOut])
 
     useEffect(() => {

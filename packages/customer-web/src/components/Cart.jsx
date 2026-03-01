@@ -1,7 +1,7 @@
 /**
  * Shopping cart with item list, quantities, total, and place order button.
  */
-export default function Cart({ cart, onRemove, onPlaceOrder }) {
+export default function Cart({ cart, onRemove, onPlaceOrder, isLoading }) {
     if (cart.length === 0) return null
 
     // Display-only total for cart UI. The authoritative total_cents is computed
@@ -23,7 +23,7 @@ export default function Cart({ cart, onRemove, onPlaceOrder }) {
                 ))}
                 <div className="cart-total" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '2px solid var(--accent-gold)', paddingTop: '1rem' }}>
                     <strong style={{ fontSize: '1.2rem' }}>Total: ${(total / 100).toFixed(2)}</strong>
-                    <button onClick={onPlaceOrder} className="btn btn-primary">
+                    <button onClick={onPlaceOrder} className="btn btn-primary" disabled={isLoading}>
                         🚀 Place Order
                     </button>
                 </div>

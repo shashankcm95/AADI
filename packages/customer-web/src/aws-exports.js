@@ -1,5 +1,3 @@
-const redirectUrl = window.location.origin + '/';
-
 const awsConfig = {
     Auth: {
         Cognito: {
