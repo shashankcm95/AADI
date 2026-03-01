@@ -5,7 +5,7 @@ import re
 import uuid
 import time
 from decimal import Decimal
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Key
 
 from utils import (
     CORS_HEADERS, decimal_default, get_user_claims, make_response,
@@ -126,14 +126,6 @@ def list_restaurants(event):
                 resp = restaurants_table.query(**kwargs)
                 items = resp.get('Items', [])
                 next_key = resp.get('LastEvaluatedKey')
-
-                if not items and not next_token:
-                    scan_resp = restaurants_table.scan(
-                        FilterExpression=Attr('active').eq(True),
-                        Limit=100,
-                    )
-                    items = scan_resp.get('Items', [])
-                    next_key = scan_resp.get('LastEvaluatedKey')
 
         response_items = [_decorate_restaurant_response(item) for item in items]
 

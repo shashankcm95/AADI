@@ -28,6 +28,15 @@ Globals:
       - arm64
 
 Resources:
+  PosIntegrationApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        # BL-023: Throttle inbound POS traffic to protect downstream DynamoDB capacity.
+        # Burst: up to 100 concurrent requests; steady-state: 50 req/s per stage.
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
   PosApiKeysTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -122,46 +131,53 @@ Resources:
         PosCreateOrder:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/orders
             Method: POST
         # POS ← Arrive: List orders for the restaurant
         PosListOrders:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/orders
             Method: GET
         # POS → Arrive: Update order status
         PosUpdateStatus:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/orders/{order_id}/status
             Method: POST
         # POS → Arrive: Force fire an order (manual override)
         PosForceFireOrder:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/orders/{order_id}/fire
             Method: POST
         # POS ← Arrive: Get menu
         PosGetMenu:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/menu
             Method: GET
         # POS → Arrive: Sync menu
         PosSyncMenu:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/menu/sync
             Method: POST
         # POS → Arrive: Generic webhook
         PosWebhook:
           Type: HttpApi
           Properties:
+            ApiId: !Ref PosIntegrationApi
             Path: /v1/pos/webhook
             Method: POST
 
 Outputs:
   PosIntegrationApi:
     Description: "API Gateway endpoint URL for POS Integration Service"
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${PosIntegrationApi}.execute-api.${AWS::Region}.amazonaws.com"

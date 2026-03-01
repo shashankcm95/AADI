@@ -5,6 +5,7 @@ Uses mocking to avoid real DynamoDB calls.
 import sys
 import os
 import time
+import hashlib
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -28,9 +29,10 @@ class TestValidateKey:
         mock_table.get_item.side_effect = None
 
     def test_valid_key(self):
+        key_hash = hashlib.sha256('test-key-123'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'test-key-123',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
                 'pos_system': 'toast',
                 'permissions': ['orders:read', 'orders:write'],
@@ -40,7 +42,7 @@ class TestValidateKey:
         result = auth.validate_key('test-key-123')
 
         assert result is not None
-        assert result['api_key'] == 'test-key-123'
+        assert 'api_key' not in result  # raw key and hash are never returned
         assert result['restaurant_id'] == 'r1'
         assert result['pos_system'] == 'toast'
         assert 'orders:read' in result['permissions']
@@ -54,9 +56,10 @@ class TestValidateKey:
         assert auth.validate_key('nonexistent') is None
 
     def test_expired_key_returns_none(self):
+        key_hash = hashlib.sha256('expired-key'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'expired-key',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
                 'ttl': int(time.time()) - 3600,  # expired 1 hour ago
             }
@@ -65,9 +68,10 @@ class TestValidateKey:
 
     def test_valid_ttl_returns_record(self):
         future_ttl = int(time.time()) + 3600
+        key_hash = hashlib.sha256('valid-key'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'valid-key',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
                 'ttl': future_ttl,
             }
@@ -78,9 +82,10 @@ class TestValidateKey:
 
     def test_no_ttl_field_returns_record(self):
         """Keys without TTL should be valid forever."""
+        key_hash = hashlib.sha256('no-ttl'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'no-ttl',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
             }
         }
@@ -89,9 +94,10 @@ class TestValidateKey:
 
     def test_default_permissions(self):
         """Missing 'permissions' field should default to [] (fail-closed — no access)."""
+        key_hash = hashlib.sha256('k1'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'k1',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
             }
         }
@@ -100,9 +106,10 @@ class TestValidateKey:
 
     def test_default_pos_system(self):
         """Missing 'pos_system' should default to 'generic'."""
+        key_hash = hashlib.sha256('k1'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'k1',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
             }
         }
@@ -142,9 +149,10 @@ class TestAuthenticateRequest:
         mock_table.get_item.side_effect = None
 
     def test_extracts_lowercase_header(self):
+        key_hash = hashlib.sha256('my-key'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'my-key',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
             }
         }
@@ -155,9 +163,10 @@ class TestAuthenticateRequest:
         assert result['restaurant_id'] == 'r1'
 
     def test_extracts_pascal_case_header(self):
+        key_hash = hashlib.sha256('my-key'.encode()).hexdigest()
         mock_table.get_item.return_value = {
             'Item': {
-                'api_key': 'my-key',
+                'api_key': key_hash,
                 'restaurant_id': 'r1',
             }
         }

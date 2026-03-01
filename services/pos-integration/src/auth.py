@@ -3,9 +3,15 @@ POS API Key Authentication Module
 
 POS systems authenticate via the X-POS-API-Key header.
 Each key maps to a restaurant_id and a set of permissions.
+
+Keys are stored in DynamoDB as their SHA-256 hash — the raw plaintext is
+never persisted.  When provisioning a new key, compute
+  hashlib.sha256(raw_key.encode()).hexdigest()
+and store the result as the `api_key` partition-key value.
 """
 
 import os
+import hashlib
 import logging
 import boto3
 import time
@@ -22,16 +28,24 @@ if not POS_API_KEYS_TABLE:
 keys_table = dynamodb.Table(POS_API_KEYS_TABLE) if POS_API_KEYS_TABLE else None
 
 
+def _hash_key(raw_key: str) -> str:
+    """Return the SHA-256 hex digest of the raw API key."""
+    return hashlib.sha256(raw_key.encode('utf-8')).hexdigest()
+
+
 def validate_key(api_key: str) -> Optional[Dict[str, Any]]:
     """
-    Look up an API key in DynamoDB.
+    Look up a hashed API key in DynamoDB.
     Returns key record with restaurant_id and permissions, or None if invalid.
+    The raw key is never stored — only its SHA-256 hash is used as the lookup key.
     """
     if not api_key or not keys_table:
         return None
 
+    key_hash = _hash_key(api_key)
+
     try:
-        resp = keys_table.get_item(Key={'api_key': api_key})
+        resp = keys_table.get_item(Key={'api_key': key_hash})
         item = resp.get('Item')
 
         if not item:
@@ -43,7 +57,6 @@ def validate_key(api_key: str) -> Optional[Dict[str, Any]]:
             return None
 
         return {
-            'api_key': item['api_key'],
             'restaurant_id': item['restaurant_id'],
             'pos_system': item.get('pos_system', 'generic'),
             'permissions': item.get('permissions', []),  # Fail-closed: no permissions if unset
