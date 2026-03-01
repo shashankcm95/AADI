@@ -30,6 +30,7 @@ Parameters:
 Globals:
   Function:
     Timeout: 15
+    MemorySize: 256
     Runtime: python3.11
     Architectures:
       - arm64
@@ -65,6 +66,8 @@ Resources:
     Type: AWS::DynamoDB::Table
     Properties:
       BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
       AttributeDefinitions:
         - AttributeName: user_id
           AttributeType: S
@@ -78,9 +81,9 @@ Resources:
       BucketName: !Ref UserAvatarsBucketName
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: false
+        BlockPublicPolicy: true
         IgnorePublicAcls: true
-        RestrictPublicBuckets: false
+        RestrictPublicBuckets: true
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
