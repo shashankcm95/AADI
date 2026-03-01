@@ -37,9 +37,12 @@ def list_restaurant_orders(restaurant_id, event):
         with Timer() as t:
             kwargs = {'Limit': limit}
             if next_token:
-                kwargs['ExclusiveStartKey'] = json.loads(
-                    base64.b64decode(next_token).decode()
-                )
+                try:
+                    kwargs['ExclusiveStartKey'] = json.loads(
+                        base64.b64decode(next_token).decode()
+                    )
+                except Exception:
+                    return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid pagination token'})}
 
             if status:
                 kwargs.update({
@@ -71,7 +74,7 @@ def list_restaurant_orders(restaurant_id, event):
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
-        return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
+        return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
 
 
 def ack_order(order_id, restaurant_id):

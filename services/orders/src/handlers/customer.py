@@ -526,9 +526,12 @@ def list_customer_orders(event):
                 'Limit': limit,
             }
             if next_token:
-                kwargs['ExclusiveStartKey'] = json.loads(
-                    base64.b64decode(next_token).decode()
-                )
+                try:
+                    kwargs['ExclusiveStartKey'] = json.loads(
+                        base64.b64decode(next_token).decode()
+                    )
+                except Exception:
+                    return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid pagination token'})}
 
             resp = db.orders_table.query(**kwargs)
 
@@ -549,7 +552,7 @@ def list_customer_orders(event):
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
-        return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
+        return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
 
 
 def ingest_location(order_id, event, customer_id=None):

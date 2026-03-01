@@ -95,4 +95,4 @@ def update_menu(event, restaurant_id):
 
     except Exception as e:
         menu_log.error("menu_update_failed", extra={"restaurant_id": restaurant_id, "detail": str(e)}, exc_info=True)
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})

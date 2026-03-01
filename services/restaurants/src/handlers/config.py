@@ -71,7 +71,7 @@ def _validate_pos_connections(connections):
             return None, f'pos_connections[{i}].provider must be one of: {", ".join(sorted(VALID_POS_PROVIDERS))}'
 
         cleaned.append({
-            'connection_id': conn.get('connection_id') or str(uuid.uuid4()),
+            'connection_id': str(uuid.uuid4()),
             'label': conn.get('label', f'{provider.title()} POS'),
             'provider': provider,
             'webhook_url': url,
@@ -221,7 +221,7 @@ def get_config(event, restaurant_id):
         return make_response(200, response_data)
     except Exception as e:
         print(f"Get Config Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def update_config(event, restaurant_id):
@@ -329,7 +329,7 @@ def update_config(event, restaurant_id):
 
     except Exception as e:
         print(f"Update Config Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def get_global_config(event):

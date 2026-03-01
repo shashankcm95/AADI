@@ -136,9 +136,9 @@ def create_avatar_upload_url(event):
             try:
                 body = json.loads(event['body'])
                 requested_content_type = body.get('content_type')
-                if requested_content_type:
+                if requested_content_type and requested_content_type in content_type_to_ext:
                     content_type = requested_content_type
-                    ext = content_type_to_ext.get(content_type, 'jpg')
+                    ext = content_type_to_ext[content_type]
             except Exception:
                 pass
 

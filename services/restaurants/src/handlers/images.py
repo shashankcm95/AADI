@@ -39,6 +39,9 @@ def create_image_upload_url(event, restaurant_id):
     if not content_type.startswith('image/'):
         return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'content_type must be an image/* MIME type'})}
 
+    if content_type == 'image/svg+xml':
+        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'SVG uploads are not allowed'})}
+
     existing_image_keys = []
     if isinstance(restaurant_record, dict):
         existing_image_keys = restaurant_record.get('restaurant_image_keys') or []

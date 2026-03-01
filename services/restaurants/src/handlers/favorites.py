@@ -27,7 +27,7 @@ def list_favorites(event):
         return make_response(200, {'favorites': items})
     except Exception as e:
         print(f"List Favorites Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def add_favorite(event, restaurant_id):
@@ -58,7 +58,7 @@ def add_favorite(event, restaurant_id):
         return make_response(200, {'favorite': item})
     except Exception as e:
         print(f"Add Favorite Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def remove_favorite(event, restaurant_id):
@@ -83,4 +83,4 @@ def remove_favorite(event, restaurant_id):
         return make_response(200, {'removed': True})
     except Exception as e:
         print(f"Remove Favorite Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
