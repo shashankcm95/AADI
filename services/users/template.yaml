@@ -50,8 +50,6 @@ Globals:
       AllowOrigins:
         - !Ref CorsAllowOrigin
         - !Ref CorsAllowOriginAdmin
-        - "http://localhost:5173"
-        - "http://localhost:5174"
       AllowHeaders:
         - "Authorization"
         - "Content-Type"
@@ -81,9 +79,9 @@ Resources:
       BucketName: !Ref UserAvatarsBucketName
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: false
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
