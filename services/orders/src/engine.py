@@ -241,14 +241,18 @@ def decide_arrival_update(
             set_fields["vicinity"] = True 
             
     # 3. Auto-Close on EXIT
+    condition_statuses = None
     if new_arrival == "EXIT_VICINITY":
         current_status = session.get("status")
         # Only close if we are actually fulfilling
         if current_status == STATUS_FULFILLING:
             set_fields["status"] = STATUS_COMPLETED
             set_fields["completed_at"] = now
+            # Guard against concurrent status transitions
+            condition_statuses = (STATUS_FULFILLING,)
 
     return UpdatePlan(
+        condition_allowed_statuses=condition_statuses,
         set_fields=set_fields,
         response={"session_id": session_id, "arrival_status": new_arrival, "status": set_fields.get("status", session.get("status"))}
     )

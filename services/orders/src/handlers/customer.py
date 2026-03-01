@@ -299,12 +299,12 @@ def create_order(event):
                     req_log.info("idempotency_hit_completed", extra={"idempotency_key": idempotency_key})
                     return {
                         'statusCode': 201,
-                        'headers': {'Content-Type': 'application/json'},
+                        'headers': db.CORS_HEADERS,
                         'body': entry['body']
                     }
                 else:
                     req_log.warning("idempotency_hit_in_progress", extra={"idempotency_key": idempotency_key})
-                    return {'statusCode': 409, 'body': json.dumps({'error': 'Request in progress'})}
+                    return {'statusCode': 409, 'headers': db.CORS_HEADERS, 'body': json.dumps({'error': 'Request in progress'})}
             else:
                 raise e
 
@@ -314,6 +314,13 @@ def create_order(event):
         restaurant_id = body.get('restaurant_id')
         items = body.get('items', [])
         payment_mode = body.get('payment_mode', PAYMENT_MODE_AT_RESTAURANT)
+
+        if not restaurant_id:
+            return {
+                'statusCode': 400,
+                'headers': db.cors_headers(event),
+                'body': json.dumps({'error': 'restaurant_id is required'}),
+            }
 
         req_log = req_log.bind(restaurant_id=restaurant_id)
         req_log.info("order_payload_parsed", extra={
@@ -326,6 +333,7 @@ def create_order(event):
             req_log.warning("unsupported_payment_mode", extra={"payment_mode": payment_mode})
             return {
                 'statusCode': 400,
+                'headers': db.cors_headers(event),
                 'body': json.dumps({'error': 'Only PAY_AT_RESTAURANT is supported'})
             }
 
@@ -401,7 +409,7 @@ def create_order(event):
         req_log.info("create_order_success", extra={"order_id": order_id, "status": order.get("status")})
         return {
             'statusCode': 201,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': db.cors_headers(event),
             'body': resp_body
         }
     except Exception as e:
@@ -417,7 +425,7 @@ def get_order(order_id, customer_id=None):
     req_log = log.bind(handler="get_order", order_id=order_id, customer_id=customer_id)
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.CORS_HEADERS, 'body': 'DB not configured'}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -435,7 +443,7 @@ def get_order(order_id, customer_id=None):
 
     return {
         'statusCode': 200,
-        'headers': {'Content-Type': 'application/json'},
+        'headers': db.CORS_HEADERS,
         'body': json.dumps(item, default=db.decimal_default)
     }
 
@@ -447,7 +455,7 @@ def get_leave_advisory(order_id, customer_id=None):
     req_log = log.bind(handler="get_leave_advisory", order_id=order_id, customer_id=customer_id)
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.CORS_HEADERS, 'body': 'DB not configured'}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -470,7 +478,7 @@ def get_leave_advisory(order_id, customer_id=None):
     if status not in (STATUS_PENDING, STATUS_WAITING):
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': db.CORS_HEADERS,
             'body': json.dumps({
                 'order_id': order_id,
                 'status': status,
@@ -498,14 +506,14 @@ def get_leave_advisory(order_id, customer_id=None):
 
     return {
         'statusCode': 200,
-        'headers': {'Content-Type': 'application/json'},
+        'headers': db.CORS_HEADERS,
         'body': json.dumps(response, default=db.decimal_default)
     }
 
 
 def list_customer_orders(event):
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': 'DB not configured'}
 
     customer_id = db.get_customer_id(event)
     req_log = log.bind(handler="list_customer_orders", customer_id=customer_id)
@@ -547,12 +555,12 @@ def list_customer_orders(event):
 
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': db.cors_headers(event),
             'body': json.dumps(result, default=db.decimal_default)
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
-        return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Internal server error'})}
 
 
 def ingest_location(order_id, event, customer_id=None):
@@ -567,14 +575,14 @@ def ingest_location(order_id, event, customer_id=None):
     )
     if latitude is None or longitude is None:
         req_log.warning("invalid_location_payload")
-        return {'statusCode': 400, 'body': json.dumps({'error': 'latitude/longitude are required numeric values'})}
+        return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'latitude/longitude are required numeric values'})}
 
     accuracy_m = location_bridge.coerce_finite_float(body.get('accuracy_m', body.get('accuracy')))
     speed_mps = location_bridge.coerce_finite_float(body.get('speed_mps', body.get('speed')))
     heading_deg = location_bridge.coerce_finite_float(body.get('heading_deg', body.get('heading')))
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': 'DB not configured'}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -675,7 +683,7 @@ def ingest_location(order_id, event, customer_id=None):
 
     return {
         'statusCode': 202,
-        'headers': {'Content-Type': 'application/json'},
+        'headers': db.cors_headers(event),
         'body': json.dumps(response_body, default=db.decimal_default),
     }
 
@@ -691,11 +699,11 @@ def update_vicinity(order_id, event, customer_id=None):
     # Validate vicinity event type
     if vicinity_event not in db.VALID_VICINITY_EVENTS:
         req_log.warning("invalid_vicinity_event", extra={"event": vicinity_event})
-        return {'statusCode': 400, 'body': json.dumps({'error': f'Invalid vicinity event: {vicinity_event}'})}
+        return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': f'Invalid vicinity event: {vicinity_event}'})}
 
     # Fetch current state
     if not db.orders_table:
-        return {'statusCode': 500}
+        return {'statusCode': 500, 'headers': db.cors_headers(event)}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -732,6 +740,7 @@ def update_vicinity(order_id, event, customer_id=None):
         })
         return {
             'statusCode': 200,
+            'headers': db.cors_headers(event),
             'body': json.dumps({
                 "session_id": session.get("session_id", session.get("order_id")),
                 "status": current_status,
@@ -867,6 +876,7 @@ def update_vicinity(order_id, event, customer_id=None):
             refreshed = db.orders_table.get_item(Key={'order_id': order_id}).get('Item', {})
             return {
                 'statusCode': 200,
+                'headers': db.cors_headers(event),
                 'body': json.dumps({
                     'status': refreshed.get('status'),
                     'arrival_status': refreshed.get('arrival_status'),
@@ -895,6 +905,7 @@ def update_vicinity(order_id, event, customer_id=None):
 
     return {
         'statusCode': 200,
+        'headers': db.cors_headers(event),
         'body': json.dumps(plan.response, default=db.decimal_default)
     }
 
@@ -904,7 +915,7 @@ def cancel_order(order_id, customer_id=None):
     req_log.info("cancel_order_started")
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.CORS_HEADERS, 'body': 'DB not configured'}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -936,9 +947,17 @@ def cancel_order(order_id, customer_id=None):
 
     kwargs = build_update_item_kwargs(order_id, plan)
     if kwargs:
-        with Timer() as t:
-            db.orders_table.update_item(**kwargs)
-        req_log.info("order_canceled_in_db", extra={"duration_ms": t.elapsed_ms})
+        try:
+            with Timer() as t:
+                db.orders_table.update_item(**kwargs)
+            req_log.info("order_canceled_in_db", extra={"duration_ms": t.elapsed_ms})
+        except db.orders_table.meta.client.exceptions.ConditionalCheckFailedException:
+            req_log.warning("cancel_race_lost", extra={"order_id": order_id})
+            return {
+                'statusCode': 409,
+                'headers': db.CORS_HEADERS,
+                'body': json.dumps({'error': 'Order has already been dispatched and cannot be cancelled'}),
+            }
 
     # Release capacity slot if one was reserved
     db.release_capacity_slot(session)
@@ -947,5 +966,6 @@ def cancel_order(order_id, customer_id=None):
     req_log.info("cancel_order_completed", extra={"order_id": order_id, "new_status": plan.response.get('status')})
     return {
         'statusCode': 200,
+        'headers': db.CORS_HEADERS,
         'body': json.dumps(plan.response, default=db.decimal_default)
     }

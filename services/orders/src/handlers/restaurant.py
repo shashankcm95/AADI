@@ -22,7 +22,7 @@ def list_restaurant_orders(restaurant_id, event):
     req_log = log.bind(handler="list_restaurant_orders", restaurant_id=restaurant_id)
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': 'DB not configured'}
 
     query_params = event.get('queryStringParameters') or {}
     status = query_params.get('status')
@@ -69,12 +69,12 @@ def list_restaurant_orders(restaurant_id, event):
 
         return {
             'statusCode': 200,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': db.cors_headers(event),
             'body': json.dumps(result, default=db.decimal_default)
         }
     except Exception as e:
         req_log.error("list_orders_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
-        return {'statusCode': 500, 'body': json.dumps({'error': 'Internal server error'})}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Internal server error'})}
 
 
 def ack_order(order_id, restaurant_id):
@@ -82,7 +82,7 @@ def ack_order(order_id, restaurant_id):
     req_log.info("ack_order_started")
 
     if not db.orders_table:
-        return {'statusCode': 500, 'body': 'DB not configured'}
+        return {'statusCode': 500, 'headers': db.CORS_HEADERS, 'body': 'DB not configured'}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -113,6 +113,7 @@ def ack_order(order_id, restaurant_id):
     req_log.info("ack_order_completed", extra={"new_status": plan.response.get('status')})
     return {
         'statusCode': 200,
+        'headers': db.CORS_HEADERS,
         'body': json.dumps(plan.response, default=db.decimal_default)
     }
 
@@ -121,18 +122,18 @@ def update_order_status(order_id, restaurant_id, event):
     req_log = log.bind(handler="update_order_status", order_id=order_id, restaurant_id=restaurant_id)
 
     if not db.orders_table:
-        return {'statusCode': 500}
+        return {'statusCode': 500, 'headers': db.cors_headers(event)}
 
     if not restaurant_id:
         req_log.warning("missing_restaurant_id")
-        return {'statusCode': 400, 'body': json.dumps({'error': 'Missing restaurant_id'})}
+        return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Missing restaurant_id'})}
 
     body = json.loads(event.get('body', '{}'))
     new_status = body.get('status')
 
     if not new_status:
         req_log.warning("missing_status")
-        return {'statusCode': 400, 'body': json.dumps({'error': 'Missing status'})}
+        return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Missing status'})}
 
     req_log.info("status_update_started", extra={"requested_status": new_status})
 
@@ -182,6 +183,7 @@ def update_order_status(order_id, restaurant_id, event):
         })
         return {
             'statusCode': 200,
+            'headers': db.cors_headers(event),
             'body': json.dumps({'success': True, 'status': final_status})
         }
     except Exception as e:
