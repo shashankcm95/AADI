@@ -135,6 +135,21 @@ def test_handle_sync_menu_disabled_returns_409(mock_db):
     finally:
         handlers.POS_MENU_SYNC_ENABLED = prev
 
+
+def test_handle_sync_menu_empty_items_returns_400(mock_db):
+    key_record = {'restaurant_id': 'rest_1', 'pos_system': 'clover'}
+
+    prev = handlers.POS_MENU_SYNC_ENABLED
+    handlers.POS_MENU_SYNC_ENABLED = True
+    try:
+        resp = handlers.handle_sync_menu({'items': []}, key_record)
+        assert resp['statusCode'] == 400
+
+        resp = handlers.handle_sync_menu({}, key_record)
+        assert resp['statusCode'] == 400
+    finally:
+        handlers.POS_MENU_SYNC_ENABLED = prev
+
 def test_handle_webhook(mock_db):
     """Verify webhook routing and idempotency."""
     key_record = {'restaurant_id': 'rest_1'}

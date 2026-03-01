@@ -79,7 +79,10 @@ def lambda_handler(event, context):
             return handle_sync_menu(body, key_record)
 
         # POST /v1/pos/webhook — Generic webhook
+        # Requires orders:write because webhook events can create/update orders.
         elif route_key == 'POST /v1/pos/webhook':
+            if not require_permission(key_record, 'orders:write'):
+                return _forbidden('orders:write')
             return handle_webhook(body, key_record)
 
         else:

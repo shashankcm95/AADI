@@ -80,8 +80,23 @@ def test_invalid_json(mock_auth_module, mock_db):
 def test_unknown_route(mock_auth_module, mock_db):
     mock_authenticate, _ = mock_auth_module
     mock_authenticate.return_value = {'restaurant_id': 'rest_1'}
-    
+
     event = {'routeKey': 'GET /v1/unknown', 'body': '{}'}
-    
+
     resp = app.lambda_handler(event, None)
     assert resp['statusCode'] == 404
+
+def test_webhook_requires_orders_write_permission(mock_auth_module, mock_db):
+    """Webhook route must enforce orders:write — keys with only menu:read cannot create orders."""
+    mock_authenticate, mock_require = mock_auth_module
+    mock_authenticate.return_value = {'restaurant_id': 'rest_1', 'permissions': ['menu:read']}
+    mock_require.return_value = False
+
+    event = {
+        'routeKey': 'POST /v1/pos/webhook',
+        'body': '{"event_type": "order.created", "webhook_id": "wh_test"}'
+    }
+
+    resp = app.lambda_handler(event, None)
+    assert resp['statusCode'] == 403
+    mock_require.assert_called_with(mock_authenticate.return_value, 'orders:write')

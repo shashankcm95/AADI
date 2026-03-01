@@ -88,7 +88,7 @@ class TestValidateKey:
         assert result is not None
 
     def test_default_permissions(self):
-        """Missing 'permissions' field should default to read+write."""
+        """Missing 'permissions' field should default to [] (fail-closed — no access)."""
         mock_table.get_item.return_value = {
             'Item': {
                 'api_key': 'k1',
@@ -96,7 +96,7 @@ class TestValidateKey:
             }
         }
         result = auth.validate_key('k1')
-        assert result['permissions'] == ['orders:read', 'orders:write']
+        assert result['permissions'] == []
 
     def test_default_pos_system(self):
         """Missing 'pos_system' should default to 'generic'."""

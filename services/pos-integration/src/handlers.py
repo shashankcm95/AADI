@@ -137,11 +137,8 @@ def handle_list_orders(key_record: Dict[str, Any], query_params: Dict[str, str])
         query_kwargs['ExpressionAttributeNames'] = expr_names
 
     response = orders_table.query(**query_kwargs)
-    
+
     orders = response.get('Items', [])
-    
-    if status_filter:
-        orders = [o for o in orders if o.get('status') == status_filter]
 
     # Convert to POS-friendly format
     pos_orders = [session_to_pos_order(o) for o in orders]
@@ -283,8 +280,13 @@ def handle_sync_menu(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[s
 
     restaurant_id = key_record['restaurant_id']
     pos_system = key_record.get('pos_system', 'generic')
-    
+
     pos_items = body.get('items', [])
+    if not pos_items:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': 'items must be a non-empty list'}),
+        }
     resources = pos_menu_to_resources(pos_items, pos_system)
 
     if menus_table:
