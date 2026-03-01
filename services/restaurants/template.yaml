@@ -175,9 +175,9 @@ Resources:
               - GET
               - PUT
               - HEAD
-            # TODO: Restrict AllowedOrigins to actual production CloudFront domains
             AllowedOrigins:
-              - "*"
+              - !Ref CorsAllowOrigin
+              - !Ref CorsAllowOriginAdmin
             ExposedHeaders:
               - ETag
             MaxAge: 3000
@@ -220,7 +220,7 @@ Resources:
               Resource: !If
                 - HasLocationGeofenceCollectionName
                 - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/${LocationGeofenceCollectionName}"
-                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/*"
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/no-collection-assigned"
         - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantsTable
         - DynamoDBCrudPolicy:

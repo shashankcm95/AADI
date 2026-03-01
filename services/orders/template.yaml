@@ -206,7 +206,7 @@ Resources:
               Resource: !If
                 - HasLocationTrackerName
                 - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:tracker/${LocationTrackerName}"
-                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:tracker/*"
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:tracker/no-tracker-assigned"
       Events:
         CreateOrder:
           Type: HttpApi
