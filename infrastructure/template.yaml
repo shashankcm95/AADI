@@ -13,7 +13,6 @@ Parameters:
   GoogleClientSecret:
     Type: String
     Description: Google OAuth 2.0 Client Secret
-    Default: "PLACEHOLDER_CLIENT_SECRET"
     NoEcho: true
   LocationGeofenceCutoverEnabled:
     Type: String
@@ -40,6 +39,7 @@ Parameters:
 Globals:
   Function:
     Timeout: 15
+    MemorySize: 256
 
     Tracing: Active
     LoggingConfig:
