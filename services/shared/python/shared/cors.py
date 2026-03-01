@@ -21,6 +21,7 @@ _CORS_ALLOW_ORIGINS = [
 _DEFAULT_CORS_HEADERS = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Headers': 'Authorization,Content-Type,Idempotency-Key',
+    'Vary': 'Origin',
 }
 
 

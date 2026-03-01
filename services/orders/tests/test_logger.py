@@ -87,6 +87,27 @@ def test_structured_logger_binding():
     assert l3["order_id"] == "123"
     assert l3["status_code"] == 200
 
+def test_per_call_extra_overrides_bound_context():
+    """Per-call extra must win over bound context when keys conflict."""
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logger.JSONFormatter())
+
+    base_logger = logging.getLogger("test_priority")
+    base_logger.addHandler(handler)
+    base_logger.setLevel(logging.INFO)
+
+    bound_log = logger.StructuredLogger(base_logger, {"request_id": "bound-id", "service": "svc"})
+    # Override request_id at call site — per-call value must win.
+    bound_log.info("msg", extra={"request_id": "call-id"})
+
+    data = json.loads(stream.getvalue().strip())
+    assert data["request_id"] == "call-id", (
+        "Per-call extra should override bound context"
+    )
+    assert data["service"] == "svc"  # non-conflicting bound key still present
+
+
 def test_timer_context():
     with logger.Timer() as t:
         time.sleep(0.01)

@@ -61,9 +61,9 @@ class StructuredLogger(logging.LoggerAdapter):
     """Logger adapter that injects context fields into every log record."""
 
     def process(self, msg: str, kwargs: dict) -> tuple:
-        extra = kwargs.get("extra", {})
-        extra.update(self.extra)
-        kwargs["extra"] = extra
+        # Bound context is the base; per-call extra overrides it.
+        merged = {**self.extra, **kwargs.get("extra", {})}
+        kwargs["extra"] = merged
         return msg, kwargs
 
     def bind(self, **context: Any) -> "StructuredLogger":
