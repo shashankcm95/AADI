@@ -197,7 +197,7 @@ def _call_nominatim(query):
 
         headers = {'User-Agent': 'AADI-Restaurant-Service/1.0 (admin@aadieats.com)'}
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode())
             if data:
                 print(f"Geocoding success for '{query}': {data[0]['lat']}, {data[0]['lon']}")

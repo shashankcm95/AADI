@@ -57,7 +57,7 @@ jobs:
         run: python -m pytest tests/test_python_suites.py -q
 
       - name: Run Linter (Ruff)
-        run: ruff check services/orders/src services/restaurants/src
+        run: ruff check services/orders/src services/restaurants/src services/users/src services/pos-integration/src services/shared/python/shared
 
       - name: Scan for Secrets
         run: |

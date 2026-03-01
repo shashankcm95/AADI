@@ -47,14 +47,17 @@ def list_restaurants(event):
             next_token = query_params.get('next_token')
 
             if role == 'admin' and not cuisine_filter and not price_tier_filter:
-                scan_resp = restaurants_table.scan()
+                scan_kwargs = {'Limit': 100}
+                if next_token:
+                    try:
+                        scan_kwargs['ExclusiveStartKey'] = json.loads(
+                            base64.b64decode(next_token).decode()
+                        )
+                    except Exception:
+                        return make_response(400, {'error': 'Invalid pagination token'})
+                scan_resp = restaurants_table.scan(**scan_kwargs)
                 items = scan_resp.get('Items', [])
-                while 'LastEvaluatedKey' in scan_resp:
-                    scan_resp = restaurants_table.scan(
-                        ExclusiveStartKey=scan_resp['LastEvaluatedKey']
-                    )
-                    items.extend(scan_resp.get('Items', []))
-                next_key = None
+                next_key = scan_resp.get('LastEvaluatedKey')
             elif cuisine_filter:
                 kwargs = {
                     'IndexName': 'GSI_Cuisine',
@@ -62,9 +65,12 @@ def list_restaurants(event):
                     'Limit': limit,
                 }
                 if next_token:
-                    kwargs['ExclusiveStartKey'] = json.loads(
-                        base64.b64decode(next_token).decode()
-                    )
+                    try:
+                        kwargs['ExclusiveStartKey'] = json.loads(
+                            base64.b64decode(next_token).decode()
+                        )
+                    except Exception:
+                        return make_response(400, {'error': 'Invalid pagination token'})
                 resp = restaurants_table.query(**kwargs)
                 items = resp.get('Items', [])
                 next_key = resp.get('LastEvaluatedKey')
@@ -77,9 +83,12 @@ def list_restaurants(event):
                         'Limit': limit,
                     }
                     if next_token:
-                        kwargs['ExclusiveStartKey'] = json.loads(
-                            base64.b64decode(next_token).decode()
-                        )
+                        try:
+                            kwargs['ExclusiveStartKey'] = json.loads(
+                                base64.b64decode(next_token).decode()
+                            )
+                        except Exception:
+                            return make_response(400, {'error': 'Invalid pagination token'})
                     resp = restaurants_table.query(**kwargs)
                 except ValueError:
                     resp = {'Items': []}
@@ -92,25 +101,23 @@ def list_restaurants(event):
                     'Limit': limit,
                 }
                 if next_token:
-                    kwargs['ExclusiveStartKey'] = json.loads(
-                        base64.b64decode(next_token).decode()
-                    )
+                    try:
+                        kwargs['ExclusiveStartKey'] = json.loads(
+                            base64.b64decode(next_token).decode()
+                        )
+                    except Exception:
+                        return make_response(400, {'error': 'Invalid pagination token'})
                 resp = restaurants_table.query(**kwargs)
                 items = resp.get('Items', [])
                 next_key = resp.get('LastEvaluatedKey')
 
                 if not items and not next_token:
                     scan_resp = restaurants_table.scan(
-                        FilterExpression=Attr('active').eq(True)
+                        FilterExpression=Attr('active').eq(True),
+                        Limit=100,
                     )
                     items = scan_resp.get('Items', [])
-                    while 'LastEvaluatedKey' in scan_resp:
-                        scan_resp = restaurants_table.scan(
-                            FilterExpression=Attr('active').eq(True),
-                            ExclusiveStartKey=scan_resp['LastEvaluatedKey']
-                        )
-                        items.extend(scan_resp.get('Items', []))
-                    next_key = None
+                    next_key = scan_resp.get('LastEvaluatedKey')
 
         response_items = [_decorate_restaurant_response(item) for item in items]
 
@@ -123,7 +130,7 @@ def list_restaurants(event):
         return make_response(200, result)
     except Exception as e:
         print(f"Scan Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def create_restaurant(event):
@@ -145,7 +152,7 @@ def create_restaurant(event):
         contact_email = body.get('contact_email')
         if contact_email and USER_POOL_ID:
             # BL-006: Validate email format to prevent Cognito filter injection.
-            if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', contact_email):
+            if not re.match(r'^[a-zA-Z0-9._+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', contact_email):
                 return make_response(400, {'error': 'Invalid email format'})
             try:
                 filter_str = f"email = \"{contact_email}\""
@@ -269,7 +276,7 @@ def create_restaurant(event):
         return make_response(400, {'error': str(ve)})
     except Exception as e:
         print(f"Create Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def update_restaurant(event, restaurant_id):
@@ -293,6 +300,10 @@ def update_restaurant(event, restaurant_id):
         # BL-002: Only platform admins may change the 'active' field.
         if not is_admin and 'active' in body:
             del body['active']
+
+        # Only platform admins may set the rating field.
+        if not is_admin and 'rating' in body:
+            del body['rating']
 
         resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
         if 'Item' not in resp:
@@ -412,7 +423,7 @@ def update_restaurant(event, restaurant_id):
         return make_response(400, {'error': str(ve)})
     except Exception as e:
         print(f"Update Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})
 
 
 def delete_restaurant(event, restaurant_id):
@@ -476,4 +487,4 @@ def delete_restaurant(event, restaurant_id):
 
     except Exception as e:
         print(f"Delete Error: {e}")
-        return make_response(500, {'error': str(e)})
+        return make_response(500, {'error': 'Internal server error'})

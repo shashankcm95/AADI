@@ -52,7 +52,12 @@ def make_response(status_code, body, event=None):
 
 
 def get_auth_claims(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract auth claims from API Gateway event (HTTP API v2 or REST v1)."""
+    """Extract raw auth claims from API Gateway event (HTTP API v2 or REST v1).
+
+    NOTE: This returns the *raw* JWT claims dict for accessing arbitrary claim
+    fields (name, given_name, email, etc.).  For normalized role/restaurant_id
+    access, prefer ``shared.auth.get_user_claims(event)`` instead.
+    """
     try:
         return event['requestContext']['authorizer']['jwt']['claims']
     except (KeyError, TypeError):
