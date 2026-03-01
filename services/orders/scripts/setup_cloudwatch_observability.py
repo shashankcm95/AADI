@@ -659,6 +659,230 @@ def build_dashboard(
         ]
     )
 
+    # ── Live Testing Metrics (added for end-to-end order validation) ────
+
+    # Row 59: Order-to-Dispatch Latency + Order Completion Rate
+    dispatch_latency_query = (
+        f"{source_prefix} "
+        "| filter message = \"vicinity_update_completed\" and new_status = \"SENT_TO_DESTINATION\" "
+        "| stats avg(dispatch_elapsed_s) as avg_dispatch_latency_s, "
+        "  max(dispatch_elapsed_s) as max_dispatch_latency_s, "
+        "  min(dispatch_elapsed_s) as min_dispatch_latency_s "
+        "by bin(1h)"
+    )
+    widgets.append(
+        {
+            "type": "log",
+            "x": 0,
+            "y": 59,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "Order-to-Dispatch Latency (Logs Insights)",
+                "region": region,
+                "query": dispatch_latency_query,
+                "view": "timeSeries",
+            },
+        }
+    )
+
+    # Order Completion Rate — math expression: Completed / Created * 100
+    widgets.append(
+        {
+            "type": "metric",
+            "x": 12,
+            "y": 59,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "Order Completion Rate (%)",
+                "region": region,
+                "period": 300,
+                "view": "timeSeries",
+                "stacked": False,
+                "setPeriodToTimeRange": True,
+                "yAxis": {"left": {"label": "Percent", "min": 0, "max": 100}},
+                "metrics": [
+                    [namespace, "OrdersCompleted", {"id": "m1", "visible": False}],
+                    [namespace, "OrdersCreated", {"id": "m2", "visible": False}],
+                    [{"expression": "IF(m2>0, m1/m2*100, 0)", "label": "Completion Rate %", "id": "e1"}],
+                ],
+            },
+        }
+    )
+
+    # Row 65: Time-in-Status by State + Per-Restaurant Order Volume
+    time_in_status_query = (
+        f"{source_prefix} "
+        "| filter message in [\"create_order_success\",\"vicinity_update_completed\","
+        "\"status_update_completed\",\"cancel_order_completed\"] "
+        "| stats earliest(@timestamp) as first_seen, latest(@timestamp) as last_seen, "
+        "  latest(status) as current_status, latest(new_status) as latest_transition "
+        "by order_id "
+        "| sort last_seen desc "
+        "| limit 100"
+    )
+    widgets.append(
+        {
+            "type": "log",
+            "x": 0,
+            "y": 65,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "Time-in-Status by Order (Logs Insights)",
+                "region": region,
+                "query": time_in_status_query,
+                "view": "table",
+            },
+        }
+    )
+
+    per_restaurant_query = (
+        f"{source_prefix} "
+        "| filter message = \"create_order_success\" "
+        "| stats count(*) as order_count by restaurant_id "
+        "| sort order_count desc "
+        "| limit 25"
+    )
+    widgets.append(
+        {
+            "type": "log",
+            "x": 12,
+            "y": 65,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "Per-Restaurant Order Volume (Logs Insights)",
+                "region": region,
+                "query": per_restaurant_query,
+                "view": "bar",
+            },
+        }
+    )
+
+    # Row 71: DynamoDB Throttle Metrics + Consumed Capacity
+    # These use AWS/DynamoDB namespace — table names are derived from stack prefix
+    dynamo_table_names = [
+        f"{namespace.split('/')[0]}Orders",   # Approximation; adjust to actual table names
+        f"{namespace.split('/')[0]}Restaurants",
+        f"{namespace.split('/')[0]}Users",
+    ]
+    dynamo_throttle_metrics: List[List[Any]] = []
+    dynamo_read_capacity_metrics: List[List[Any]] = []
+    dynamo_write_capacity_metrics: List[List[Any]] = []
+    for idx, table_name in enumerate(dynamo_table_names):
+        ns_str = "AWS/DynamoDB" if idx == 0 else "."
+        label = table_name.split("/")[-1]
+        dynamo_throttle_metrics.append(
+            [ns_str, "ThrottledRequests", "TableName", table_name, {"label": f"{label} Throttles"}]
+        )
+        dynamo_read_capacity_metrics.append(
+            [ns_str, "ConsumedReadCapacityUnits", "TableName", table_name, {"label": f"{label} RCU"}]
+        )
+        dynamo_write_capacity_metrics.append(
+            [ns_str, "ConsumedWriteCapacityUnits", "TableName", table_name, {"label": f"{label} WCU"}]
+        )
+
+    widgets.append(
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 71,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "DynamoDB Throttled Requests",
+                "region": region,
+                "stat": "Sum",
+                "period": 300,
+                "view": "timeSeries",
+                "stacked": False,
+                "setPeriodToTimeRange": True,
+                "yAxis": {"left": {"label": "Count"}},
+                "metrics": dynamo_throttle_metrics,
+            },
+        }
+    )
+    widgets.append(
+        {
+            "type": "metric",
+            "x": 12,
+            "y": 71,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "DynamoDB Consumed Capacity (RCU + WCU)",
+                "region": region,
+                "stat": "Sum",
+                "period": 300,
+                "view": "timeSeries",
+                "stacked": False,
+                "setPeriodToTimeRange": True,
+                "yAxis": {"left": {"label": "Units"}},
+                "metrics": [*dynamo_read_capacity_metrics, *dynamo_write_capacity_metrics],
+            },
+        }
+    )
+
+    # Row 77: API Gateway 4xx/5xx Errors + Lambda Cold Start Duration
+    widgets.append(
+        {
+            "type": "metric",
+            "x": 0,
+            "y": 77,
+            "width": 12,
+            "height": 6,
+            "properties": {
+                "title": "API Gateway Error Rates (4xx / 5xx)",
+                "region": region,
+                "stat": "Sum",
+                "period": 300,
+                "view": "timeSeries",
+                "stacked": False,
+                "setPeriodToTimeRange": True,
+                "yAxis": {"left": {"label": "Count"}},
+                "metrics": [
+                    ["AWS/ApiGateway", "4XXError", {"label": "4XX Errors"}],
+                    [".", "5XXError", {"label": "5XX Errors"}],
+                ],
+            },
+        }
+    )
+
+    # Cold Start Duration — use Init Duration metric if available
+    cold_start_metrics: List[List[Any]] = []
+    for idx, (service_name, function_name) in enumerate(lambda_functions.items()):
+        if not function_name:
+            continue
+        label_prefix = service_name.replace("_", " ").title()
+        ns_str = "AWS/Lambda" if idx == 0 else "."
+        cold_start_metrics.append(
+            [ns_str, "Duration", "FunctionName", function_name,
+             {"label": f"{label_prefix} Init Duration", "stat": "Maximum"}]
+        )
+    if cold_start_metrics:
+        widgets.append(
+            {
+                "type": "metric",
+                "x": 12,
+                "y": 77,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                    "title": "Lambda Cold Start / Init Duration",
+                    "region": region,
+                    "stat": "Maximum",
+                    "period": 300,
+                    "view": "timeSeries",
+                    "stacked": False,
+                    "setPeriodToTimeRange": True,
+                    "yAxis": {"left": {"label": "Milliseconds"}},
+                    "metrics": cold_start_metrics,
+                },
+            }
+        )
+
     return {"widgets": widgets}
 
 
