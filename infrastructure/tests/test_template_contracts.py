@@ -6,6 +6,7 @@ INFRA_TEMPLATE = ROOT / "infrastructure" / "template.yaml"
 ORDERS_TEMPLATE = ROOT / "services" / "orders" / "template.yaml"
 RESTAURANTS_TEMPLATE = ROOT / "services" / "restaurants" / "template.yaml"
 POS_TEMPLATE = ROOT / "services" / "pos-integration" / "template.yaml"
+USERS_TEMPLATE = ROOT / "services" / "users" / "template.yaml"
 CD_WORKFLOW = ROOT / ".github" / "workflows" / "cd.yml"
 
 
@@ -31,6 +32,14 @@ def test_pos_template_uses_explicit_cross_service_table_parameters():
     assert 'MenusTableName:' in text
     assert 'HasOrdersTableName' in text
     assert 'HasMenusTableName' in text
+
+
+def test_users_template_keeps_avatar_bucket_private_with_presigned_read_urls():
+    text = _read(USERS_TEMPLATE)
+    assert 'BlockPublicPolicy: true' in text
+    assert 'RestrictPublicBuckets: true' in text
+    assert 'PublicReadAvatars' not in text
+    assert 'AVATAR_GET_URL_TTL_SECONDS' in text
 
 
 def test_root_infra_exposes_cloudfront_distribution_outputs_and_pos_toggle():

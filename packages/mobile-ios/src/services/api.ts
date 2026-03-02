@@ -454,6 +454,7 @@ export interface UserProfile {
     name?: string;
     phone_number?: string;
     picture?: string;
+    picture_url?: string;
     created_at?: number;
     updated_at?: number;
 }
@@ -492,9 +493,7 @@ export async function updateUserProfile(data: { name?: string; phone_number?: st
 export async function getAvatarUploadUrl(contentType: string): Promise<{
     upload_url: string;
     s3_key: string;
-    bucket?: string;
-    region?: string;
-    public_url?: string;
+    expires_in?: number;
 }> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${USERS_API_BASE_URL}/v1/users/me/avatar/upload-url`, {

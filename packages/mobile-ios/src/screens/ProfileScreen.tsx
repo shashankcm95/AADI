@@ -62,7 +62,10 @@ export default function ProfileScreen({ navigation }: Props) {
         try {
             const data = await getUserProfile();
             const sessionProfile = await getCurrentUserProfile().catch(() => null);
-            const mergedPicture = normalizeAvatarUri(data.picture) || normalizeAvatarUri(sessionProfile?.picture);
+            const mergedPicture =
+                normalizeAvatarUri(data.picture_url) ||
+                normalizeAvatarUri(data.picture) ||
+                normalizeAvatarUri(sessionProfile?.picture);
             setAvatarLoadFailed(false);
             setProfile({
                 ...data,
@@ -123,28 +126,14 @@ export default function ProfileScreen({ navigation }: Props) {
         setUploading(true);
         try {
             // 1. Get Presigned URL
-            const { upload_url, s3_key, bucket, region, public_url } = await getAvatarUploadUrl('image/jpeg');
+            const { upload_url, s3_key } = await getAvatarUploadUrl('image/jpeg');
 
             // 2. Upload to S3
             // Note: In real app, might need to detect mime type from uri. Assuming jpeg for now.
             await uploadAvatarToS3(upload_url, uri, 'image/jpeg');
 
-            // 3. Construct Public URL (Assuming public bucket or we save key)
-            // If bucket is public: https://{bucket}.s3.{region}.amazonaws.com/{key}
-            // If we save key, we need frontend to know how to construct it.
-            // Let's assume we save the key for now and construct URL in render, 
-            // OR we save the full URL. Ideally backend logic.
-            // Implementation Plan said "S3 URL or Key". 
-            // Let's save the FULL URL if possible, or just the key.
-            // Let's try to update with the KEY, and see if backend handles it?
-            // Backend valid fields: picture.
-
-            // Let's construct the URL to save.
-            // Using generic S3 URL structure:
-            const s3Url = public_url || `https://${bucket}.s3.${region}.amazonaws.com/${s3_key}`;
-
-            // 4. Update Profile
-            const updated = await updateUserProfile({ picture: s3Url });
+            // 3. Update Profile with the canonical storage key.
+            const updated = await updateUserProfile({ picture: s3_key });
             setAvatarLoadFailed(false);
             setProfile(updated);
 

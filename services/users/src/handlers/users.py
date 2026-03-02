@@ -2,6 +2,7 @@ import re
 import time
 import json
 import os
+from urllib.parse import urlparse
 from botocore.exceptions import ClientError
 from utils import get_user_claims, json_response, users_table, s3_client
 from shared.logger import get_logger
@@ -19,6 +20,84 @@ _CONTENT_TYPE_TO_EXT = {
 
 # Pattern: avatars/{user_id}-{unix_timestamp}.{ext}
 _AVATAR_KEY_RE = re.compile(r'^avatars/[^/]+-\d+\.(jpg|png|webp|gif)$')
+_DEFAULT_AVATAR_GET_URL_TTL_SECONDS = 900
+
+
+def _avatar_get_url_ttl_seconds():
+    try:
+        return max(60, int(os.environ.get('AVATAR_GET_URL_TTL_SECONDS', _DEFAULT_AVATAR_GET_URL_TTL_SECONDS)))
+    except (TypeError, ValueError):
+        return _DEFAULT_AVATAR_GET_URL_TTL_SECONDS
+
+
+def _extract_avatar_key(value, bucket_name):
+    candidate = str(value or '').strip()
+    if not candidate:
+        return None
+
+    if _AVATAR_KEY_RE.match(candidate):
+        return candidate
+
+    if not bucket_name:
+        return None
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ('http', 'https'):
+        return None
+
+    host = (parsed.netloc or '').lower()
+    bucket = str(bucket_name).lower()
+    if not host.endswith('amazonaws.com'):
+        return None
+
+    path = parsed.path.lstrip('/')
+    if not path:
+        return None
+
+    # Virtual-hosted style: <bucket>.s3.<region>.amazonaws.com/<key>
+    if host.startswith(f'{bucket}.s3.'):
+        pass
+    # Path-style URL: s3.<region>.amazonaws.com/<bucket>/<key>
+    elif host.startswith('s3.') and path.startswith(f'{bucket_name}/'):
+        path = path[len(bucket_name) + 1:]
+    else:
+        return None
+
+    if _AVATAR_KEY_RE.match(path):
+        return path
+    return None
+
+
+def _build_avatar_read_url(bucket_name, avatar_key):
+    if not bucket_name or not avatar_key:
+        return None
+    try:
+        return s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': bucket_name,
+                'Key': avatar_key,
+            },
+            ExpiresIn=_avatar_get_url_ttl_seconds(),
+        )
+    except Exception as e:
+        logger.warning("Failed to presign avatar URL", extra={"avatar_key": avatar_key, "error": str(e)})
+        return None
+
+
+def _with_picture_url(item):
+    if not isinstance(item, dict):
+        return item
+
+    payload = dict(item)
+    bucket_name = os.environ.get('AVATARS_BUCKET_NAME')
+    avatar_key = _extract_avatar_key(payload.get('picture'), bucket_name)
+    if avatar_key:
+        payload['picture'] = avatar_key
+        avatar_url = _build_avatar_read_url(bucket_name, avatar_key)
+        if avatar_url:
+            payload['picture_url'] = avatar_url
+    return payload
 
 
 def get_profile(event):
@@ -42,7 +121,7 @@ def get_profile(event):
         if not item:
             return json_response(404, {'error': 'Profile not found'}, event)
 
-        return json_response(200, item, event)
+        return json_response(200, _with_picture_url(item), event)
 
     except Exception as e:
         logger.error("Error fetching profile", extra={"user_id": user_id, "error": str(e)})
@@ -121,7 +200,7 @@ def update_profile(event):
             ReturnValues="ALL_NEW",
         )
 
-        return json_response(200, response.get('Attributes'), event)
+        return json_response(200, _with_picture_url(response.get('Attributes')), event)
 
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -138,7 +217,7 @@ def create_avatar_upload_url(event):
     """
     POST /v1/users/me/avatar/upload-url
     Generate a presigned S3 URL for uploading an avatar.
-    Returns: { "upload_url": "...", "s3_key": "...", "public_url": "..." }
+    Returns: { "upload_url": "...", "s3_key": "...", "expires_in": 300 }
     """
     claims = get_user_claims(event)
     user_id = claims.get('user_id')
@@ -166,12 +245,7 @@ def create_avatar_upload_url(event):
 
         timestamp = int(time.time())
         s3_key = f"avatars/{user_id}-{timestamp}.{ext}"
-        region = os.environ.get('AWS_REGION', 'us-east-1')
-        public_base_url = os.environ.get(
-            'AVATARS_PUBLIC_BASE_URL',
-            f"https://{bucket_name}.s3.{region}.amazonaws.com"
-        ).rstrip('/')
-        public_url = f"{public_base_url}/{s3_key}"
+        upload_expires_in = 300
 
         upload_url = s3_client.generate_presigned_url(
             'put_object',
@@ -180,15 +254,13 @@ def create_avatar_upload_url(event):
                 'Key': s3_key,
                 'ContentType': content_type,
             },
-            ExpiresIn=300,  # 5 minutes
+            ExpiresIn=upload_expires_in,
         )
 
         return json_response(200, {
             'upload_url': upload_url,
             's3_key': s3_key,
-            'bucket': bucket_name,
-            'region': region,
-            'public_url': public_url,
+            'expires_in': upload_expires_in,
         }, event)
 
     except Exception as e:

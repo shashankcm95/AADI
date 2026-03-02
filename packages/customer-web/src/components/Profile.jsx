@@ -69,16 +69,13 @@ export default function Profile({ user, signOut }) {
         try {
             const contentType = file.type || 'image/jpeg';
             // 1. Get Presigned URL
-            const { upload_url, s3_key, bucket, region, public_url } = await getAvatarUploadUrl(contentType);
+            const { upload_url, s3_key } = await getAvatarUploadUrl(contentType);
 
             // 2. Upload to S3
             await uploadAvatarToS3(upload_url, file, contentType);
 
-            // 3. Construct Public URL
-            const s3Url = public_url || `https://${bucket}.s3.${region}.amazonaws.com/${s3_key}`;
-
-            // 4. Update Profile
-            const updated = await updateUserProfile({ picture: s3Url });
+            // 3. Update profile with the canonical storage key.
+            const updated = await updateUserProfile({ picture: s3_key });
             setProfile(updated);
             setStatusMessage({ type: 'success', text: 'Profile picture updated!' });
         } catch (err) {
@@ -115,7 +112,11 @@ export default function Profile({ user, signOut }) {
                 <div className="profile-header">
                     <div className="avatar-wrapper">
                         <img
-                            src={isSafeUrl(profile?.picture) ? profile.picture : '/logo_icon_stylized.png'}
+                            src={
+                                isSafeUrl(profile?.picture_url)
+                                    ? profile.picture_url
+                                    : (isSafeUrl(profile?.picture) ? profile.picture : '/logo_icon_stylized.png')
+                            }
                             alt="Profile"
                             className="profile-avatar"
                         />

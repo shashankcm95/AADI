@@ -79,9 +79,9 @@ Resources:
       BucketName: !Ref UserAvatarsBucketName
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: false
+        BlockPublicPolicy: true
         IgnorePublicAcls: true
-        RestrictPublicBuckets: false
+        RestrictPublicBuckets: true
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
@@ -97,20 +97,6 @@ Resources:
               - ETag
             MaxAge: 3000
 
-  UserAvatarsBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref UserAvatarsBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: PublicReadAvatars
-            Effect: Allow
-            Principal: "*"
-            Action:
-              - s3:GetObject
-            Resource: !Sub "${UserAvatarsBucket.Arn}/*"
-
   UsersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -121,6 +107,7 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           USER_POOL_ID: !Ref UserPoolId
           AVATARS_BUCKET_NAME: !Ref UserAvatarsBucketName
+          AVATAR_GET_URL_TTL_SECONDS: 900
           CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
           CORS_ALLOW_ORIGIN_ADMIN: !Ref CorsAllowOriginAdmin
       Policies:

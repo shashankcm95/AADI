@@ -27,8 +27,13 @@ class TestUsers(unittest.TestCase):
         self.original_table = users.users_table
         users.users_table = self.mock_table
 
+        self.mock_s3 = MagicMock()
+        self.original_s3 = users.s3_client
+        users.s3_client = self.mock_s3
+
     def tearDown(self):
         users.users_table = self.original_table
+        users.s3_client = self.original_s3
 
     # ── get_profile ───────────────────────────────────────────────────────────
 
@@ -43,6 +48,44 @@ class TestUsers(unittest.TestCase):
         self.assertEqual(response['statusCode'], 200)
         body = json.loads(response['body'])
         self.assertEqual(body['name'], 'John Doe')
+
+    def test_get_profile_with_avatar_key_returns_picture_url(self):
+        event = _make_event()
+        self.mock_table.get_item.return_value = {
+            'Item': {'user_id': 'user123', 'picture': 'avatars/user123-1700000000.jpg'}
+        }
+        self.mock_s3.generate_presigned_url.return_value = 'https://signed.example/avatar.jpg'
+
+        with patch.dict(os.environ, {'AVATARS_BUCKET_NAME': 'test-bucket'}, clear=False):
+            response = users.get_profile(event)
+
+        self.assertEqual(response['statusCode'], 200)
+        body = json.loads(response['body'])
+        self.assertEqual(body['picture'], 'avatars/user123-1700000000.jpg')
+        self.assertEqual(body['picture_url'], 'https://signed.example/avatar.jpg')
+        self.mock_s3.generate_presigned_url.assert_called_with(
+            'get_object',
+            Params={'Bucket': 'test-bucket', 'Key': 'avatars/user123-1700000000.jpg'},
+            ExpiresIn=900,
+        )
+
+    def test_get_profile_normalizes_legacy_s3_url_picture(self):
+        event = _make_event()
+        self.mock_table.get_item.return_value = {
+            'Item': {
+                'user_id': 'user123',
+                'picture': 'https://test-bucket.s3.us-east-1.amazonaws.com/avatars/user123-1700000000.jpg',
+            }
+        }
+        self.mock_s3.generate_presigned_url.return_value = 'https://signed.example/avatar.jpg'
+
+        with patch.dict(os.environ, {'AVATARS_BUCKET_NAME': 'test-bucket'}, clear=False):
+            response = users.get_profile(event)
+
+        self.assertEqual(response['statusCode'], 200)
+        body = json.loads(response['body'])
+        self.assertEqual(body['picture'], 'avatars/user123-1700000000.jpg')
+        self.assertEqual(body['picture_url'], 'https://signed.example/avatar.jpg')
 
     def test_get_profile_not_found(self):
         event = _make_event()
@@ -102,10 +145,16 @@ class TestUsers(unittest.TestCase):
         self.mock_table.update_item.return_value = {
             'Attributes': {'user_id': 'user123', 'picture': 'avatars/user123-1700000000.jpg'}
         }
+        self.mock_s3.generate_presigned_url.return_value = 'https://signed.example/avatar.jpg'
 
-        response = users.update_profile(event)
+        with patch.dict(os.environ, {'AVATARS_BUCKET_NAME': 'test-bucket'}, clear=False):
+            response = users.update_profile(event)
 
         self.assertEqual(response['statusCode'], 200)
+        body = json.loads(response['body'])
+        self.assertEqual(body['picture'], 'avatars/user123-1700000000.jpg')
+        self.assertEqual(body['picture_url'], 'https://signed.example/avatar.jpg')
+
         args = self.mock_table.update_item.call_args[1]
         self.assertIn('#picture = :picture', args['UpdateExpression'])
 
@@ -129,18 +178,15 @@ class TestUsers(unittest.TestCase):
 
     # ── create_avatar_upload_url ──────────────────────────────────────────────
 
-    @patch('handlers.users.s3_client')
-    @patch('handlers.users.os')
-    def test_create_avatar_upload_url(self, mock_os, mock_s3):
-        mock_os.environ.get.side_effect = lambda k, d=None: 'test-bucket' if k == 'AVATARS_BUCKET_NAME' else d
-
-        mock_s3.generate_presigned_url.return_value = (
+    def test_create_avatar_upload_url(self):
+        self.mock_s3.generate_presigned_url.return_value = (
             'https://s3.amazonaws.com/test-bucket/avatars/user123.jpg'
         )
 
         event = _make_event({'content_type': 'image/jpeg'})
 
-        response = users.create_avatar_upload_url(event)
+        with patch.dict(os.environ, {'AVATARS_BUCKET_NAME': 'test-bucket'}, clear=False):
+            response = users.create_avatar_upload_url(event)
 
         self.assertEqual(response['statusCode'], 200)
         body = json.loads(response['body'])
@@ -151,11 +197,8 @@ class TestUsers(unittest.TestCase):
         self.assertIn('s3_key', body)
         self.assertTrue(body['s3_key'].startswith('avatars/user123-'))
         self.assertTrue(body['s3_key'].endswith('.jpg'))
-        self.assertIn('public_url', body)
-        self.assertTrue(
-            body['public_url'].startswith('https://test-bucket.s3.us-east-1.amazonaws.com/avatars/user123-')
-        )
-        self.assertTrue(body['public_url'].endswith('.jpg'))
+        self.assertEqual(body['expires_in'], 300)
+        self.assertNotIn('public_url', body)
 
 
 if __name__ == '__main__':
