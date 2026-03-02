@@ -99,6 +99,8 @@ Resources:
           AttributeType: S
         - AttributeName: created_at
           AttributeType: N
+        - AttributeName: expires_at
+          AttributeType: N
       KeySchema:
         - AttributeName: order_id
           KeyType: HASH
@@ -119,6 +121,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: GSI_StatusExpiry
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: expires_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
@@ -307,13 +317,18 @@ Resources:
       Environment:
         Variables:
           ORDERS_TABLE: !Ref OrdersTable
+          EXPIRY_GSI_NAME: GSI_StatusExpiry
+          EXPIRY_SCAN_FALLBACK_ENABLED: "true"
       Policies:
         - Statement:
             - Effect: Allow
               Action:
+                - dynamodb:Query
                 - dynamodb:Scan
                 - dynamodb:UpdateItem
-              Resource: !GetAtt OrdersTable.Arn
+              Resource:
+                - !GetAtt OrdersTable.Arn
+                - !Sub "${OrdersTable.Arn}/index/*"
       Events:
         ScheduledExpiry:
           Type: Schedule

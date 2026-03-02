@@ -17,17 +17,50 @@ from utils import (
 )
 
 
+PUBLIC_REDACTED_FIELDS = frozenset({
+    'contact_email',
+    'restaurant_image_keys',
+    'vicinity_zone',
+    'is_active',
+})
+
+
+def _serialize_restaurant_for_role(item, role):
+    """Decorate restaurant and redact internal fields for customer-facing reads."""
+    response_item = _decorate_restaurant_response(item)
+    if role in ('admin', 'restaurant_admin'):
+        return response_item
+
+    for field in PUBLIC_REDACTED_FIELDS:
+        response_item.pop(field, None)
+    return response_item
+
+
 def get_restaurant(event, restaurant_id):
     """Get a single restaurant by ID."""
     if not restaurants_table:
         return make_response(500, {'error': 'Restaurants table not configured'})
+
+    claims = get_user_claims(event)
+    role = claims.get('role')
+
+    # restaurant_admin: may only read their own assigned restaurant.
+    if role == 'restaurant_admin':
+        assigned = claims.get('restaurant_id')
+        if assigned != restaurant_id:
+            return make_response(403, {'error': 'Access denied'})
 
     try:
         resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
         item = resp.get('Item')
         if not item:
             return make_response(404, {'error': 'Restaurant not found'})
-        return make_response(200, _decorate_restaurant_response(item))
+
+        # Customers and unauthenticated users may only see active restaurants.
+        if role not in ('admin', 'restaurant_admin') and not item.get('active'):
+            return make_response(404, {'error': 'Restaurant not found'})
+
+        return make_response(200, _serialize_restaurant_for_role(item, role))
     except Exception as e:
         print(f"Get Restaurant Error: {e}")
         return make_response(500, {'error': 'Internal server error'})
@@ -131,7 +164,7 @@ def list_restaurants(event):
                 items = resp.get('Items', [])
                 next_key = resp.get('LastEvaluatedKey')
 
-        response_items = [_decorate_restaurant_response(item) for item in items]
+        response_items = [_serialize_restaurant_for_role(item, role) for item in items]
 
         result = {'restaurants': response_items}
         if next_key:

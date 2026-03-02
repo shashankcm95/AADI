@@ -33,7 +33,7 @@ CREATE_RES=$(curl -s -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
     "$API_BASE/v1/restaurants")
 
 echo "Response: $CREATE_RES"
-REST_ID=$(echo "$CREATE_RES" | jq -r '.restaurant.restaurant_id')
+REST_ID=$(echo "$CREATE_RES" | jq -r '.restaurant_id // .restaurant.restaurant_id')
 
 if [ -z "$REST_ID" ] || [ "$REST_ID" == "null" ]; then
     echo "❌ Failed to create restaurant."

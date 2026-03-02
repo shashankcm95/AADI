@@ -40,7 +40,7 @@ CREATE_RES=$(curl -s -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
     -d '{"name": "'"$REST_NAME"'", "address": "123 Automation Ln", "operating_hours": "10:00-22:00"}' \
     "$API_BASE/v1/restaurants")
 
-REST_ID=$(echo "$CREATE_RES" | jq -r '.restaurant.restaurant_id')
+REST_ID=$(echo "$CREATE_RES" | jq -r '.restaurant_id // .restaurant.restaurant_id')
 
 if [ -z "$REST_ID" ] || [ "$REST_ID" == "null" ]; then
     echo "❌ Failed to create restaurant. Response:"

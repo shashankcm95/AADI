@@ -135,6 +135,106 @@ def test_get_single_restaurant_not_found(mock_tables):
     assert 'not found' in body['error'].lower()
 
 
+def test_get_restaurant_admin_can_read_any(mock_tables):
+    """Admin can read any restaurant regardless of assignment."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True}
+    mock_tables['restaurants'].items['r2'] = {'restaurant_id': 'r2', 'name': 'Rest 2', 'active': False}
+
+    for rid in ('r1', 'r2'):
+        event = _admin_event('GET /v1/restaurants/{restaurant_id}', restaurant_id=rid)
+        response = restaurants_app.lambda_handler(event, None)
+        assert response['statusCode'] == 200
+
+
+def test_get_restaurant_admin_cannot_read_other(mock_tables):
+    """restaurant_admin scoped to r1 cannot read r2."""
+    mock_tables['restaurants'].items['r2'] = {'restaurant_id': 'r2', 'name': 'Rest 2', 'active': True}
+
+    event = _restaurant_admin_event(
+        'GET /v1/restaurants/{restaurant_id}',
+        assigned_restaurant_id='r1',
+        restaurant_id='r2',
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 403
+
+
+def test_get_restaurant_admin_can_read_own(mock_tables):
+    """restaurant_admin scoped to r1 can read r1."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True}
+
+    event = _restaurant_admin_event(
+        'GET /v1/restaurants/{restaurant_id}',
+        assigned_restaurant_id='r1',
+        restaurant_id='r1',
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert body['restaurant_id'] == 'r1'
+
+
+def test_get_restaurant_customer_cannot_see_inactive(mock_tables):
+    """Customer gets 404 for an inactive restaurant."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': False}
+
+    event = _customer_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 404
+
+
+def test_get_restaurant_customer_can_see_active(mock_tables):
+    """Customer can read an active restaurant."""
+    mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True}
+
+    event = _customer_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+
+
+def test_get_restaurant_customer_hides_internal_fields(mock_tables):
+    """Customer reads should not expose internal/sensitive fields."""
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Rest 1',
+        'active': True,
+        'is_active': '1',
+        'contact_email': 'owner@example.com',
+        'restaurant_image_keys': ['restaurants/r1/1.jpg'],
+        'vicinity_zone': {'radius': 5000},
+    }
+
+    event = _customer_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert body['restaurant_id'] == 'r1'
+    assert 'contact_email' not in body
+    assert 'restaurant_image_keys' not in body
+    assert 'vicinity_zone' not in body
+    assert 'is_active' not in body
+
+
+def test_get_restaurant_admin_keeps_internal_fields(mock_tables):
+    """Admin reads should retain internal fields for operational use."""
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Rest 1',
+        'active': True,
+        'is_active': '1',
+        'contact_email': 'owner@example.com',
+        'restaurant_image_keys': ['restaurants/r1/1.jpg'],
+    }
+
+    event = _admin_event('GET /v1/restaurants/{restaurant_id}', restaurant_id='r1')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert body['contact_email'] == 'owner@example.com'
+    assert body['restaurant_image_keys'] == ['restaurants/r1/1.jpg']
+    assert body['is_active'] == '1'
+
+
 def test_restaurants_list(mock_tables):
     # Seed data
     mock_tables['restaurants'].items['r1'] = {'restaurant_id': 'r1', 'name': 'Rest 1', 'active': True, 'is_active': '1'}
@@ -149,6 +249,29 @@ def test_restaurants_list(mock_tables):
     body = json.loads(response['body'])
     assert 'restaurants' in body
     assert len(body['restaurants']) == 3
+
+
+def test_restaurants_list_customer_hides_internal_fields(mock_tables):
+    mock_tables['restaurants'].items['r1'] = {
+        'restaurant_id': 'r1',
+        'name': 'Rest 1',
+        'active': True,
+        'is_active': '1',
+        'contact_email': 'owner@example.com',
+        'restaurant_image_keys': ['restaurants/r1/1.jpg'],
+        'vicinity_zone': {'radius': 5000},
+    }
+    event = _customer_event('GET /v1/restaurants')
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 200
+    body = json.loads(response['body'])
+    assert len(body['restaurants']) >= 1
+    r = next(rest for rest in body['restaurants'] if rest['restaurant_id'] == 'r1')
+    assert 'contact_email' not in r
+    assert 'restaurant_image_keys' not in r
+    assert 'vicinity_zone' not in r
+    assert 'is_active' not in r
+
 
 def test_restaurants_list_only_active(mock_tables):
     # Seed mixed data
