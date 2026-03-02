@@ -113,6 +113,14 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: GSI_RestaurantCreated
+          KeySchema:
+            - AttributeName: restaurant_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
         - IndexName: GSI_CustomerOrders
           KeySchema:
             - AttributeName: customer_id

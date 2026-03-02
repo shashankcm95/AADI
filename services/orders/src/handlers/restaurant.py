@@ -51,8 +51,10 @@ def list_restaurant_orders(restaurant_id, event):
                 })
             else:
                 kwargs.update({
-                    'IndexName': 'GSI_RestaurantStatus',
+                    # Recency-first queue listing for operator views.
+                    'IndexName': 'GSI_RestaurantCreated',
                     'KeyConditionExpression': Key('restaurant_id').eq(restaurant_id),
+                    'ScanIndexForward': False,
                 })
 
             resp = db.orders_table.query(**kwargs)
@@ -189,4 +191,3 @@ def update_order_status(order_id, restaurant_id, event):
     except Exception as e:
         req_log.error("status_update_failed", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
         raise e
-
