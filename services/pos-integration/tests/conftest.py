@@ -80,19 +80,29 @@ class InMemoryTable:
     def update_item(self, Key, UpdateExpression, ExpressionAttributeValues=None, ConditionExpression=None, **kwargs):
         key = Key[self.key_name]
         item = self.items.get(key)
+        names = kwargs.get('ExpressionAttributeNames') or {}
+        values = ExpressionAttributeValues or {}
         
         # Condition checks
-        if ConditionExpression == 'restaurant_id = :rid':
-            rid = ExpressionAttributeValues[':rid']
+        cond = ConditionExpression or ''
+        if 'restaurant_id = :rid' in cond:
+            rid = values.get(':rid')
             if not item or item.get('restaurant_id') != rid:
                 raise self._cond_exc("Condition Failed")
-        
-        if 'AND (#s = :allowed OR #s = :allowed2)' in (ConditionExpression or ''):
-             # Force Fire condition check
-             rid = ExpressionAttributeValues[':rid']
-             allowed = [ExpressionAttributeValues[':allowed'], ExpressionAttributeValues[':allowed2']]
-             if not item or item.get('restaurant_id') != rid or item.get('status') not in allowed:
-                 raise self._cond_exc("Condition Failed")
+
+        if '#s = :allowed' in cond:
+            allowed = values.get(':allowed')
+            if not item or item.get('status') != allowed:
+                raise self._cond_exc("Condition Failed")
+        elif '#s = :allowed1' in cond and '#s = :allowed2' in cond:
+            allowed = {values.get(':allowed1'), values.get(':allowed2')}
+            if not item or item.get('status') not in allowed:
+                raise self._cond_exc("Condition Failed")
+        elif 'AND (#s = :allowed OR #s = :allowed2)' in cond:
+            # Backward compatibility for older test expressions
+            allowed = {values.get(':allowed'), values.get(':allowed2')}
+            if not item or item.get('status') not in allowed:
+                raise self._cond_exc("Condition Failed")
 
         if not item:
              # For some updates we might create? But usually update implies existence in these handlers
@@ -102,16 +112,34 @@ class InMemoryTable:
              item = dict(Key)
              self.items[key] = item
 
-        # Apply updates (Simple SET parsing)
+        # Apply updates (supports generic aliased SET syntax)
         if 'SET' in UpdateExpression:
-             # Crude parsing for test needs
-             vals = ExpressionAttributeValues or {}
-             if ':status' in vals: item['status'] = vals[':status']
-             if ':now' in vals: 
-                 item['updated_at'] = vals[':now']
-                 if 'sent_at = :now' in UpdateExpression: item['sent_at'] = vals[':now']
-             if ':v' in vals: item['vicinity'] = vals[':v']
-             if ':rm' in vals: item['receipt_mode'] = vals[':rm']
+             set_expr = UpdateExpression.split('SET', 1)[1].strip()
+             for assignment in set_expr.split(','):
+                 clause = assignment.strip()
+                 if not clause or '=' not in clause:
+                     continue
+                 left, right = [x.strip() for x in clause.split('=', 1)]
+                 field_name = names.get(left, left)
+                 if right in values:
+                     item[field_name] = values[right]
+
+
+class InMemoryCapacityTable:
+    def __init__(self):
+        self.items = {}
+
+    def update_item(self, Key, UpdateExpression, ConditionExpression=None, ExpressionAttributeValues=None, **kwargs):
+        restaurant_id = Key['restaurant_id']
+        window_start = Key['window_start']
+        composite = (restaurant_id, int(window_start))
+        item = self.items.get(composite) or {}
+        current = int(item.get('current_count', 0))
+        if current <= 0:
+            raise ConditionalCheckFailedException("Condition Failed")
+        decrement = int((ExpressionAttributeValues or {}).get(':one', 1))
+        item['current_count'] = max(0, current - decrement)
+        self.items[composite] = item
 
 
 @pytest.fixture
@@ -121,11 +149,13 @@ def mock_db():
     orders = InMemoryTable('order_id')
     menus = InMemoryTable('restaurant_id')
     webhooks = InMemoryTable('webhook_id')
+    capacity = InMemoryCapacityTable()
 
     # Patch modules
     local_orders = active_handlers.orders_table
     local_menus = active_handlers.menus_table
     local_hooks = active_handlers.webhook_logs_table
+    local_capacity = active_handlers.capacity_table
     local_dynamodb = active_handlers.dynamodb
     
     # Create a mock for the dynamo resource to host the exception class
@@ -136,13 +166,15 @@ def mock_db():
     active_handlers.orders_table = orders
     active_handlers.menus_table = menus
     active_handlers.webhook_logs_table = webhooks
+    active_handlers.capacity_table = capacity
     active_handlers.dynamodb = mock_ddb_resource
     
-    yield {'orders': orders, 'menus': menus, 'webhooks': webhooks}
+    yield {'orders': orders, 'menus': menus, 'webhooks': webhooks, 'capacity': capacity}
     
     active_handlers.orders_table = local_orders
     active_handlers.menus_table = local_menus
     active_handlers.webhook_logs_table = local_hooks
+    active_handlers.capacity_table = local_capacity
     active_handlers.dynamodb = local_dynamodb
 
 @pytest.fixture

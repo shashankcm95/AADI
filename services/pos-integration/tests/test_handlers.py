@@ -70,7 +70,7 @@ def test_handle_list_orders(mock_db):
 def test_handle_update_status(mock_db):
     """Verify status updates and cross-restaurant protection."""
     order_id = 'o_status'
-    mock_db['orders'].items[order_id] = {'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'PENDING_NOT_SENT'}
+    mock_db['orders'].items[order_id] = {'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'SENT_TO_DESTINATION'}
     
     key_record = {'restaurant_id': 'rest_1'}
     
@@ -89,6 +89,15 @@ def test_handle_update_status(mock_db):
     resp = handlers.handle_update_status(order_id, {'status': 'READY'}, key_record_2)
     assert resp['statusCode'] == 403
 
+
+def test_handle_update_status_rejects_invalid_jump(mock_db):
+    order_id = 'o_jump'
+    mock_db['orders'].items[order_id] = {'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'PENDING_NOT_SENT'}
+
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_update_status(order_id, {'status': 'READY'}, key_record)
+    assert resp['statusCode'] == 409
+
 def test_handle_force_fire(mock_db):
     """Verify force fire logic."""
     order_id = 'o_fire'
@@ -102,6 +111,37 @@ def test_handle_force_fire(mock_db):
     assert item['status'] == 'SENT_TO_DESTINATION'
     assert item['receipt_mode'] == 'HARD'
     assert item['vicinity'] is True
+
+
+def test_handle_force_fire_waiting_for_capacity(mock_db):
+    order_id = 'o_fire_waiting'
+    mock_db['orders'].items[order_id] = {'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'WAITING_FOR_CAPACITY'}
+
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_force_fire(order_id, key_record)
+
+    assert resp['statusCode'] == 200
+    item = mock_db['orders'].items[order_id]
+    assert item['status'] == 'SENT_TO_DESTINATION'
+
+
+def test_handle_update_status_releases_capacity_on_completed(mock_db):
+    order_id = 'o_complete'
+    mock_db['orders'].items[order_id] = {
+        'order_id': order_id,
+        'restaurant_id': 'rest_1',
+        'destination_id': 'rest_1',
+        'status': 'FULFILLING',
+        'capacity_window_start': 900,
+    }
+    mock_db['capacity'].items[('rest_1', 900)] = {'current_count': 2}
+
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_update_status(order_id, {'status': 'COMPLETED'}, key_record)
+
+    assert resp['statusCode'] == 200
+    assert mock_db['orders'].items[order_id]['status'] == 'COMPLETED'
+    assert mock_db['capacity'].items[('rest_1', 900)]['current_count'] == 1
 
 def test_handle_sync_menu(mock_db):
     """Verify menu sync."""

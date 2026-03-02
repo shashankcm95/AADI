@@ -13,6 +13,8 @@ import time
 import uuid
 import boto3
 from typing import Dict, Any, List
+from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Attr
 from pos_mapper import pos_order_to_session, session_to_pos_order, pos_menu_to_resources
 
 dynamodb = boto3.resource('dynamodb')
@@ -20,18 +22,174 @@ dynamodb = boto3.resource('dynamodb')
 PAYMENT_MODE_AT_RESTAURANT = "PAY_AT_RESTAURANT"
 POS_MENU_SYNC_ENABLED = os.environ.get("POS_MENU_SYNC_ENABLED", "false").lower() == "true"
 
+STATUS_PENDING = "PENDING_NOT_SENT"
+STATUS_SENT = "SENT_TO_DESTINATION"
+STATUS_WAITING = "WAITING_FOR_CAPACITY"
+STATUS_IN_PROGRESS = "IN_PROGRESS"
+STATUS_READY = "READY"
+STATUS_FULFILLING = "FULFILLING"
+STATUS_COMPLETED = "COMPLETED"
+
+CHAIN_TRANSITIONS = {
+    STATUS_SENT: (STATUS_IN_PROGRESS,),
+    STATUS_IN_PROGRESS: (STATUS_READY,),
+    STATUS_READY: (STATUS_FULFILLING,),
+    STATUS_FULFILLING: (STATUS_COMPLETED,),
+}
+
 # Table references (cross-service, passed via environment)
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE', '')
 MENUS_TABLE = os.environ.get('MENUS_TABLE', '')
 WEBHOOK_LOGS_TABLE = os.environ.get('POS_WEBHOOK_LOGS_TABLE', '')
+CAPACITY_TABLE = os.environ.get('CAPACITY_TABLE', '')
 
-for _name, _val in [('ORDERS_TABLE', ORDERS_TABLE), ('MENUS_TABLE', MENUS_TABLE), ('POS_WEBHOOK_LOGS_TABLE', WEBHOOK_LOGS_TABLE)]:
+for _name, _val in [
+    ('ORDERS_TABLE', ORDERS_TABLE),
+    ('MENUS_TABLE', MENUS_TABLE),
+    ('POS_WEBHOOK_LOGS_TABLE', WEBHOOK_LOGS_TABLE),
+    ('CAPACITY_TABLE', CAPACITY_TABLE),
+]:
     if not _val:
         print(f"WARN: {_name} env var not set — related operations will be no-ops")
 
 orders_table = dynamodb.Table(ORDERS_TABLE) if ORDERS_TABLE else None
 menus_table = dynamodb.Table(MENUS_TABLE) if MENUS_TABLE else None
 webhook_logs_table = dynamodb.Table(WEBHOOK_LOGS_TABLE) if WEBHOOK_LOGS_TABLE else None
+capacity_table = dynamodb.Table(CAPACITY_TABLE) if CAPACITY_TABLE else None
+
+
+def _fetch_order(order_id: str):
+    if not orders_table:
+        return None
+    if not order_id:
+        return None
+    resp = orders_table.get_item(Key={'order_id': order_id})
+    return resp.get('Item')
+
+
+def _status_map() -> Dict[str, str]:
+    return {
+        'PREPARING': STATUS_IN_PROGRESS,
+        'READY': STATUS_READY,
+        'PICKED_UP': STATUS_FULFILLING,
+        'COMPLETED': STATUS_COMPLETED,
+        # Also accept Arrive-native statuses
+        STATUS_IN_PROGRESS: STATUS_IN_PROGRESS,
+        STATUS_FULFILLING: STATUS_FULFILLING,
+        STATUS_PENDING: STATUS_PENDING,
+        STATUS_SENT: STATUS_SENT,
+        STATUS_READY: STATUS_READY,
+        STATUS_COMPLETED: STATUS_COMPLETED,
+    }
+
+
+def _validate_transition(current_status: str, target_status: str) -> str:
+    current = str(current_status or '')
+    target = str(target_status or '')
+
+    if not target:
+        return "Missing status"
+
+    # Idempotent updates are accepted.
+    if current == target:
+        return ""
+
+    if target == STATUS_SENT:
+        if current in (STATUS_PENDING, STATUS_WAITING):
+            return ""
+        return f"Invalid transition {current} -> {target}"
+
+    allowed_next = CHAIN_TRANSITIONS.get(current, ())
+    if target in allowed_next:
+        return ""
+
+    return f"Invalid transition {current} -> {target}"
+
+
+def _timestamp_fields_for_status(target_status: str, now: int) -> Dict[str, Any]:
+    fields: Dict[str, Any] = {'updated_at': now}
+    if target_status == STATUS_IN_PROGRESS:
+        fields['started_at'] = now
+    elif target_status == STATUS_READY:
+        fields['ready_at'] = now
+    elif target_status == STATUS_FULFILLING:
+        fields['fulfilling_at'] = now
+    elif target_status == STATUS_COMPLETED:
+        fields['completed_at'] = now
+    elif target_status == STATUS_SENT:
+        fields['sent_at'] = now
+        fields['vicinity'] = True
+        fields['receipt_mode'] = 'HARD'
+    return fields
+
+
+def _build_set_expression(status: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    expr_names = {'#s': 'status'}
+    expr_values = {':status': status}
+    assignments = ['#s = :status']
+    idx = 0
+    for key, value in fields.items():
+        idx += 1
+        name_ref = f"#f{idx}"
+        val_ref = f":f{idx}"
+        expr_names[name_ref] = key
+        expr_values[val_ref] = value
+        assignments.append(f"{name_ref} = {val_ref}")
+
+    return {
+        'UpdateExpression': "SET " + ", ".join(assignments),
+        'ExpressionAttributeNames': expr_names,
+        'ExpressionAttributeValues': expr_values,
+    }
+
+
+def _update_order_with_guard(
+    order_id: str,
+    restaurant_id: str,
+    current_status: str,
+    target_status: str,
+    extra_fields: Dict[str, Any],
+) -> bool:
+    if not orders_table:
+        return True
+
+    request = _build_set_expression(target_status, extra_fields)
+    request['Key'] = {'order_id': order_id}
+    request['ConditionExpression'] = 'restaurant_id = :rid AND #s = :allowed'
+    request['ExpressionAttributeValues'].update({
+        ':rid': restaurant_id,
+        ':allowed': current_status,
+    })
+
+    orders_table.update_item(**request)
+    return True
+
+
+def _release_capacity_slot(session: Dict[str, Any]) -> None:
+    if not capacity_table:
+        return
+
+    window_start = session.get('capacity_window_start')
+    if window_start is None:
+        return
+
+    destination_id = session.get('destination_id', session.get('restaurant_id'))
+    if not destination_id:
+        return
+
+    try:
+        capacity_table.update_item(
+            Key={
+                'restaurant_id': destination_id,
+                'window_start': int(window_start),
+            },
+            UpdateExpression="SET current_count = current_count - :one",
+            ConditionExpression=Attr("current_count").gt(0),
+            ExpressionAttributeValues={":one": 1},
+        )
+    except Exception:
+        # Best effort: slot may already be released or row expired.
+        return
 
 
 def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[str, Any]:
@@ -78,7 +236,7 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
         'restaurant_id': restaurant_id,
         'customer_name': session_data.get('customer_name', 'Guest'),
         'items': session_data.get('items', []),
-        'status': 'PENDING_NOT_SENT',
+        'status': STATUS_PENDING,
         'arrival_status': None,
         'payment_mode': PAYMENT_MODE_AT_RESTAURANT,
         'pos_order_ref': session_data.get('pos_order_ref', ''),
@@ -100,7 +258,7 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
         'body': json.dumps({
             'arrive_order_id': order_id,
             'pos_order_ref': session_data.get('pos_order_ref', ''),
-            'status': 'PENDING_NOT_SENT',
+            'status': STATUS_PENDING,
             'arrive_fee_cents': arrive_fee,
         })
     }
@@ -157,48 +315,48 @@ def handle_update_status(order_id: str, body: Dict[str, Any], key_record: Dict[s
     """
     restaurant_id = key_record['restaurant_id']
     new_status = body.get('status')
-    
-    status_map = {
-        'PREPARING': 'IN_PROGRESS',
-        'READY': 'READY',
-        'PICKED_UP': 'FULFILLING',
-        'COMPLETED': 'COMPLETED',
-        'CANCELED': 'CANCELED',
-        'CANCELLED': 'CANCELED',
-        # Also accept Arrive-native statuses
-        'IN_PROGRESS': 'IN_PROGRESS',
-        'FULFILLING': 'FULFILLING',
-        'PENDING_NOT_SENT': 'PENDING_NOT_SENT',
-        'SENT_TO_DESTINATION': 'SENT_TO_DESTINATION',
-    }
 
-    arrive_status = status_map.get(new_status)
+    arrive_status = _status_map().get(new_status)
     if not arrive_status:
         return {
             'statusCode': 400,
-            'body': json.dumps({'error': f'Unknown status: {new_status}', 'valid_statuses': list(status_map.keys())})
+            'body': json.dumps({'error': f'Unknown status: {new_status}', 'valid_statuses': list(_status_map().keys())})
         }
 
     if orders_table:
-        now = int(time.time())
-        update_expr = 'SET #s = :status, updated_at = :now'
-        expr_values = {':status': arrive_status, ':now': now, ':rid': restaurant_id}
-        expr_names = {'#s': 'status'}
-        
-        # Add completed_at for terminal states
-        if arrive_status in ('COMPLETED', 'CANCELED'):
-            update_expr += ', completed_at = :now'
+        session = _fetch_order(order_id)
+        if not session:
+            return {'statusCode': 404, 'body': json.dumps({'error': 'Order not found'})}
+        if session.get('restaurant_id') != restaurant_id:
+            return {'statusCode': 403, 'body': json.dumps({'error': 'Order does not belong to this restaurant'})}
+
+        current_status = str(session.get('status') or '')
+        transition_error = _validate_transition(current_status, arrive_status)
+        if transition_error:
+            return {'statusCode': 409, 'body': json.dumps({'error': transition_error})}
+
+        if current_status == arrive_status:
+            if arrive_status == STATUS_COMPLETED:
+                _release_capacity_slot(session)
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'order_id': order_id, 'status': arrive_status, 'idempotent': True})
+            }
 
         try:
-            orders_table.update_item(
-                Key={'order_id': order_id},
-                UpdateExpression=update_expr,
-                ExpressionAttributeValues=expr_values,
-                ExpressionAttributeNames=expr_names,
-                ConditionExpression='restaurant_id = :rid',
+            now = int(time.time())
+            _update_order_with_guard(
+                order_id=order_id,
+                restaurant_id=restaurant_id,
+                current_status=current_status,
+                target_status=arrive_status,
+                extra_fields=_timestamp_fields_for_status(arrive_status, now),
             )
-        except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-            return {'statusCode': 403, 'body': json.dumps({'error': 'Order does not belong to this restaurant'})}
+        except (dynamodb.meta.client.exceptions.ConditionalCheckFailedException, ClientError):
+            return {'statusCode': 409, 'body': json.dumps({'error': 'Order changed concurrently; retry'})}
+
+        if arrive_status == STATUS_COMPLETED:
+            _release_capacity_slot(session)
 
     return {
         'statusCode': 200,
@@ -216,29 +374,38 @@ def handle_force_fire(order_id: str, key_record: Dict[str, Any]) -> Dict[str, An
     restaurant_id = key_record['restaurant_id']
 
     if orders_table:
-        now = int(time.time())
+        session = _fetch_order(order_id)
+        if not session:
+            return {'statusCode': 404, 'body': json.dumps({'error': 'Order not found'})}
+        if session.get('restaurant_id') != restaurant_id:
+            return {'statusCode': 403, 'body': json.dumps({'error': 'Order does not belong to this restaurant'})}
+
+        current_status = str(session.get('status') or '')
+        transition_error = _validate_transition(current_status, STATUS_SENT)
+        if transition_error:
+            return {'statusCode': 409, 'body': json.dumps({'error': transition_error})}
+
+        if current_status == STATUS_SENT:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'order_id': order_id, 'status': STATUS_SENT, 'fired': True, 'idempotent': True})
+            }
+
         try:
-            orders_table.update_item(
-                Key={'order_id': order_id},
-                UpdateExpression='SET #s = :status, sent_at = :now, vicinity = :v, receipt_mode = :rm',
-                ExpressionAttributeValues={
-                    ':status': 'SENT_TO_DESTINATION',
-                    ':now': now,
-                    ':v': True,
-                    ':rm': 'HARD',
-                    ':rid': restaurant_id,
-                    ':allowed': 'PENDING_NOT_SENT',
-                    ':allowed2': 'WAITING',
-                },
-                ExpressionAttributeNames={'#s': 'status'},
-                ConditionExpression='restaurant_id = :rid AND (#s = :allowed OR #s = :allowed2)',
+            now = int(time.time())
+            _update_order_with_guard(
+                order_id=order_id,
+                restaurant_id=restaurant_id,
+                current_status=current_status,
+                target_status=STATUS_SENT,
+                extra_fields=_timestamp_fields_for_status(STATUS_SENT, now),
             )
-        except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-            return {'statusCode': 409, 'body': json.dumps({'error': 'Order not in a fireable state or wrong restaurant'})}
+        except (dynamodb.meta.client.exceptions.ConditionalCheckFailedException, ClientError):
+            return {'statusCode': 409, 'body': json.dumps({'error': 'Order not in a fireable state or changed concurrently'})}
 
     return {
         'statusCode': 200,
-        'body': json.dumps({'order_id': order_id, 'status': 'SENT_TO_DESTINATION', 'fired': True})
+        'body': json.dumps({'order_id': order_id, 'status': STATUS_SENT, 'fired': True})
     }
 
 

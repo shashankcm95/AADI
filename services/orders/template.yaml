@@ -346,6 +346,10 @@ Outputs:
     Description: "Orders DynamoDB table name"
     Value: !Ref OrdersTable
 
+  CapacityTableName:
+    Description: "Capacity DynamoDB table name"
+    Value: !Ref CapacityTable
+
   GeofenceEventsTableName:
     Description: "DynamoDB table storing dedupe records for geofence events"
     Value: !Ref GeofenceEventsTable

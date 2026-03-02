@@ -14,10 +14,15 @@ Parameters:
     Type: String
     Description: Menus table name from the restaurants stack
     Default: ""
+  CapacityTableName:
+    Type: String
+    Description: Capacity table name from the orders stack
+    Default: ""
 
 Conditions:
   HasOrdersTableName: !Not [!Equals [!Ref OrdersTableName, ""]]
   HasMenusTableName: !Not [!Equals [!Ref MenusTableName, ""]]
+  HasCapacityTableName: !Not [!Equals [!Ref CapacityTableName, ""]]
 
 Globals:
   Function:
@@ -87,6 +92,10 @@ Resources:
             - HasMenusTableName
             - !Ref MenusTableName
             - !Sub "${AWS::StackName}-menus"
+          CAPACITY_TABLE: !If
+            - HasCapacityTableName
+            - !Ref CapacityTableName
+            - !Sub "${AWS::StackName}-capacity"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PosApiKeysTable
@@ -126,6 +135,12 @@ Resources:
                       - HasMenusTableName
                       - !Ref MenusTableName
                       - !Sub "${AWS::StackName}-menus"
+                - !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ResolvedCapacityTableName}"
+                  - ResolvedCapacityTableName: !If
+                      - HasCapacityTableName
+                      - !Ref CapacityTableName
+                      - !Sub "${AWS::StackName}-capacity"
       Events:
         # POS → Arrive: Push a new order
         PosCreateOrder:

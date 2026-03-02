@@ -302,6 +302,7 @@ Resources:
       Parameters:
         OrdersTableName: !GetAtt OrdersService.Outputs.OrdersTableName
         MenusTableName: !GetAtt RestaurantsService.Outputs.MenusTableName
+        CapacityTableName: !GetAtt OrdersService.Outputs.CapacityTableName
 
   # -------------------------------------------------------------------------
   # Frontend Hosting (S3)
