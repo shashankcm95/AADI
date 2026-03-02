@@ -182,6 +182,19 @@ Resources:
               - ETag
             MaxAge: 3000
 
+  GeofenceResyncDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  GeofenceResyncQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt GeofenceResyncDLQ.Arn
+        maxReceiveCount: 5
+
   RestaurantsFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -197,6 +210,7 @@ Resources:
           IMAGE_URL_TTL_SECONDS: 3600
           USER_POOL_ID: !Ref UserPoolId
           LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
+          GEOFENCE_RESYNC_QUEUE_URL: !Ref GeofenceResyncQueue
           CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
           CORS_ALLOW_ORIGIN_ADMIN: !Ref CorsAllowOriginAdmin
       Policies:
@@ -221,6 +235,8 @@ Resources:
                 - HasLocationGeofenceCollectionName
                 - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/${LocationGeofenceCollectionName}"
                 - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/no-collection-assigned"
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt GeofenceResyncQueue.QueueName
         - DynamoDBCrudPolicy:
             TableName: !Ref RestaurantsTable
         - DynamoDBCrudPolicy:
@@ -311,6 +327,42 @@ Resources:
             Path: /v1/restaurants/{restaurant_id}/images/upload-url
             Method: POST
 
+  GeofenceResyncWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: geofence_resync_worker.lambda_handler
+      Timeout: 120
+      Environment:
+        Variables:
+          RESTAURANTS_TABLE: !Ref RestaurantsTable
+          RESTAURANT_CONFIG_TABLE: !Ref RestaurantConfigTable
+          LOCATION_GEOFENCE_COLLECTION_NAME: !Ref LocationGeofenceCollectionName
+          GEOFENCE_RESYNC_QUEUE_URL: !Ref GeofenceResyncQueue
+          GEOFENCE_RESYNC_BATCH_SIZE: 25
+          GEOFENCE_RESYNC_MAX_UPSERT_ATTEMPTS: 3
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - geo:BatchPutGeofence
+              Resource: !If
+                - HasLocationGeofenceCollectionName
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/${LocationGeofenceCollectionName}"
+                - !Sub "arn:aws:geo:${AWS::Region}:${AWS::AccountId}:geofence-collection/no-collection-assigned"
+        - DynamoDBReadPolicy:
+            TableName: !Ref RestaurantsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RestaurantConfigTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt GeofenceResyncQueue.QueueName
+      Events:
+        GeofenceResyncQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt GeofenceResyncQueue.Arn
+            BatchSize: 1
+
 Outputs:
   RestaurantsApi:
     Description: "API Gateway endpoint URL for Restaurants Service"
@@ -335,3 +387,7 @@ Outputs:
   RestaurantImagesBucketName:
     Description: "S3 bucket for restaurant media uploads"
     Value: !Ref RestaurantImagesBucket
+
+  GeofenceResyncQueueName:
+    Description: "Queue used for asynchronous geofence resync jobs"
+    Value: !GetAtt GeofenceResyncQueue.QueueName

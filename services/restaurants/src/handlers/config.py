@@ -1,10 +1,14 @@
 """Restaurant configuration handlers."""
 import json
+import os
 import time
 import uuid
 
+import boto3
+
+from shared.logger import get_logger
+
 from utils import (
-    CORS_HEADERS,
     DEFAULT_DISPATCH_TRIGGER_ZONE,
     DEFAULT_ZONE_LABELS,
     DEFAULT_ZONE_DISTANCES_M,
@@ -12,15 +16,12 @@ from utils import (
     GLOBAL_CONFIG_ID,
     ZONE_EVENT_MAP,
     config_table,
-    decimal_default,
     get_global_zone_labels,
     get_global_zone_distances,
     get_user_claims,
     make_response,
     normalize_dispatch_trigger_event,
     normalize_dispatch_trigger_zone,
-    restaurants_table,
-    upsert_restaurant_geofences,
 )
 
 # ── Constants ──
@@ -28,6 +29,67 @@ VALID_POS_PROVIDERS = {'square', 'toast', 'clover', 'custom'}
 MAX_POS_CONNECTIONS = 5
 VALID_DISPATCH_TRIGGER_EVENTS = set(ZONE_EVENT_MAP.values())
 VALID_DISPATCH_TRIGGER_ZONES = set(ZONE_EVENT_MAP.keys())
+GEOFENCE_RESYNC_QUEUE_URL = os.environ.get('GEOFENCE_RESYNC_QUEUE_URL', '').strip()
+GEOFENCE_RESYNC_TASK_TYPE = 'geofence_resync'
+
+log = get_logger("restaurants.config", service="restaurants")
+_sqs_client = None
+
+
+def _get_sqs_client():
+    global _sqs_client
+    if _sqs_client is not None:
+        return _sqs_client if _sqs_client else None
+    try:
+        _sqs_client = boto3.client('sqs')
+    except Exception as e:
+        print(f"Failed to create SQS client: {e}")
+        _sqs_client = False
+    return _sqs_client if _sqs_client else None
+
+
+def _build_geofence_sync_state(job_id, now, status='QUEUED'):
+    return {
+        'job_id': str(job_id),
+        'status': str(status),
+        'queued_at': int(now),
+        'attempted': 0,
+        'updated': 0,
+        'failed': 0,
+        'batches_processed': 0,
+    }
+
+
+def _enqueue_geofence_resync_job(job_id, queued_at):
+    if not GEOFENCE_RESYNC_QUEUE_URL:
+        return False, 'GEOFENCE_RESYNC_QUEUE_URL is not configured'
+    sqs = _get_sqs_client()
+    if sqs is None:
+        return False, 'SQS client unavailable'
+
+    message = {
+        'task_type': GEOFENCE_RESYNC_TASK_TYPE,
+        'job_id': str(job_id),
+        'queued_at': int(queued_at),
+    }
+    try:
+        sqs.send_message(
+            QueueUrl=GEOFENCE_RESYNC_QUEUE_URL,
+            MessageBody=json.dumps(message),
+        )
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _load_global_config_item():
+    if not config_table:
+        return {}
+    try:
+        return config_table.get_item(Key={'restaurant_id': GLOBAL_CONFIG_ID}).get('Item', {})
+    except Exception as e:
+        print(f"Failed to read global config item: {e}")
+        return {}
 
 
 def _mask_secret(secret):
@@ -149,36 +211,6 @@ def _validate_global_updates(zone_distances_touched, zone_labels_touched):
     if zone_distances_touched or zone_labels_touched:
         return None
     return 'Provide at least one field to update: zone_distances_m or zone_labels'
-
-
-def _resync_all_restaurant_geofences():
-    if not restaurants_table:
-        return {'attempted': 0, 'updated': 0, 'failed': 0}
-
-    attempted = 0
-    updated = 0
-    failed = 0
-
-    scan_kwargs = {}
-    while True:
-        response = restaurants_table.scan(**scan_kwargs)
-        for item in response.get('Items', []):
-            restaurant_id = item.get('restaurant_id')
-            location = item.get('location')
-            if not restaurant_id:
-                continue
-            attempted += 1
-            if upsert_restaurant_geofences(restaurant_id, location):
-                updated += 1
-            else:
-                failed += 1
-
-        last_key = response.get('LastEvaluatedKey')
-        if not last_key:
-            break
-        scan_kwargs['ExclusiveStartKey'] = last_key
-
-    return {'attempted': attempted, 'updated': updated, 'failed': failed}
 
 
 def get_config(event, restaurant_id):
@@ -342,16 +374,18 @@ def get_global_config(event):
         return make_response(403, {'error': 'Access denied'})
 
     zone_distances = get_global_zone_distances()
+    global_item = _load_global_config_item()
     return make_response(200, {
         'zone_distances_m': zone_distances,
         'zone_labels': get_global_zone_labels(),
         'zone_event_map': ZONE_EVENT_MAP,
         'default_dispatch_trigger_zone': DEFAULT_DISPATCH_TRIGGER_ZONE,
+        'geofence_sync': global_item.get('geofence_sync'),
     })
 
 
 def update_global_config(event):
-    """Update platform-wide zone distances and resync AWS geofences (admin only)."""
+    """Update platform-wide zone distances and enqueue geofence resync (admin only)."""
     if not config_table:
         return make_response(500, {'error': 'Config table not configured'})
 
@@ -395,20 +429,51 @@ def update_global_config(event):
     if global_err:
         return make_response(400, {'error': global_err})
 
+    job_id = str(uuid.uuid4())
+    sync_state = _build_geofence_sync_state(job_id, now, status='QUEUED')
+
     config_table.put_item(
         Item={
             'restaurant_id': GLOBAL_CONFIG_ID,
             'zone_distances_m': normalized_zone_distances,
             'zone_labels': normalized_zone_labels,
+            'geofence_sync': sync_state,
             'created_at': created_at,
             'updated_at': now,
         }
     )
 
-    sync_stats = _resync_all_restaurant_geofences()
+    queued, queue_error = _enqueue_geofence_resync_job(job_id=job_id, queued_at=now)
+    if not queued:
+        sync_state = dict(sync_state)
+        sync_state['status'] = 'ENQUEUE_FAILED'
+        sync_state['error'] = str(queue_error)[:256]
+        config_table.update_item(
+            Key={'restaurant_id': GLOBAL_CONFIG_ID},
+            UpdateExpression='SET geofence_sync = :gs, updated_at = :u',
+            ExpressionAttributeValues={
+                ':gs': sync_state,
+                ':u': int(time.time()),
+            },
+        )
+        log.error("global_config_geofence_resync_enqueue_failed", extra={
+            'job_id': job_id,
+            'error': str(queue_error),
+        })
+        return make_response(500, {
+            'error': 'Global zone configuration updated, but geofence resync enqueue failed',
+            'zone_distances_m': normalized_zone_distances,
+            'zone_labels': normalized_zone_labels,
+            'geofence_sync': sync_state,
+        })
+
+    log.info("global_config_geofence_resync_enqueued", extra={
+        'job_id': job_id,
+        'queue_url_configured': bool(GEOFENCE_RESYNC_QUEUE_URL),
+    })
     return make_response(200, {
         'message': 'Global zone configuration updated',
         'zone_distances_m': normalized_zone_distances,
         'zone_labels': normalized_zone_labels,
-        'geofence_sync': sync_stats,
+        'geofence_sync': sync_state,
     })

@@ -303,6 +303,7 @@ def test_get_global_config_admin_defaults(mock_tables):
     assert body["zone_distances_m"] == {"ZONE_1": 1500, "ZONE_2": 150, "ZONE_3": 30}
     assert body["zone_labels"] == {"ZONE_1": "Zone 1", "ZONE_2": "Zone 2", "ZONE_3": "Zone 3"}
     assert body["default_dispatch_trigger_zone"] == "ZONE_1"
+    assert body["geofence_sync"] is None
 
 
 def test_get_global_config_denies_non_admin(mock_tables):
@@ -310,16 +311,21 @@ def test_get_global_config_denies_non_admin(mock_tables):
     assert resp["statusCode"] == 403
 
 
-def test_update_global_config_updates_distances_and_resyncs(mock_tables, monkeypatch):
+def test_update_global_config_updates_distances_and_enqueues_resync(mock_tables, monkeypatch):
     import handlers.config as h_config
 
-    sync_calls = []
+    sent_messages = []
 
-    def _fake_upsert(restaurant_id, location):
-        sync_calls.append((restaurant_id, location))
-        return True
+    class _FakeSQS:
+        def send_message(self, QueueUrl, MessageBody):
+            sent_messages.append({
+                "QueueUrl": QueueUrl,
+                "MessageBody": MessageBody,
+            })
+            return {"MessageId": "msg-1"}
 
-    monkeypatch.setattr(h_config, "upsert_restaurant_geofences", _fake_upsert)
+    monkeypatch.setattr(h_config, "_sqs_client", _FakeSQS())
+    monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
 
     resp = restaurants_app.update_global_config(
         _admin_event(body={
@@ -335,8 +341,36 @@ def test_update_global_config_updates_distances_and_resyncs(mock_tables, monkeyp
     global_item = mock_tables["config"].get_item(Key={"restaurant_id": "__GLOBAL__"})["Item"]
     assert global_item["zone_distances_m"] == {"ZONE_1": 1800, "ZONE_2": 150, "ZONE_3": 45}
     assert global_item["zone_labels"] == {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Doorstep"}
-    assert len(sync_calls) >= 1
-    assert body["geofence_sync"]["attempted"] >= 1
+    assert body["geofence_sync"]["status"] == "QUEUED"
+    assert body["geofence_sync"]["attempted"] == 0
+    assert body["geofence_sync"]["updated"] == 0
+    assert body["geofence_sync"]["failed"] == 0
+    assert body["geofence_sync"]["job_id"]
+    assert global_item["geofence_sync"]["job_id"] == body["geofence_sync"]["job_id"]
+    assert len(sent_messages) == 1
+    payload = json.loads(sent_messages[0]["MessageBody"])
+    assert payload["task_type"] == "geofence_resync"
+    assert payload["job_id"] == body["geofence_sync"]["job_id"]
+
+
+def test_update_global_config_returns_error_when_enqueue_fails(mock_tables, monkeypatch):
+    import handlers.config as h_config
+
+    class _BrokenSQS:
+        def send_message(self, QueueUrl, MessageBody):
+            raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(h_config, "_sqs_client", _BrokenSQS())
+    monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
+
+    resp = restaurants_app.update_global_config(
+        _admin_event(body={"zone_distances_m": {"ZONE_1": 1700}})
+    )
+    assert resp["statusCode"] == 500
+    body = json.loads(resp["body"])
+    assert "enqueue failed" in body["error"]
+    assert body["geofence_sync"]["status"] == "ENQUEUE_FAILED"
+    assert body["geofence_sync"]["job_id"]
 
 
 def test_update_global_config_rejects_invalid_distance(mock_tables):
@@ -355,7 +389,16 @@ def test_update_global_config_rejects_empty_label(mock_tables):
     assert "cannot be empty" in json.loads(resp["body"])["error"]
 
 
-def test_update_global_config_updates_labels_only(mock_tables):
+def test_update_global_config_updates_labels_only(mock_tables, monkeypatch):
+    import handlers.config as h_config
+
+    class _FakeSQS:
+        def send_message(self, QueueUrl, MessageBody):
+            return {"MessageId": "msg-1"}
+
+    monkeypatch.setattr(h_config, "_sqs_client", _FakeSQS())
+    monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
+
     resp = restaurants_app.update_global_config(
         _admin_event(body={"zone_labels": {"ZONE_2": "Parking"}})
     )
