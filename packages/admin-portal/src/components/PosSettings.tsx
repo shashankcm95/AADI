@@ -71,14 +71,21 @@ export default function PosSettings({ restaurantId, onClose }: PosSettingsProps)
             await fetchConfig()
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to save')
+            throw err
         } finally {
             setSaving(false)
         }
     }
 
-    function handleAddConnection() {
-        if (!newUrl.startsWith('https://')) {
-            setError('Webhook URL must use HTTPS')
+    async function handleAddConnection() {
+        try {
+            const parsed = new URL(newUrl)
+            if (parsed.protocol !== 'https:') {
+                setError('Webhook URL must use HTTPS')
+                return
+            }
+        } catch {
+            setError('Invalid webhook URL')
             return
         }
         if (connections.length >= 5) {
@@ -94,34 +101,54 @@ export default function PosSettings({ restaurantId, onClose }: PosSettingsProps)
             webhook_secret: newSecret,
             enabled: true,
         }
+        const previous = connections
         const updated = [...connections, newConn]
         setConnections(updated)
-        handleSave(updated)
-        setShowAdd(false)
-        setNewLabel('')
-        setNewProvider('custom')
-        setNewUrl('')
-        setNewSecret('')
+        try {
+            await handleSave(updated)
+            setShowAdd(false)
+            setNewLabel('')
+            setNewProvider('custom')
+            setNewUrl('')
+            setNewSecret('')
+        } catch {
+            setConnections(previous)
+        }
     }
 
-    function handleRemove(idx: number) {
+    async function handleRemove(idx: number) {
+        const previous = connections
         const updated = connections.filter((_, i) => i !== idx)
         setConnections(updated)
-        handleSave(updated)
+        try {
+            await handleSave(updated)
+        } catch {
+            setConnections(previous)
+        }
     }
 
-    function handleToggleConnection(idx: number) {
+    async function handleToggleConnection(idx: number) {
+        const previous = connections
         const updated = connections.map((c, i) =>
             i === idx ? { ...c, enabled: !c.enabled } : c
         )
         setConnections(updated)
-        handleSave(updated)
+        try {
+            await handleSave(updated)
+        } catch {
+            setConnections(previous)
+        }
     }
 
-    function handleToggleGlobal() {
+    async function handleToggleGlobal() {
+        const previous = posEnabled
         const next = !posEnabled
         setPosEnabled(next)
-        handleSave(undefined, next)
+        try {
+            await handleSave(undefined, next)
+        } catch {
+            setPosEnabled(previous)
+        }
     }
 
     if (loading) return <div style={overlayStyle}><div style={modalStyle}><p>Loading POS settings...</p></div></div>

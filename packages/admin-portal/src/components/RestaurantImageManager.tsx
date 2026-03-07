@@ -115,22 +115,30 @@ export default function RestaurantImageManager({
         setSuccess('');
         setUploading(true);
 
-        try {
-            const uploaded: RestaurantImage[] = [];
-            for (const file of selectedFiles) {
+        const uploaded: RestaurantImage[] = [];
+        const failures: string[] = [];
+        for (const file of selectedFiles) {
+            try {
                 const nextImage = await uploadFile(file);
                 uploaded.push(nextImage);
+            } catch (uploadError) {
+                failures.push(file.name);
+                console.error(`Failed to upload ${file.name}:`, uploadError);
             }
-            if (uploaded.length > 0) {
-                const next = [...images, ...uploaded].slice(0, maxImages);
-                applyImages(next);
-                setSuccess(`${uploaded.length} image${uploaded.length === 1 ? '' : 's'} uploaded.`);
-            }
-        } catch (uploadError) {
-            setError(errorMessage(uploadError));
-        } finally {
-            setUploading(false);
         }
+        if (uploaded.length > 0) {
+            const next = [...images, ...uploaded].slice(0, maxImages);
+            applyImages(next);
+        }
+        if (failures.length > 0 && uploaded.length > 0) {
+            setError(`Failed to upload: ${failures.join(', ')}`);
+            setSuccess(`${uploaded.length} image${uploaded.length === 1 ? '' : 's'} succeeded.`);
+        } else if (failures.length > 0) {
+            setError(`Failed to upload: ${failures.join(', ')}`);
+        } else if (uploaded.length > 0) {
+            setSuccess(`${uploaded.length} image${uploaded.length === 1 ? '' : 's'} uploaded.`);
+        }
+        setUploading(false);
     }
 
     function removeImage(key: string) {

@@ -109,7 +109,7 @@ export default function CapacitySettings({ restaurantId, onClose }: CapacitySett
                     <input
                         type="number"
                         value={config.max_concurrent_orders}
-                        onChange={(e) => setConfig({ ...config, max_concurrent_orders: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => setConfig({ ...config, max_concurrent_orders: parseInt(e.target.value, 10) || 0 })}
                         style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px' }}
                     />
                     <small style={{ color: '#666' }}>
@@ -123,7 +123,7 @@ export default function CapacitySettings({ restaurantId, onClose }: CapacitySett
                     </label>
                     <select
                         value={config.capacity_window_seconds}
-                        onChange={(e) => setConfig({ ...config, capacity_window_seconds: parseInt(e.target.value) })}
+                        onChange={(e) => setConfig({ ...config, capacity_window_seconds: parseInt(e.target.value, 10) })}
                         style={{ width: '100%', padding: '0.5rem', border: '1px solid #ccc', borderRadius: '4px' }}
                     >
                         <option value={300}>5 Minutes (300s)</option>

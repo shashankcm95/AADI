@@ -20,15 +20,25 @@ export default function MenuIngestion({ restaurantId, onSuccess }: MenuIngestion
 
         const reader = new FileReader()
         reader.onload = (evt) => {
-            const bstr = evt.target?.result
-            const wb = XLSX.read(bstr, { type: 'binary' })
-            const wsname = wb.SheetNames[0]
-            const ws = wb.Sheets[wsname]
-            const data = XLSX.utils.sheet_to_json(ws) as MenuUploadRow[]
+            try {
+                const bstr = evt.target?.result
+                const wb = XLSX.read(bstr, { type: 'binary' })
+                const wsname = wb.SheetNames[0]
+                const ws = wb.Sheets[wsname]
+                const data = XLSX.utils.sheet_to_json(ws) as MenuUploadRow[]
 
-            setPreview(data)
-            setMessage(null)
-            setError(null)
+                setPreview(data)
+                setMessage(null)
+                setError(null)
+            } catch (parseError) {
+                console.error('File parsing error:', parseError)
+                setError('Failed to parse file. Please check the format and try again.')
+                setPreview([])
+            }
+        }
+        reader.onerror = () => {
+            setError('Failed to read file. Please try again.')
+            setPreview([])
         }
         reader.readAsBinaryString(file)
     }

@@ -51,7 +51,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     const incomingSeenAt = useRef<Map<string, number>>(new Map())
 
     // RBAC State
-    const [_assignedRestaurantId, setAssignedRestaurantId] = useState<string | null>(null)
+    const [assignedRestaurantId, setAssignedRestaurantId] = useState<string | null>(null)
     const [isAdmin, setIsAdmin] = useState(false)
 
     useEffect(() => {
@@ -129,14 +129,14 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
     // Auto-Activation: Run when we have BOTH the restaurant list and the assigned ID
     useEffect(() => {
-        if (_assignedRestaurantId && restaurants.length > 0) {
-            const myRestaurant = restaurants.find(r => r.restaurant_id === _assignedRestaurantId)
+        if (assignedRestaurantId && restaurants.length > 0) {
+            const myRestaurant = restaurants.find(r => r.restaurant_id === assignedRestaurantId)
             if (myRestaurant && !myRestaurant.active) {
 
-                activateRestaurant(_assignedRestaurantId)
+                activateRestaurant(assignedRestaurantId)
             }
         }
-    }, [_assignedRestaurantId, restaurants])
+    }, [assignedRestaurantId, restaurants])
 
     async function activateRestaurant(id: string) {
         try {
@@ -241,8 +241,11 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
             oscillator.start()
             setTimeout(() => {
-                oscillator.stop()
-                audioContext.close()
+                try {
+                    oscillator.stop()
+                } finally {
+                    audioContext.close()
+                }
             }, 200)
         } catch (e) {
             console.warn('Audio not supported:', e)
@@ -425,7 +428,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                     <label>📍 Managing Restaurant:</label>
 
                     {/* Only show picker if NOT assigned to a specific restaurant */}
-                    {!_assignedRestaurantId ? (
+                    {!assignedRestaurantId ? (
                         <select
                             value={selectedRestaurant || ''}
                             onChange={(e) => setSelectedRestaurant(e.target.value)}
@@ -439,12 +442,12 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                         </select>
                     ) : (
                         <span className="managed-restaurant-name">
-                            {restaurants.find(r => r.restaurant_id === _assignedRestaurantId)?.name || 'My Restaurant'}
+                            {restaurants.find(r => r.restaurant_id === assignedRestaurantId)?.name || 'My Restaurant'}
                         </span>
                     )}
 
                     {/* Show Add Button if NOT restricted to a specific restaurant */}
-                    {!_assignedRestaurantId && (
+                    {!assignedRestaurantId && (
                         <button
                             onClick={() => setShowAddRestaurant(true)}
                             className="btn btn-small btn-primary"

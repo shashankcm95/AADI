@@ -104,7 +104,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         try {
             await api.updateRestaurant(editingRestaurant.restaurant_id, updatedData)
             setEditingRestaurant(null)
-            fetchRestaurants()
+            await fetchRestaurants()
         } catch (err) {
             console.error(err)
             setActionError("Error updating restaurant")
@@ -118,7 +118,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         setActionError(null)
         try {
             await api.updateRestaurant(restaurantId, { active: newStatus })
-            fetchRestaurants()
+            await fetchRestaurants()
         } catch (err) {
             console.error(`${action} failed:`, err)
             setActionError(`Error ${action}ing restaurant`)
@@ -165,6 +165,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                 ZONE_3: String(pzl?.ZONE_3 ?? zoneLabels.ZONE_3),
             })
             setGlobalMessage('Global zone settings updated.')
+            setTimeout(() => setGlobalMessage(null), 3000)
         } catch (err) {
             console.error(err)
             setGlobalError(err instanceof Error ? err.message : 'Network error saving global zone settings')
