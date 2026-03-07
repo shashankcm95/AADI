@@ -43,7 +43,7 @@ def _get_sqs_client():
     try:
         _sqs_client = boto3.client('sqs')
     except Exception as e:
-        print(f"Failed to create SQS client: {e}")
+        log.error("sqs_client_init_failed", extra={"error": str(e)})
         _sqs_client = False
     return _sqs_client if _sqs_client else None
 
@@ -88,7 +88,7 @@ def _load_global_config_item():
     try:
         return config_table.get_item(Key={'restaurant_id': GLOBAL_CONFIG_ID}).get('Item', {})
     except Exception as e:
-        print(f"Failed to read global config item: {e}")
+        log.error("global_config_read_failed", extra={"error": str(e)})
         return {}
 
 
@@ -252,7 +252,7 @@ def get_config(event, restaurant_id):
 
         return make_response(200, response_data)
     except Exception as e:
-        print(f"Get Config Error: {e}")
+        log.error("get_config_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -360,7 +360,7 @@ def update_config(event, restaurant_id):
         return make_response(200, {'message': 'Configuration updated'})
 
     except Exception as e:
-        print(f"Update Config Error: {e}")
+        log.error("update_config_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 

@@ -7,6 +7,7 @@ import time
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 
+from shared.logger import get_logger
 from utils import (
     CORS_HEADERS, decimal_default, get_user_claims, make_response,
     restaurants_table, config_table, cognito, USER_POOL_ID,
@@ -15,6 +16,8 @@ from utils import (
     DEFAULT_DISPATCH_TRIGGER_ZONE, ZONE_EVENT_MAP,
     menus_table,
 )
+
+logger = get_logger("restaurants.restaurants")
 
 
 PUBLIC_REDACTED_FIELDS = frozenset({
@@ -62,7 +65,7 @@ def get_restaurant(event, restaurant_id):
 
         return make_response(200, _serialize_restaurant_for_role(item, role))
     except Exception as e:
-        print(f"Get Restaurant Error: {e}")
+        logger.error("get_restaurant_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -174,7 +177,7 @@ def list_restaurants(event):
 
         return make_response(200, result)
     except Exception as e:
-        print(f"Scan Error: {e}")
+        logger.error("list_restaurants_failed", extra={"error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -207,10 +210,10 @@ def create_restaurant(event):
                     Limit=1
                 )
                 if response.get('Users'):
-                    print(f"User {contact_email} already exists. Blocking creation.")
+                    logger.info("create_restaurant_email_exists", extra={"contact_email": contact_email})
                     return make_response(409, {'error': f"User with email {contact_email} already exists. Please use a new email or delete the existing user."})
             except Exception as e:
-                print(f"Pre-check user existence failed: {e}")
+                logger.warning("cognito_precheck_failed", extra={"contact_email": contact_email, "error": str(e)})
                 pass
 
         restaurant_id = str(uuid.uuid4())
@@ -275,7 +278,7 @@ def create_restaurant(event):
 
         # Keep AWS Location geofences in sync for automated arrival detection.
         if not upsert_restaurant_geofences(restaurant_id, location):
-            print(f"Geofence sync skipped or failed for restaurant {restaurant_id}")
+            logger.warning("geofence_sync_skipped", extra={"restaurant_id": restaurant_id})
 
         user_created = False
         contact_email = body.get('contact_email')
@@ -293,9 +296,9 @@ def create_restaurant(event):
                     DesiredDeliveryMediums=['EMAIL']
                 )
                 user_created = True
-                print(f"Created Cognito user for {contact_email}")
+                logger.info("cognito_user_created", extra={"contact_email": contact_email})
             except cognito.exceptions.UsernameExistsException:
-                print(f"User {contact_email} already exists")
+                logger.info("cognito_user_exists", extra={"contact_email": contact_email})
                 try:
                     cognito.admin_update_user_attributes(
                         UserPoolId=USER_POOL_ID,
@@ -306,11 +309,11 @@ def create_restaurant(event):
                         ]
                     )
                     user_created = False
-                    print(f"Updated attributes for existing user {contact_email}")
+                    logger.info("cognito_user_attributes_updated", extra={"contact_email": contact_email})
                 except Exception as ex:
-                    print(f"Failed to update existing user: {ex}")
+                    logger.error("cognito_user_update_failed", extra={"contact_email": contact_email, "error": str(ex)})
             except Exception as e:
-                print(f"Failed to create Cognito user: {e}")
+                logger.error("cognito_user_create_failed", extra={"contact_email": contact_email, "error": str(e)})
 
         return make_response(201, {
             'restaurant_id': restaurant_id,
@@ -321,7 +324,7 @@ def create_restaurant(event):
     except ValueError as ve:
         return make_response(400, {'error': str(ve)})
     except Exception as e:
-        print(f"Create Error: {e}")
+        logger.error("create_restaurant_failed", extra={"error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -391,13 +394,12 @@ def update_restaurant(event, restaurant_id):
 
         if should_geocode:
             full_address = f"{street}, {city}, {state} {zip_code}".strip(", ")
-            print(f"Address changed or location missing, re-geocoding: {full_address}")
+            logger.info("geocoding_address", extra={"restaurant_id": restaurant_id, "address": full_address})
             new_location = geocode_address(street, city, state, zip_code)
             if new_location:
                 location = new_location
             else:
-                print("Geocoding failed, keeping old location (if any) or None")
-                pass
+                logger.warning("geocoding_failed_keeping_old", extra={"restaurant_id": restaurant_id})
 
         active = body.get('active')
 
@@ -458,7 +460,7 @@ def update_restaurant(event, restaurant_id):
         )
 
         if not upsert_restaurant_geofences(restaurant_id, location):
-            print(f"Geofence update skipped or failed for restaurant {restaurant_id}")
+            logger.warning("geofence_update_skipped", extra={"restaurant_id": restaurant_id})
 
         return make_response(200, {
             'message': 'Restaurant updated',
@@ -468,7 +470,7 @@ def update_restaurant(event, restaurant_id):
     except ValueError as ve:
         return make_response(400, {'error': str(ve)})
     except Exception as e:
-        print(f"Update Error: {e}")
+        logger.error("update_restaurant_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -490,7 +492,7 @@ def delete_restaurant(event, restaurant_id):
                     contact_email = resp['Item'].get('contact_email')
 
                 if contact_email:
-                    print(f"Attempting to delete Cognito user with email: {contact_email}")
+                    logger.info("cognito_user_delete_attempt", extra={"contact_email": contact_email})
                     filter_str = f"email = \"{contact_email}\""
                     response = cognito.list_users(
                         UserPoolId=USER_POOL_ID,
@@ -500,20 +502,20 @@ def delete_restaurant(event, restaurant_id):
 
                     for user in response.get('Users', []):
                         username = user['Username']
-                        print(f"Deleting Cognito user: {username}")
+                        logger.info("cognito_user_deleting", extra={"username": username})
                         cognito.admin_delete_user(
                             UserPoolId=USER_POOL_ID,
                             Username=username
                         )
                 else:
-                    print("No contact email found for restaurant, skipping Cognito cleanup")
+                    logger.info("cognito_cleanup_skipped_no_email", extra={"restaurant_id": restaurant_id})
 
             except Exception as e:
-                print(f"Cognito cleanup failed (non-blocking): {e}")
+                logger.warning("cognito_cleanup_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
 
         restaurants_table.delete_item(Key={'restaurant_id': restaurant_id})
         if not delete_restaurant_geofences(restaurant_id):
-            print(f"Geofence delete skipped or failed for restaurant {restaurant_id}")
+            logger.warning("geofence_delete_skipped", extra={"restaurant_id": restaurant_id})
         if config_table:
             config_table.delete_item(Key={'restaurant_id': restaurant_id})
         if menus_table:
@@ -527,10 +529,10 @@ def delete_restaurant(event, restaurant_id):
                         'menu_version': menu_item['menu_version']
                     })
             except Exception as menu_err:
-                print(f"Menu cleanup failed (non-blocking): {menu_err}")
+                logger.warning("menu_cleanup_failed", extra={"restaurant_id": restaurant_id, "error": str(menu_err)})
 
         return make_response(200, {'message': 'Restaurant deleted'})
 
     except Exception as e:
-        print(f"Delete Error: {e}")
+        logger.error("delete_restaurant_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})

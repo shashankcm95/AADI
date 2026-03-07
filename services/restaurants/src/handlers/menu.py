@@ -29,7 +29,7 @@ def get_menu(restaurant_id):
 
         return make_response(200, {'items': items})
     except Exception as e:
-        print(f"Menu Error: {e}")
+        menu_log.error("get_menu_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(200, {'menu': {'items': []}})
 
 
@@ -52,9 +52,7 @@ def update_menu(event, restaurant_id):
         body = json.loads(event.get('body', '{}'))
         items = body.get('items', [])
 
-        print(f"Received {len(items)} items for restaurant {restaurant_id}")
-        if len(items) > 0:
-            print(f"Sample Item: {items[0]}")
+        menu_log.info("menu_update_received", extra={"restaurant_id": restaurant_id, "item_count": len(items)})
 
         if not isinstance(items, list):
             return make_response(400, {'error': 'Payload must contain an "items" list'})
@@ -88,7 +86,7 @@ def update_menu(event, restaurant_id):
         if invalid_items:
             menu_log.warning("menu_update_skipped_invalid_items", extra={"restaurant_id": restaurant_id, "invalid_count": len(invalid_items)})
 
-        print(f"Cleaned items count: {len(cleaned_items)}")
+        menu_log.info("menu_update_cleaned", extra={"restaurant_id": restaurant_id, "cleaned_count": len(cleaned_items)})
 
         menu_item = {
             'restaurant_id': restaurant_id,

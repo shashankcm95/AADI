@@ -3,11 +3,14 @@ import json
 import os
 import uuid
 
+from shared.logger import get_logger
 from utils import (
     CORS_HEADERS, get_user_claims, _is_admin_or_owner,
     restaurants_table, s3_client, RESTAURANT_IMAGES_BUCKET,
     _build_image_url,
 )
+
+logger = get_logger("restaurants.images")
 
 
 def create_image_upload_url(event, restaurant_id):
@@ -74,7 +77,7 @@ def create_image_upload_url(event, restaurant_id):
             ExpiresIn=upload_ttl_seconds,
         )
     except Exception as e:
-        print(f"Failed to generate upload URL: {e}")
+        logger.error("presigned_url_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Failed to generate upload URL'})}
 
     return {

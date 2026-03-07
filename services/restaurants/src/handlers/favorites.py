@@ -3,10 +3,13 @@ import json
 import time
 from boto3.dynamodb.conditions import Key
 
+from shared.logger import get_logger
 from utils import (
     CORS_HEADERS, decimal_default, _require_customer, make_response,
     favorites_table, restaurants_table,
 )
+
+logger = get_logger("restaurants.favorites")
 
 
 def list_favorites(event):
@@ -26,7 +29,7 @@ def list_favorites(event):
 
         return make_response(200, {'favorites': items})
     except Exception as e:
-        print(f"List Favorites Error: {e}")
+        logger.error("list_favorites_failed", extra={"error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -57,7 +60,7 @@ def add_favorite(event, restaurant_id):
 
         return make_response(200, {'favorite': item})
     except Exception as e:
-        print(f"Add Favorite Error: {e}")
+        logger.error("add_favorite_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
 
 
@@ -82,5 +85,5 @@ def remove_favorite(event, restaurant_id):
         )
         return make_response(200, {'removed': True})
     except Exception as e:
-        print(f"Remove Favorite Error: {e}")
+        logger.error("remove_favorite_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return make_response(500, {'error': 'Internal server error'})
