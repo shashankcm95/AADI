@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { API_BASE_URL } from '../aws-exports'
+import * as api from '../services/api'
 
 interface RestaurantFormProps {
-    token: string | null;
     onSuccess: () => void;
     onCancel: () => void;
 }
 
-export default function RestaurantForm({ token, onSuccess, onCancel }: RestaurantFormProps) {
+export default function RestaurantForm({ onSuccess, onCancel }: RestaurantFormProps) {
     const [name, setName] = useState('')
     const [cuisine, setCuisine] = useState('')
     const [tagsInput, setTagsInput] = useState('')
@@ -34,40 +33,22 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
             .filter(Boolean)
 
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name,
-                    street,
-                    city,
-                    state,
-                    zip,
-                    contact_email: email,
-                    operating_hours: hours,
-                    cuisine: cuisine.trim() || 'Other',
-                    tags,
-                    price_tier: priceTier
-                })
+            const data = await api.createRestaurant({
+                name,
+                street,
+                city,
+                state,
+                zip,
+                contact_email: email,
+                operating_hours: hours,
+                cuisine: cuisine.trim() || 'Other',
+                tags,
+                price_tier: priceTier,
             })
-
-            if (res.status === 409) {
-                const data = await res.json()
-                throw new Error(data.error || 'User already exists.')
-            }
-
-            if (!res.ok) {
-                throw new Error(`Failed to create restaurant: ${res.statusText}`)
-            }
-
-            const data = await res.json()
-            setUserStatus(data.user_status || 'CREATED') // Default to CREATED for backward compatibility
+            setUserStatus((data.user_status as 'CREATED' | 'LINKED') || 'CREATED')
             setSuccessMsg(true)
-        } catch (err: any) {
-            setError(err.message)
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to create restaurant')
         } finally {
             setLoading(false)
         }
@@ -224,69 +205,6 @@ export default function RestaurantForm({ token, onSuccess, onCancel }: Restauran
                     )}
                 </form>
             </div>
-
-            <style>{`
-        .modal-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          justify-content: center;
-          align-items: flex-start;
-          overflow-y: auto;
-          padding: 2rem 1rem;
-          z-index: 1000;
-        }
-        .modal {
-          background: white;
-          padding: 2rem;
-          border-radius: 8px;
-          min-width: 400px;
-          width: min(960px, 100%);
-          max-height: calc(100vh - 4rem);
-          overflow-y: auto;
-          color: #333;
-        }
-        .form-group {
-          margin-bottom: 1rem;
-        }
-        .form-group label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-weight: bold;
-        }
-        .form-group input {
-          width: 100%;
-          padding: 0.5rem;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-        }
-        .form-group select {
-          width: 100%;
-          padding: 0.5rem;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          background: white;
-        }
-        .form-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 1rem;
-          margin-top: 1.5rem;
-        }
-        .error-banner {
-          background: #fee2e2;
-          color: #dc2626;
-          padding: 0.75rem;
-          border-radius: 4px;
-          margin-bottom: 1rem;
-        }
-        @media (max-width: 700px) {
-          .modal {
-            min-width: 0;
-          }
-        }
-      `}</style>
         </div>
     )
 }

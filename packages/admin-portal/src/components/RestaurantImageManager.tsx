@@ -1,19 +1,12 @@
 import { ChangeEvent, CSSProperties, useEffect, useMemo, useState } from 'react';
-import { API_BASE_URL } from '../aws-exports';
+import * as api from '../services/api';
 
 type RestaurantImage = {
     key: string;
     url?: string;
 };
 
-interface UploadUrlResponse {
-    upload_url: string;
-    object_key: string;
-    preview_url?: string;
-}
-
 interface RestaurantImageManagerProps {
-    token: string | null;
     restaurantId: string;
     initialImageKeys?: string[];
     initialImageUrls?: string[];
@@ -50,7 +43,6 @@ function errorMessage(error: unknown): string {
 }
 
 export default function RestaurantImageManager({
-    token,
     restaurantId,
     initialImageKeys = [],
     initialImageUrls = [],
@@ -82,33 +74,12 @@ export default function RestaurantImageManager({
         onKeysChange?.(next.map((item) => item.key));
     }
 
-    async function createUploadUrl(file: File): Promise<UploadUrlResponse> {
-        if (!token) {
-            throw new Error('Auth token missing. Please sign in again.');
-        }
-        const response = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/images/upload-url`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                file_name: file.name,
-                content_type: file.type || 'image/jpeg',
-            }),
-        });
-
-        if (!response.ok) {
-            const body = await response.json().catch(() => null);
-            const message = body?.error || 'Failed to prepare upload URL.';
-            throw new Error(message);
-        }
-
-        return response.json();
-    }
-
     async function uploadFile(file: File): Promise<RestaurantImage> {
-        const uploadMeta = await createUploadUrl(file);
+        const uploadMeta = await api.getImageUploadUrl(
+            restaurantId,
+            file.name,
+            file.type || 'image/jpeg',
+        );
         const uploadResponse = await fetch(uploadMeta.upload_url, {
             method: 'PUT',
             headers: {
@@ -132,11 +103,6 @@ export default function RestaurantImageManager({
         event.target.value = '';
 
         if (files.length === 0) {
-            return;
-        }
-
-        if (!token) {
-            setError('Auth token missing. Please sign in again.');
             return;
         }
 

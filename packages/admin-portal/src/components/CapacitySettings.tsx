@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../aws-exports'
+import * as api from '../services/api'
 
 type ZoneKey = 'ZONE_1' | 'ZONE_2' | 'ZONE_3';
 
@@ -13,11 +13,10 @@ interface CapacityConfig {
 
 interface CapacitySettingsProps {
     restaurantId: string;
-    token: string;
     onClose: () => void;
 }
 
-export default function CapacitySettings({ restaurantId, token, onClose }: CapacitySettingsProps) {
+export default function CapacitySettings({ restaurantId, onClose }: CapacitySettingsProps) {
     const [config, setConfig] = useState<CapacityConfig>({
         max_concurrent_orders: 10,
         capacity_window_seconds: 300,
@@ -45,32 +44,27 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
     async function fetchConfig() {
         setLoading(true)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/config`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+            const data = await api.fetchRestaurantConfig(restaurantId)
+            const fallbackZone = mapEventToZone(data.dispatch_trigger_event)
+            const zd = data.zone_distances_m as Record<string, unknown> | undefined
+            const zl = data.zone_labels as Record<string, unknown> | undefined
+            setConfig({
+                max_concurrent_orders: data.max_concurrent_orders as number,
+                capacity_window_seconds: data.capacity_window_seconds as number,
+                dispatch_trigger_zone: (data.dispatch_trigger_zone as ZoneKey) || fallbackZone,
+                zone_distances_m: {
+                    ZONE_1: Number(zd?.ZONE_1 ?? 1500),
+                    ZONE_2: Number(zd?.ZONE_2 ?? 150),
+                    ZONE_3: Number(zd?.ZONE_3 ?? 30),
+                },
+                zone_labels: {
+                    ZONE_1: String(zl?.ZONE_1 ?? 'Zone 1'),
+                    ZONE_2: String(zl?.ZONE_2 ?? 'Zone 2'),
+                    ZONE_3: String(zl?.ZONE_3 ?? 'Zone 3'),
+                },
             })
-            if (res.ok) {
-                const data = await res.json()
-                const fallbackZone = mapEventToZone(data.dispatch_trigger_event)
-                setConfig({
-                    max_concurrent_orders: data.max_concurrent_orders,
-                    capacity_window_seconds: data.capacity_window_seconds,
-                    dispatch_trigger_zone: data.dispatch_trigger_zone || fallbackZone,
-                    zone_distances_m: {
-                        ZONE_1: Number(data.zone_distances_m?.ZONE_1 ?? 1500),
-                        ZONE_2: Number(data.zone_distances_m?.ZONE_2 ?? 150),
-                        ZONE_3: Number(data.zone_distances_m?.ZONE_3 ?? 30),
-                    },
-                    zone_labels: {
-                        ZONE_1: String(data.zone_labels?.ZONE_1 ?? 'Zone 1'),
-                        ZONE_2: String(data.zone_labels?.ZONE_2 ?? 'Zone 2'),
-                        ZONE_3: String(data.zone_labels?.ZONE_3 ?? 'Zone 3'),
-                    },
-                })
-            } else {
-                setError("Failed to load settings")
-            }
         } catch (err) {
-            setError("Network error loading settings")
+            setError(err instanceof Error ? err.message : "Failed to load settings")
         } finally {
             setLoading(false)
         }
@@ -81,28 +75,15 @@ export default function CapacitySettings({ restaurantId, token, onClose }: Capac
         setMessage(null)
         setError(null)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/config`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    max_concurrent_orders: config.max_concurrent_orders,
-                    capacity_window_seconds: config.capacity_window_seconds,
-                    dispatch_trigger_zone: config.dispatch_trigger_zone,
-                })
+            await api.updateRestaurantConfig(restaurantId, {
+                max_concurrent_orders: config.max_concurrent_orders,
+                capacity_window_seconds: config.capacity_window_seconds,
+                dispatch_trigger_zone: config.dispatch_trigger_zone,
             })
-
-            if (res.ok) {
-                setMessage("Settings saved successfully!")
-                setTimeout(onClose, 1500)
-            } else {
-                const errData = await res.json()
-                setError(errData.error || "Failed to save settings")
-            }
+            setMessage("Settings saved successfully!")
+            setTimeout(onClose, 1500)
         } catch (err) {
-            setError("Network error saving settings")
+            setError(err instanceof Error ? err.message : "Failed to save settings")
         } finally {
             setSaving(false)
         }

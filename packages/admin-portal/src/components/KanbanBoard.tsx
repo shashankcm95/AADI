@@ -1,19 +1,5 @@
-export interface OrderItem {
-    name?: string;
-    id?: string;
-    qty?: number;
-}
-
-export interface Order {
-    order_id: string;
-    customer_name?: string;
-    customer_id?: string;
-    items?: OrderItem[];
-    resources?: OrderItem[];
-    status: string;
-    created_at?: number;
-    updated_at?: number;
-}
+import { Order } from '../types'
+export type { Order, OrderItem } from '../types'
 
 interface KanbanBoardProps {
     orders: Order[];

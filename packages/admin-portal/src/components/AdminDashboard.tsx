@@ -1,12 +1,9 @@
 
 import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../aws-exports'
+import { Restaurant, RestaurantFormData } from '../types'
+import * as api from '../services/api'
 import RestaurantForm from './RestaurantForm'
 import RestaurantImageManager from './RestaurantImageManager'
-
-// Reuse RestaurantForm for "Adding" but for "Editing" we might need a modified version or just reuse inputs.
-// Simpler to build a small EditModal inside here or refactor RestaurantForm to handle edits.
-// For MVP speed, let's build a dedicated EditModal here.
 
 interface AdminDashboardProps {
     signOut: () => void;
@@ -26,19 +23,18 @@ const DEFAULT_ZONE_LABELS: ZoneLabels = {
     ZONE_3: 'Zone 3',
 }
 
-import { fetchAuthSession } from 'aws-amplify/auth'
-
 export default function AdminDashboard({ signOut }: AdminDashboardProps) {
-    const [restaurants, setRestaurants] = useState<any[]>([])
+    const [restaurants, setRestaurants] = useState<Restaurant[]>([])
     const [loading, setLoading] = useState(true)
     const [showAddModal, setShowAddModal] = useState(false)
-    const [editingRestaurant, setEditingRestaurant] = useState<any | null>(null)
-    const [token, setToken] = useState<string | null>(null)
+    const [editingRestaurant, setEditingRestaurant] = useState<Restaurant | null>(null)
+    const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [zoneDistances, setZoneDistances] = useState<ZoneDistances>(DEFAULT_ZONE_DISTANCES)
     const [zoneLabels, setZoneLabels] = useState<ZoneLabels>(DEFAULT_ZONE_LABELS)
     const [globalSaving, setGlobalSaving] = useState(false)
     const [globalMessage, setGlobalMessage] = useState<string | null>(null)
     const [globalError, setGlobalError] = useState<string | null>(null)
+    const [actionError, setActionError] = useState<string | null>(null)
 
     useEffect(() => {
         initializeDashboard()
@@ -46,34 +42,21 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 
     async function initializeDashboard() {
         try {
-            const session = await fetchAuthSession()
-            const idToken = session.tokens?.idToken?.toString()
-
-            if (idToken) {
-                setToken(idToken)
-                await Promise.all([
-                    fetchRestaurants(idToken),
-                    fetchGlobalConfig(idToken),
-                ])
-            } else {
-                console.error("No ID token found")
-                setLoading(false)
-            }
+            setIsAuthenticated(true)
+            await Promise.all([
+                fetchRestaurants(),
+                fetchGlobalConfig(),
+            ])
         } catch (err) {
-            console.error("Failed to fetch auth session:", err)
+            console.error("Failed to initialize dashboard:", err)
             setLoading(false)
         }
     }
 
-    async function fetchRestaurants(authToken: string) {
+    async function fetchRestaurants() {
         try {
-
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            })
-            const data = await res.json()
-
-            setRestaurants(data.restaurants || [])
+            const rests = await api.fetchRestaurants()
+            setRestaurants(rests)
         } catch (err) {
             console.error("API Error:", err)
         } finally {
@@ -81,24 +64,20 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         }
     }
 
-    async function fetchGlobalConfig(authToken: string) {
+    async function fetchGlobalConfig() {
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/admin/global-config`, {
-                headers: { 'Authorization': `Bearer ${authToken}` }
-            })
-            if (!res.ok) {
-                return
-            }
-            const data = await res.json()
+            const data = await api.fetchGlobalConfig()
+            const zd = data.zone_distances_m as Record<string, unknown> | undefined
+            const zl = data.zone_labels as Record<string, unknown> | undefined
             setZoneDistances({
-                ZONE_1: Number(data.zone_distances_m?.ZONE_1 ?? DEFAULT_ZONE_DISTANCES.ZONE_1),
-                ZONE_2: Number(data.zone_distances_m?.ZONE_2 ?? DEFAULT_ZONE_DISTANCES.ZONE_2),
-                ZONE_3: Number(data.zone_distances_m?.ZONE_3 ?? DEFAULT_ZONE_DISTANCES.ZONE_3),
+                ZONE_1: Number(zd?.ZONE_1 ?? DEFAULT_ZONE_DISTANCES.ZONE_1),
+                ZONE_2: Number(zd?.ZONE_2 ?? DEFAULT_ZONE_DISTANCES.ZONE_2),
+                ZONE_3: Number(zd?.ZONE_3 ?? DEFAULT_ZONE_DISTANCES.ZONE_3),
             })
             setZoneLabels({
-                ZONE_1: String(data.zone_labels?.ZONE_1 ?? DEFAULT_ZONE_LABELS.ZONE_1),
-                ZONE_2: String(data.zone_labels?.ZONE_2 ?? DEFAULT_ZONE_LABELS.ZONE_2),
-                ZONE_3: String(data.zone_labels?.ZONE_3 ?? DEFAULT_ZONE_LABELS.ZONE_3),
+                ZONE_1: String(zl?.ZONE_1 ?? DEFAULT_ZONE_LABELS.ZONE_1),
+                ZONE_2: String(zl?.ZONE_2 ?? DEFAULT_ZONE_LABELS.ZONE_2),
+                ZONE_3: String(zl?.ZONE_3 ?? DEFAULT_ZONE_LABELS.ZONE_3),
             })
         } catch (err) {
             console.error("Global config load error:", err)
@@ -108,44 +87,27 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
     async function handleDelete(restaurantId: string) {
         if (!confirm("Are you sure? This will delete the restaurant and the associated admin user.")) return;
 
+        setActionError(null)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            if (res.ok) {
-                setRestaurants(restaurants.filter(r => r.restaurant_id !== restaurantId))
-            } else {
-                alert("Failed to delete restaurant")
-            }
+            await api.deleteRestaurant(restaurantId)
+            setRestaurants(restaurants.filter(r => r.restaurant_id !== restaurantId))
         } catch (err) {
             console.error(err)
-            alert("Error deleting restaurant")
+            setActionError("Error deleting restaurant")
         }
     }
 
-    async function handleUpdate(updatedData: any) {
+    async function handleUpdate(updatedData: RestaurantFormData) {
         if (!editingRestaurant) return;
 
+        setActionError(null)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${editingRestaurant.restaurant_id}`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(updatedData)
-            })
-
-            if (res.ok) {
-                setEditingRestaurant(null)
-                if (token) fetchRestaurants(token) // Refresh list
-            } else {
-                alert("Failed to update restaurant")
-            }
+            await api.updateRestaurant(editingRestaurant.restaurant_id, updatedData)
+            setEditingRestaurant(null)
+            fetchRestaurants()
         } catch (err) {
             console.error(err)
-            alert("Error updating restaurant")
+            setActionError("Error updating restaurant")
         }
     }
 
@@ -153,24 +115,13 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
         const action = newStatus ? "activate" : "deactivate";
         if (!confirm(`Are you sure you want to ${action} this restaurant?`)) return;
 
+        setActionError(null)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ active: newStatus })
-            })
-
-            if (res.ok) {
-                if (token) fetchRestaurants(token)
-            } else {
-                alert(`Failed to ${action} restaurant`)
-            }
+            await api.updateRestaurant(restaurantId, { active: newStatus })
+            fetchRestaurants()
         } catch (err) {
             console.error(`${action} failed:`, err)
-            alert(`Error ${action}ing restaurant`)
+            setActionError(`Error ${action}ing restaurant`)
         }
     }
 
@@ -190,46 +141,33 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
     }
 
     async function saveGlobalZones() {
-        if (!token) return
+        if (!isAuthenticated) return
 
         setGlobalSaving(true)
         setGlobalMessage(null)
         setGlobalError(null)
 
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/admin/global-config`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    zone_distances_m: zoneDistances,
-                    zone_labels: zoneLabels,
-                }),
+            const payload = await api.updateGlobalConfig({
+                zone_distances_m: zoneDistances,
+                zone_labels: zoneLabels,
             })
-
-            if (!res.ok) {
-                const payload = await res.json().catch(() => ({}))
-                setGlobalError(payload.error || 'Failed to save global zone settings')
-                return
-            }
-
-            const payload = await res.json()
+            const pzd = payload.zone_distances_m as Record<string, unknown> | undefined
+            const pzl = payload.zone_labels as Record<string, unknown> | undefined
             setZoneDistances({
-                ZONE_1: Number(payload.zone_distances_m?.ZONE_1 ?? zoneDistances.ZONE_1),
-                ZONE_2: Number(payload.zone_distances_m?.ZONE_2 ?? zoneDistances.ZONE_2),
-                ZONE_3: Number(payload.zone_distances_m?.ZONE_3 ?? zoneDistances.ZONE_3),
+                ZONE_1: Number(pzd?.ZONE_1 ?? zoneDistances.ZONE_1),
+                ZONE_2: Number(pzd?.ZONE_2 ?? zoneDistances.ZONE_2),
+                ZONE_3: Number(pzd?.ZONE_3 ?? zoneDistances.ZONE_3),
             })
             setZoneLabels({
-                ZONE_1: String(payload.zone_labels?.ZONE_1 ?? zoneLabels.ZONE_1),
-                ZONE_2: String(payload.zone_labels?.ZONE_2 ?? zoneLabels.ZONE_2),
-                ZONE_3: String(payload.zone_labels?.ZONE_3 ?? zoneLabels.ZONE_3),
+                ZONE_1: String(pzl?.ZONE_1 ?? zoneLabels.ZONE_1),
+                ZONE_2: String(pzl?.ZONE_2 ?? zoneLabels.ZONE_2),
+                ZONE_3: String(pzl?.ZONE_3 ?? zoneLabels.ZONE_3),
             })
             setGlobalMessage('Global zone settings updated.')
         } catch (err) {
             console.error(err)
-            setGlobalError('Network error saving global zone settings')
+            setGlobalError(err instanceof Error ? err.message : 'Network error saving global zone settings')
         } finally {
             setGlobalSaving(false)
         }
@@ -268,7 +206,7 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                         <button
                             onClick={saveGlobalZones}
                             className="btn btn-primary"
-                            disabled={globalSaving || !token}
+                            disabled={globalSaving || !isAuthenticated}
                         >
                             {globalSaving ? 'Saving...' : 'Save Zone Settings'}
                         </button>
@@ -305,6 +243,8 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                     {globalError && <div style={{ color: '#b91c1c', marginTop: '0.75rem' }}>{globalError}</div>}
                     {globalMessage && <div style={{ color: '#15803d', marginTop: '0.75rem' }}>{globalMessage}</div>}
                 </div>
+
+                {actionError && <div style={{ color: '#b91c1c', background: '#fef2f2', padding: '0.75rem', borderRadius: '6px', marginBottom: '1rem' }}>{actionError}</div>}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <h2 className="panel-subheader">Restaurants</h2>
@@ -379,17 +319,15 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
                 )}
             </div>
 
-            {showAddModal && token && (
+            {showAddModal && isAuthenticated && (
                 <RestaurantForm
-                    token={token}
-                    onSuccess={() => { setShowAddModal(false); if (token) fetchRestaurants(token); }}
+                    onSuccess={() => { setShowAddModal(false); fetchRestaurants(); }}
                     onCancel={() => setShowAddModal(false)}
                 />
             )}
 
             {editingRestaurant && (
                 <EditRestaurantModal
-                    token={token}
                     restaurant={editingRestaurant}
                     onSave={handleUpdate}
                     onCancel={() => setEditingRestaurant(null)}
@@ -400,14 +338,12 @@ export default function AdminDashboard({ signOut }: AdminDashboardProps) {
 }
 
 function EditRestaurantModal({
-    token,
     restaurant,
     onSave,
     onCancel,
 }: {
-    token: string | null,
-    restaurant: any,
-    onSave: (data: any) => void,
+    restaurant: Restaurant,
+    onSave: (data: RestaurantFormData) => void,
     onCancel: () => void
 }) {
     const [name, setName] = useState(restaurant.name)
@@ -527,7 +463,6 @@ function EditRestaurantModal({
                     </div>
 
                     <RestaurantImageManager
-                        token={token}
                         restaurantId={restaurant.restaurant_id}
                         initialImageKeys={Array.isArray(restaurant.restaurant_image_keys) ? restaurant.restaurant_image_keys : []}
                         initialImageUrls={Array.isArray(restaurant.restaurant_images) ? restaurant.restaurant_images : []}
@@ -540,43 +475,6 @@ function EditRestaurantModal({
                     </div>
                 </form>
             </div>
-            <style>{`
-                /* Reuse existing modal styles from RestaurantForm */
-                .modal-overlay {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: rgba(0,0,0,0.5);
-                    display: flex;
-                    justify-content: center;
-                    align-items: flex-start;
-                    overflow-y: auto;
-                    padding: 2rem 1rem;
-                    z-index: 1000;
-                }
-                .modal {
-                    background: white;
-                    padding: 2rem;
-                    border-radius: 8px;
-                    min-width: 500px;
-                    width: min(960px, 100%);
-                    max-height: calc(100vh - 4rem);
-                    overflow-y: auto;
-                    color: #333;
-                }
-                .form-group { margin-bottom: 1rem; }
-                .form-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
-                .form-group input { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-                .form-group select { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; background: white; }
-                .form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; }
-                @media (max-width: 700px) {
-                    .modal {
-                        min-width: 0;
-                    }
-                }
-            `}</style>
         </div>
     )
 }

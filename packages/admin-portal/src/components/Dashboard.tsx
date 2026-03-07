@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth'
-import { API_BASE_URL, ORDERS_API_URL } from '../aws-exports'
+import { Restaurant, MenuItem, Order } from '../types'
+import * as api from '../services/api'
 import '../App.css'
 import StatsBar from './StatsBar'
-import KanbanBoard, { Order } from './KanbanBoard'
+import KanbanBoard from './KanbanBoard'
 import RestaurantForm from './RestaurantForm'
 import AdminDashboard from './AdminDashboard'
 import MenuIngestion from './MenuIngestion'
@@ -11,40 +12,32 @@ import CapacitySettings from './CapacitySettings'
 import RestaurantImageManager from './RestaurantImageManager'
 import PosSettings from './PosSettings'
 
+// TODO(PKG-007): Auto-promotion should be server-side (e.g. Step Functions or EventBridge
+// scheduled rule). Client-side setTimeout is unreliable — the browser tab may be closed,
+// backgrounded, or the user may not have the dashboard open. See packages/BACKLOG.md.
 const AUTO_PROMOTE_DELAY_MS = 2 * 60 * 1000
 const COMPLETED_LANE_LIMIT = 20
 
-// Interfaces
-interface Restaurant {
-    restaurant_id: string;
-    name: string;
-    active?: boolean;
-    restaurant_image_keys?: string[];
-    restaurant_images?: string[];
-}
-
-
 interface DashboardProps {
-    user: any;
+    user: { username?: string } | undefined;
     signOut: (() => void) | undefined;
 }
 
 export default function Dashboard({ user, signOut }: DashboardProps) {
     // --- STATE ---
-    const [token, setToken] = useState<string | null>(null)
+    const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [restaurants, setRestaurants] = useState<Restaurant[]>([])
     const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null)
     const [orders, setOrders] = useState<Order[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [lastRefresh, setLastRefresh] = useState<string | null>(null)
-    const [_filter, _setFilter] = useState('active')
     const [newOrderAlert, setNewOrderAlert] = useState(false)
     const [showAddRestaurant, setShowAddRestaurant] = useState(false)
 
     // Menu Management State
     const [showMenu, setShowMenu] = useState(false)
-    const [menuItems, setMenuItems] = useState<any[]>([])
+    const [menuItems, setMenuItems] = useState<MenuItem[]>([])
 
     // Capacity Management State
     const [showCapacity, setShowCapacity] = useState(false)
@@ -74,8 +67,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 return
             }
 
-            // RBAC Check — resolve all auth state before setting token to prevent
-            // the token useEffect from firing fetchRestaurants prematurely.
+            // RBAC Check — resolve all auth state before setting isAuthenticated to prevent
+            // the useEffect from firing fetchRestaurants prematurely.
             const attrs = await fetchUserAttributes()
             const role = attrs['custom:role']
             const RestId = attrs['custom:restaurant_id']
@@ -93,7 +86,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                     console.error("Restaurant Admin has no assigned restaurant!")
                 }
             } else {
-                // Access denied or customer
+                // Access denied or customer — fires once before sign-out
                 console.error("Access Denied: Unknown Role", role)
                 setLoading(false)
                 alert("Access Denied: Customers cannot access the Admin Portal.")
@@ -101,42 +94,33 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 return
             }
 
-            // Set token last so the token useEffect fires only after role/restaurant
+            // Set authenticated last so the useEffect fires only after role/restaurant
             // state is already committed, avoiding a race in fetchRestaurants.
-            setToken(idToken)
+            setIsAuthenticated(true)
 
         } catch (err) {
             console.error(err)
-            setToken(null)
+            setIsAuthenticated(false)
         }
         setLoading(false)
     }
 
-    // Fetch restaurants when token is available
+    // Fetch restaurants when authenticated
     useEffect(() => {
-        if (token) {
+        if (isAuthenticated) {
             fetchRestaurants()
         }
-    }, [token])
+    }, [isAuthenticated])
 
     async function fetchRestaurants() {
         try {
-            // If we have an assigned restaurant, we don't necessarily need to fetch the whole list 
-            // unless we want the name. But GET /v1/restaurants handles the RBAC filtering anyway.
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            if (res.ok) {
-                const data = await res.json()
-                const rests = data.restaurants || []
-                setRestaurants(rests)
+            const rests = await api.fetchRestaurants()
+            setRestaurants(rests)
 
-                // For restaurant_admin, selectedRestaurant is already set in checkUser.
-                // But we want to ensure we have the NAME from the list.
-                if (rests.length > 0 && !selectedRestaurant) {
-                    // If Super Admin and nothing selected, pick first
-                    setSelectedRestaurant(rests[0].restaurant_id)
-                }
+            // For restaurant_admin, selectedRestaurant is already set in checkUser.
+            // But we want to ensure we have the NAME from the list.
+            if (rests.length > 0 && !selectedRestaurant) {
+                setSelectedRestaurant(rests[0].restaurant_id)
             }
         } catch (err) {
             console.error('Failed to fetch restaurants:', err)
@@ -156,16 +140,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
     async function activateRestaurant(id: string) {
         try {
-            await fetch(`${API_BASE_URL}/v1/restaurants/${id}`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ active: true })
-            })
-
-            // Refresh to show active status
+            await api.updateRestaurant(id, { active: true })
             fetchRestaurants()
         } catch (e) {
             console.error("Failed to activate restaurant:", e)
@@ -173,19 +148,11 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     }
 
     const fetchOrders = useCallback(async () => {
-        if (!token || !selectedRestaurant) return
+        if (!isAuthenticated || !selectedRestaurant) return
         setError(null)
 
         try {
-            // console.log("Fetching orders from:", ORDERS_API_URL)
-            const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            const fetchedOrders: Order[] = []
-            if (res.ok) {
-                const data = await res.json()
-                fetchedOrders.push(...(data.orders || []))
-            }
+            const fetchedOrders = await api.fetchOrders(selectedRestaurant)
 
             // Check for new SENT_TO_DESTINATION orders
             const currentSentIds = new Set<string>(
@@ -239,27 +206,21 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 autoTransitionInFlight.current.add(orderId)
                 void autoPromoteIncomingOrder(orderId)
             }
-        } catch (err: any) {
-            setError(err.message)
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to fetch orders')
         }
-    }, [token, selectedRestaurant])
+    }, [isAuthenticated, selectedRestaurant])
 
     const fetchMenu = useCallback(async () => {
-        if (!token || !selectedRestaurant) return
+        if (!isAuthenticated || !selectedRestaurant) return
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${selectedRestaurant}/menu`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            if (res.ok) {
-                const data = await res.json()
-                setMenuItems(data.items || [])
-            } else {
-                setMenuItems([])
-            }
+            const items = await api.fetchMenu(selectedRestaurant)
+            setMenuItems(items)
         } catch (e) {
             console.error("Failed to fetch menu:", e)
+            setMenuItems([])
         }
-    }, [token, selectedRestaurant])
+    }, [isAuthenticated, selectedRestaurant])
 
     const selectedRestaurantData = restaurants.find(r => r.restaurant_id === selectedRestaurant) || null
 
@@ -289,32 +250,16 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     }
 
     async function handleSaveRestaurantImages(keys: string[]) {
-        if (!token || !selectedRestaurant) return
-
-        const response = await fetch(`${API_BASE_URL}/v1/restaurants/${selectedRestaurant}`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                restaurant_image_keys: keys,
-            }),
-        })
-
-        if (!response.ok) {
-            const payload = await response.json().catch(() => null)
-            throw new Error(payload?.error || 'Failed to save restaurant images.')
-        }
-
+        if (!isAuthenticated || !selectedRestaurant) return
+        await api.updateRestaurant(selectedRestaurant, { restaurant_image_keys: keys })
         await fetchRestaurants()
     }
 
-    // Fetch orders and start polling when token or selected restaurant changes.
+    // Fetch orders and start polling when authenticated and restaurant is selected.
     // showMenu/fetchMenu are intentionally excluded: toggling the menu panel must
     // not reset order-tracking state or restart the polling interval.
     useEffect(() => {
-        if (token && selectedRestaurant) {
+        if (isAuthenticated && selectedRestaurant) {
             prevOrderIds.current = new Set()
             incomingSeenAt.current.clear()
             autoTransitionInFlight.current.clear()
@@ -323,14 +268,14 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             const interval = setInterval(fetchOrders, 5000)
             return () => clearInterval(interval)
         }
-    }, [token, selectedRestaurant, fetchOrders])
+    }, [isAuthenticated, selectedRestaurant, fetchOrders])
 
     // Fetch menu whenever the menu panel is opened.
     useEffect(() => {
-        if (showMenu && token && selectedRestaurant) {
+        if (showMenu && isAuthenticated && selectedRestaurant) {
             fetchMenu()
         }
-    }, [showMenu, token, selectedRestaurant, fetchMenu])
+    }, [showMenu, isAuthenticated, selectedRestaurant, fetchMenu])
 
 
     function setOrderActionLoading(orderId: string, isLoading: boolean) {
@@ -344,36 +289,15 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
         })
     }
 
-    async function extractErrorMessage(res: Response, fallback: string) {
-        const payload = await res.json().catch(() => null)
-        return payload?.error || payload?.message || fallback
-    }
-
     async function autoPromoteIncomingOrder(orderId: string) {
-        if (!token || !selectedRestaurant) {
+        if (!isAuthenticated || !selectedRestaurant) {
             autoTransitionInFlight.current.delete(orderId)
             return
         }
         try {
             // After timeout in Incoming, auto-ack first (best effort), then auto-start prep.
-            await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/ack`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            })
-            const statusRes = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/status`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ status: 'IN_PROGRESS' }),
-            })
-            if (!statusRes.ok) {
-                console.warn(`Auto-promote failed for order ${orderId}`)
-            }
+            try { await api.ackOrder(selectedRestaurant, orderId) } catch { /* best effort */ }
+            await api.updateOrderStatus(selectedRestaurant, orderId, 'IN_PROGRESS')
         } catch (err) {
             console.warn(`Auto-promote error for order ${orderId}:`, err)
         } finally {
@@ -382,22 +306,12 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
     }
 
     async function postOrderStatus(orderId: string, newStatus: string) {
-        if (!token || !selectedRestaurant) return
-        const res = await fetch(`${ORDERS_API_URL}/v1/restaurants/${selectedRestaurant}/orders/${orderId}/status`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ status: newStatus }),
-        })
-        if (!res.ok) {
-            throw new Error(await extractErrorMessage(res, `Failed to update order to ${newStatus}`))
-        }
+        if (!isAuthenticated || !selectedRestaurant) return
+        await api.updateOrderStatus(selectedRestaurant, orderId, newStatus)
     }
 
     async function handleCompleteOrder(order: Order) {
-        if (!token || !selectedRestaurant) return
+        if (!isAuthenticated || !selectedRestaurant) return
         const completionPathByStatus: Record<string, string[]> = {
             IN_PROGRESS: ['READY', 'FULFILLING', 'COMPLETED'],
             READY: ['FULFILLING', 'COMPLETED'],
@@ -412,8 +326,8 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 await postOrderStatus(order.order_id, status)
             }
             await fetchOrders()
-        } catch (err: any) {
-            setError(err.message || 'Failed to complete order')
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to complete order')
         } finally {
             setOrderActionLoading(order.order_id, false)
         }
@@ -626,7 +540,6 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
 
             {showAddRestaurant && (
                 <RestaurantForm
-                    token={token}
                     onSuccess={() => {
                         setShowAddRestaurant(false)
                         fetchRestaurants()
@@ -636,11 +549,10 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             )}
 
             {/* Menu Management View */}
-            {showMenu && token && selectedRestaurant && (
+            {showMenu && isAuthenticated && selectedRestaurant && (
                 <div className="menu-management-section" style={{ marginBottom: '2rem' }}>
                     <MenuIngestion
                         restaurantId={selectedRestaurant}
-                        token={token}
                         onSuccess={fetchMenu}
                     />
 
@@ -666,7 +578,7 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                                             <tr key={idx}>
                                                 <td style={{ fontWeight: 'bold', color: '#4f46e5' }}>{item.category}</td>
                                                 <td>{item.name}</td>
-                                                <td>${parseFloat(item.price)}</td>
+                                                <td>${parseFloat(String(item.price))}</td>
                                                 <td style={{ color: '#666', fontSize: '0.9em' }}>{item.description}</td>
                                             </tr>
                                         ))}
@@ -678,18 +590,16 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
             )}
 
             {/* Capacity Settings Modal */}
-            {showCapacity && token && selectedRestaurant && (
+            {showCapacity && isAuthenticated && selectedRestaurant && (
                 <CapacitySettings
                     restaurantId={selectedRestaurant}
-                    token={token}
                     onClose={() => setShowCapacity(false)}
                 />
             )}
 
-            {showImages && token && selectedRestaurant && selectedRestaurantData && (
+            {showImages && isAuthenticated && selectedRestaurant && selectedRestaurantData && (
                 <div style={{ marginBottom: '1.5rem' }}>
                     <RestaurantImageManager
-                        token={token}
                         restaurantId={selectedRestaurant}
                         initialImageKeys={selectedRestaurantData.restaurant_image_keys || []}
                         initialImageUrls={selectedRestaurantData.restaurant_images || []}
@@ -698,10 +608,9 @@ export default function Dashboard({ user, signOut }: DashboardProps) {
                 </div>
             )}
 
-            {showPosSettings && token && selectedRestaurant && (
+            {showPosSettings && isAuthenticated && selectedRestaurant && (
                 <PosSettings
                     restaurantId={selectedRestaurant}
-                    token={token}
                     onClose={() => setShowPosSettings(false)}
                 />
             )}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../aws-exports'
+import * as api from '../services/api'
 
 interface PosConnection {
     connection_id: string;
@@ -13,7 +13,6 @@ interface PosConnection {
 
 interface PosSettingsProps {
     restaurantId: string;
-    token: string;
     onClose: () => void;
 }
 
@@ -27,7 +26,7 @@ const PROVIDERS = [
 const providerIcon = (p: string) =>
     PROVIDERS.find(pr => pr.value === p)?.label?.split(' ')[0] || '🔌'
 
-export default function PosSettings({ restaurantId, token, onClose }: PosSettingsProps) {
+export default function PosSettings({ restaurantId, onClose }: PosSettingsProps) {
     const [posEnabled, setPosEnabled] = useState(false)
     const [connections, setConnections] = useState<PosConnection[]>([])
     const [loading, setLoading] = useState(true)
@@ -47,18 +46,11 @@ export default function PosSettings({ restaurantId, token, onClose }: PosSetting
     async function fetchConfig() {
         setLoading(true)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/config`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            if (res.ok) {
-                const data = await res.json()
-                setPosEnabled(data.pos_enabled ?? false)
-                setConnections(data.pos_connections ?? [])
-            } else {
-                setError('Failed to load POS settings')
-            }
+            const data = await api.fetchRestaurantConfig(restaurantId)
+            setPosEnabled((data.pos_enabled as boolean) ?? false)
+            setConnections((data.pos_connections as PosConnection[]) ?? [])
         } catch {
-            setError('Network error loading settings')
+            setError('Failed to load POS settings')
         } finally {
             setLoading(false)
         }
@@ -70,27 +62,15 @@ export default function PosSettings({ restaurantId, token, onClose }: PosSetting
         setMessage(null)
         setError(null)
         try {
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/config`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    pos_enabled: updatedEnabled ?? posEnabled,
-                    pos_connections: updatedConnections ?? connections,
-                })
+            await api.updateRestaurantConfig(restaurantId, {
+                pos_enabled: updatedEnabled ?? posEnabled,
+                pos_connections: updatedConnections ?? connections,
             })
-            if (res.ok) {
-                setMessage('POS settings saved!')
-                // Re-fetch to get masked secrets from server
-                await fetchConfig()
-            } else {
-                const errData = await res.json()
-                setError(errData.error || 'Failed to save')
-            }
-        } catch {
-            setError('Network error saving settings')
+            setMessage('POS settings saved!')
+            // Re-fetch to get masked secrets from server
+            await fetchConfig()
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to save')
         } finally {
             setSaving(false)
         }

@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
-import { API_BASE_URL } from '../aws-exports'
+import * as api from '../services/api'
+import { MenuUploadRow } from '../types'
 
 interface MenuIngestionProps {
     restaurantId: string;
-    token: string;
     onSuccess: () => void;
 }
 
-export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIngestionProps) {
+export default function MenuIngestion({ restaurantId, onSuccess }: MenuIngestionProps) {
     const [uploading, setUploading] = useState(false)
-    const [preview, setPreview] = useState<any[]>([])
+    const [preview, setPreview] = useState<MenuUploadRow[]>([])
+    const [message, setMessage] = useState<string | null>(null)
+    const [error, setError] = useState<string | null>(null)
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
@@ -22,9 +24,11 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
             const wb = XLSX.read(bstr, { type: 'binary' })
             const wsname = wb.SheetNames[0]
             const ws = wb.Sheets[wsname]
-            const data = XLSX.utils.sheet_to_json(ws)
+            const data = XLSX.utils.sheet_to_json(ws) as MenuUploadRow[]
 
             setPreview(data)
+            setMessage(null)
+            setError(null)
         }
         reader.readAsBinaryString(file)
     }
@@ -34,14 +38,12 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
         if (!confirm(`Ready to import ${preview.length} items? This will overwrite the existing menu.`)) return;
 
         setUploading(true)
+        setMessage(null)
+        setError(null)
         try {
-            // Transform data to match API expectation (lowercase keys if needed, but app.py expects payload.items)
-            // app.py expects: { items: [ { name, price, description, category, ... } ] }
-            // Excel columns: Name, Price, Description, Category (Case sensitive matching?)
-
             // Normalize keys to lowercase
-            const normalizedItems = preview.map((row: any) => {
-                const newRow: any = {}
+            const normalizedItems = preview.map((row: MenuUploadRow) => {
+                const newRow: Record<string, string | number | undefined> = {}
                 Object.keys(row).forEach(key => {
                     let val = row[key]
                     const lowerKey = key.toLowerCase()
@@ -56,28 +58,13 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
                 return newRow
             })
 
-            const res = await fetch(`${API_BASE_URL}/v1/restaurants/${restaurantId}/menu`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ items: normalizedItems })
-            })
-
-            if (res.ok) {
-                alert("Menu imported successfully!")
-                setPreview([])
-                onSuccess()
-            } else {
-                const err = await res.json()
-                const msg = err.error || err.message || 'Unknown error'
-                console.error("Backend Error:", err)
-                alert(`Import failed: ${msg}`)
-            }
-        } catch (e: any) {
+            await api.importMenu(restaurantId, normalizedItems)
+            setMessage(`Menu imported successfully! (${preview.length} items)`)
+            setPreview([])
+            onSuccess()
+        } catch (e: unknown) {
             console.error("Network/Parsing Error:", e)
-            alert(`Import failed: ${e.message || "Network Error"}`)
+            setError(`Import failed: ${e instanceof Error ? e.message : "Network Error"}`)
         } finally {
             setUploading(false)
         }
@@ -90,6 +77,9 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
                 Upload a <strong>CSV or Excel file (.csv, .xlsx, .xls)</strong> with columns: <strong>Category, Name, Description, Price</strong>.
             </p>
 
+            {message && <div style={{ color: '#15803d', background: '#f0fdf4', padding: '0.75rem', borderRadius: '6px', marginBottom: '0.75rem' }}>{message}</div>}
+            {error && <div style={{ color: '#b91c1c', background: '#fef2f2', padding: '0.75rem', borderRadius: '6px', marginBottom: '0.75rem' }}>{error}</div>}
+
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', margin: '1rem 0' }}>
                 <input
                     type="file"
@@ -97,10 +87,11 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
                     onChange={(e) => {
                         const file = e.target.files?.[0]
                         if (file && !file.name.toLowerCase().match(/\.(csv|xlsx|xls)$/)) {
-                            alert("Please upload a .csv, .xlsx, or .xls file only.")
+                            setError("Please upload a .csv, .xlsx, or .xls file only.")
                             e.target.value = '' // Reset
                             return
                         }
+                        setError(null)
                         handleFileUpload(e)
                     }}
                 />
@@ -126,7 +117,7 @@ export default function MenuIngestion({ restaurantId, token, onSuccess }: MenuIn
                             </tr>
                         </thead>
                         <tbody>
-                            {preview.slice(0, 5).map((row: any, i) => (
+                            {preview.slice(0, 5).map((row, i) => (
                                 <tr key={i}>
                                     <td>{row.Category || row.category}</td>
                                     <td>{row.Name || row.name}</td>
