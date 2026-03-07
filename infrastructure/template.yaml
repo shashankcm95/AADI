@@ -330,6 +330,7 @@ Resources:
         OrdersTableName: !GetAtt OrdersService.Outputs.OrdersTableName
         MenusTableName: !GetAtt RestaurantsService.Outputs.MenusTableName
         CapacityTableName: !GetAtt OrdersService.Outputs.CapacityTableName
+        SharedLayerArn: !Ref SharedLayer
 
   # -------------------------------------------------------------------------
   # Frontend Hosting (S3)

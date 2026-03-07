@@ -9,7 +9,8 @@ import hashlib
 import pytest
 from unittest.mock import patch, MagicMock
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../shared/python')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 # Mock boto3 before importing auth to prevent real DynamoDB connection
 with patch.dict(os.environ, {'POS_API_KEYS_TABLE': 'test-keys'}):

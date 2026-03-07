@@ -6,11 +6,13 @@ import json
 import importlib
 from unittest.mock import MagicMock
 
+# Add shared layer to path first (simulates Lambda Layer at runtime)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../shared/python')))
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 # Avoid cross-service module collisions when running full-repo pytest.
-for module_name in ("app", "handlers", "auth", "pos_mapper"):
+for module_name in ("app", "handlers", "auth", "pos_mapper", "utils"):
     sys.modules.pop(module_name, None)
 
 import app

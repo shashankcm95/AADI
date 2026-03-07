@@ -18,6 +18,10 @@ Parameters:
     Type: String
     Description: Capacity table name from the orders stack
     Default: ""
+  SharedLayerArn:
+    Type: String
+    Description: ARN of the shared Lambda Layer
+    Default: ""
 
 Conditions:
   HasOrdersTableName: !Not [!Equals [!Ref OrdersTableName, ""]]
@@ -31,6 +35,8 @@ Globals:
     Runtime: python3.11
     Architectures:
       - arm64
+    Layers:
+      - !Ref SharedLayerArn
 
 Resources:
   PosIntegrationApi:

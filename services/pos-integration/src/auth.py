@@ -12,12 +12,12 @@ and store the result as the `api_key` partition-key value.
 
 import os
 import hashlib
-import logging
 import boto3
 import time
 from typing import Optional, Dict, Any
+from shared.logger import get_logger
 
-logger = logging.getLogger("pos.auth")
+logger = get_logger("pos.auth")
 
 dynamodb = boto3.resource('dynamodb')
 POS_API_KEYS_TABLE = os.environ.get('POS_API_KEYS_TABLE')

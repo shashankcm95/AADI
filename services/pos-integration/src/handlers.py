@@ -16,6 +16,9 @@ from typing import Dict, Any, List
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Attr
 from pos_mapper import pos_order_to_session, session_to_pos_order, pos_menu_to_resources
+from shared.logger import get_logger
+
+log = get_logger("pos.handlers")
 
 dynamodb = boto3.resource('dynamodb')
 
@@ -50,7 +53,7 @@ for _name, _val in [
     ('CAPACITY_TABLE', CAPACITY_TABLE),
 ]:
     if not _val:
-        print(f"WARN: {_name} env var not set — related operations will be no-ops")
+        log.warning("table_env_not_set", extra={"env_var": _name})
 
 orders_table = dynamodb.Table(ORDERS_TABLE) if ORDERS_TABLE else None
 menus_table = dynamodb.Table(MENUS_TABLE) if MENUS_TABLE else None
@@ -187,8 +190,13 @@ def _release_capacity_slot(session: Dict[str, Any]) -> None:
             ConditionExpression=Attr("current_count").gt(0),
             ExpressionAttributeValues={":one": 1},
         )
-    except Exception:
+    except Exception as e:
         # Best effort: slot may already be released or row expired.
+        log.warning("capacity_release_failed", extra={
+            "restaurant_id": destination_id,
+            "window_start": window_start,
+            "error": str(e),
+        })
         return
 
 
@@ -424,7 +432,8 @@ def handle_get_menu(key_record: Dict[str, Any]) -> Dict[str, Any]:
         )
         item = response.get('Item', {})
         menu_items = item.get('items', [])
-    except Exception:
+    except Exception as e:
+        log.error("menu_fetch_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         menu_items = []
 
     return {

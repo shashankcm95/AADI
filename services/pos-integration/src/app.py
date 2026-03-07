@@ -16,15 +16,24 @@ from handlers import (
     handle_sync_menu,
     handle_webhook,
 )
+from shared.logger import get_logger, extract_correlation_id
+
+log = get_logger("pos.app")
 
 
 def lambda_handler(event, context):
     """Main entry point for POS Integration Lambda."""
-    
+
     route_key = event.get('routeKey', '')
     path_params = event.get('pathParameters') or {}
     query_params = event.get('queryStringParameters') or {}
-    
+
+    req_log = log.bind(
+        correlation_id=extract_correlation_id(event),
+        route_key=route_key,
+    )
+    req_log.info("request_received")
+
     # --- Authenticate ---
     key_record = authenticate_request(event)
     if not key_record:
@@ -97,8 +106,7 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': 'Invalid JSON in request body'})
         }
     except Exception as e:
-        import logging
-        logging.getLogger("pos.app").error("unhandled_exception", extra={"error": str(e)}, exc_info=True)
+        req_log.error("unhandled_exception", extra={"error_type": type(e).__name__, "detail": str(e)}, exc_info=True)
         return {
             'statusCode': 500,
             'body': json.dumps({'error': 'Internal Server Error'})
