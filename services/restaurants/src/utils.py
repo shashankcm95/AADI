@@ -12,6 +12,9 @@ import boto3
 from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
 from shared.auth import get_user_claims
 from shared.serialization import decimal_default, make_response
+from shared.logger import get_logger
+
+log = get_logger("restaurants.utils", service="restaurants")
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +42,20 @@ config_table = dynamodb.Table(RESTAURANT_CONFIG_TABLE) if RESTAURANT_CONFIG_TABL
 favorites_table = dynamodb.Table(FAVORITES_TABLE) if FAVORITES_TABLE else None
 s3_client = boto3.client('s3')
 _location_client = None
+_sqs_client = None
+
+
+def get_sqs_client():
+    """Lazy-initialise the SQS client (shared across config and resync worker)."""
+    global _sqs_client
+    if _sqs_client is not None:
+        return _sqs_client if _sqs_client else None
+    try:
+        _sqs_client = boto3.client('sqs')
+    except Exception as e:
+        log.error("sqs_client_init_failed", extra={"error": str(e)})
+        _sqs_client = False
+    return _sqs_client if _sqs_client else None
 
 GLOBAL_CONFIG_ID = '__GLOBAL__'
 DEFAULT_DISPATCH_TRIGGER_ZONE = 'ZONE_1'
@@ -134,7 +151,7 @@ def get_global_zone_distances():
         item = resp.get('Item', {})
         return _normalize_zone_distances(item.get('zone_distances_m'))
     except Exception as e:
-        print(f"Failed to read global zone distances: {e}")
+        log.error("global_zone_distances_read_failed", extra={"error": str(e)})
         return dict(DEFAULT_ZONE_DISTANCES_M)
 
 
@@ -147,7 +164,7 @@ def get_global_zone_labels():
         item = resp.get('Item', {})
         return _normalize_zone_labels(item.get('zone_labels'))
     except Exception as e:
-        print(f"Failed to read global zone labels: {e}")
+        log.error("global_zone_labels_read_failed", extra={"error": str(e)})
         return dict(DEFAULT_ZONE_LABELS)
 
 
@@ -176,12 +193,12 @@ def _require_customer(event):
     restaurant_id = claims.get('restaurant_id')
 
     if not customer_id:
-        return None, {'statusCode': 401, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Unauthorized'})}
+        return None, make_response(401, {'error': 'Unauthorized'}, event)
 
     # Accept role-less users as customers only when not bound to a restaurant.
     is_customer = role == 'customer' or (not role and not restaurant_id)
     if not is_customer:
-        return None, {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return None, make_response(403, {'error': 'Access denied'}, event)
 
     return customer_id, None
 
@@ -200,13 +217,13 @@ def _call_nominatim(query):
         with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode())
             if data:
-                print(f"Geocoding success for '{query}': {data[0]['lat']}, {data[0]['lon']}")
+                log.info("geocoding_success", extra={"query": query, "lat": data[0]['lat'], "lon": data[0]['lon']})
                 return {
                     'lat': Decimal(str(data[0]['lat'])),
                     'lon': Decimal(str(data[0]['lon']))
                 }
     except Exception as e:
-        print(f"Geocoding error for '{query}': {e}")
+        log.error("geocoding_error", extra={"query": query, "error": str(e)})
     return None
 
 
@@ -220,13 +237,13 @@ def geocode_address(street, city, state, zip_code):
     cleaned_street = re.sub(r'(?i)[\s,]+(?:#|apt|suite|ste|unit)[\s.]*[\w-]+.*$', '', street)
 
     if cleaned_street != street:
-        print(f"Retrying geocoding without unit: {cleaned_street}")
+        log.info("geocoding_retry_without_unit", extra={"cleaned_street": cleaned_street})
         full_address_clean = f"{cleaned_street}, {city}, {state} {zip_code}"
         result = _call_nominatim(full_address_clean)
         if result:
             return result
 
-    print(f"Geocoding failed for all attempts: {full_address}")
+    log.warning("geocoding_failed_all_attempts", extra={"address": full_address})
     return None
 
 
@@ -237,7 +254,7 @@ def _get_location_client():
     try:
         _location_client = boto3.client('location')
     except Exception as e:
-        print(f"Amazon Location client unavailable: {e}")
+        log.error("location_client_unavailable", extra={"error": str(e)})
         _location_client = False
     return _location_client if _location_client else None
 
@@ -305,11 +322,11 @@ def upsert_restaurant_geofences(restaurant_id, location):
         )
         errors = result.get('Errors') or []
         if errors:
-            print(f"Geofence upsert returned errors for {restaurant_id}: {errors}")
+            log.error("geofence_upsert_errors", extra={"restaurant_id": restaurant_id, "errors": str(errors)})
             return False
         return True
     except Exception as e:
-        print(f"Failed to upsert geofences for {restaurant_id}: {e}")
+        log.error("geofence_upsert_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return False
 
 
@@ -329,11 +346,11 @@ def delete_restaurant_geofences(restaurant_id):
         )
         errors = result.get('Errors') or []
         if errors:
-            print(f"Geofence delete returned errors for {restaurant_id}: {errors}")
+            log.error("geofence_delete_errors", extra={"restaurant_id": restaurant_id, "errors": str(errors)})
             return False
         return True
     except Exception as e:
-        print(f"Failed to delete geofences for {restaurant_id}: {e}")
+        log.error("geofence_delete_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
         return False
 
 
@@ -395,7 +412,7 @@ def _build_image_url(object_key, expires_in=IMAGE_URL_TTL_SECONDS):
             ExpiresIn=max(60, int(expires_in)),
         )
     except Exception as e:
-        print(f"Failed to generate image URL for {object_key}: {e}")
+        log.error("presigned_url_generation_failed", extra={"object_key": object_key, "error": str(e)})
         return None
 
 

@@ -3,17 +3,13 @@ import json
 import os
 import time
 
-import boto3
-
 from shared.logger import get_logger
-from utils import GLOBAL_CONFIG_ID, config_table, restaurants_table, upsert_restaurant_geofences
+from utils import GLOBAL_CONFIG_ID, config_table, get_sqs_client, restaurants_table, upsert_restaurant_geofences
 
 log = get_logger("restaurants.geofence_resync_worker", service="restaurants")
 
 GEOFENCE_RESYNC_QUEUE_URL = os.environ.get('GEOFENCE_RESYNC_QUEUE_URL', '').strip()
 GEOFENCE_RESYNC_TASK_TYPE = 'geofence_resync'
-
-_sqs_client = None
 
 
 def _env_int(name, default_value):
@@ -26,18 +22,6 @@ def _env_int(name, default_value):
 
 GEOFENCE_RESYNC_BATCH_SIZE = _env_int('GEOFENCE_RESYNC_BATCH_SIZE', 25)
 GEOFENCE_RESYNC_MAX_UPSERT_ATTEMPTS = _env_int('GEOFENCE_RESYNC_MAX_UPSERT_ATTEMPTS', 3)
-
-
-def _get_sqs_client():
-    global _sqs_client
-    if _sqs_client is not None:
-        return _sqs_client if _sqs_client else None
-    try:
-        _sqs_client = boto3.client('sqs')
-    except Exception as e:
-        print(f"Failed to create SQS client: {e}")
-        _sqs_client = False
-    return _sqs_client if _sqs_client else None
 
 
 def _to_int(value, default_value=0):
@@ -71,7 +55,7 @@ def _load_sync_state(job_id, now):
     try:
         existing = config_table.get_item(Key={'restaurant_id': GLOBAL_CONFIG_ID}).get('Item', {})
     except Exception as e:
-        print(f"Failed to read global config for sync state: {e}")
+        log.error("global_config_sync_state_read_failed", extra={"error": str(e)})
         return default_state
 
     raw_state = existing.get('geofence_sync')
@@ -107,7 +91,7 @@ def _enqueue_follow_up(job_id, cursor, queued_at):
     if not GEOFENCE_RESYNC_QUEUE_URL:
         raise RuntimeError('GEOFENCE_RESYNC_QUEUE_URL is not configured')
 
-    sqs = _get_sqs_client()
+    sqs = get_sqs_client()
     if sqs is None:
         raise RuntimeError('SQS client unavailable')
 

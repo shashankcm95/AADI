@@ -313,6 +313,7 @@ def test_get_global_config_denies_non_admin(mock_tables):
 
 def test_update_global_config_updates_distances_and_enqueues_resync(mock_tables, monkeypatch):
     import handlers.config as h_config
+    import utils as _utils
 
     sent_messages = []
 
@@ -324,7 +325,7 @@ def test_update_global_config_updates_distances_and_enqueues_resync(mock_tables,
             })
             return {"MessageId": "msg-1"}
 
-    monkeypatch.setattr(h_config, "_sqs_client", _FakeSQS())
+    monkeypatch.setattr(_utils, "_sqs_client", _FakeSQS())
     monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
 
     resp = restaurants_app.update_global_config(
@@ -355,12 +356,13 @@ def test_update_global_config_updates_distances_and_enqueues_resync(mock_tables,
 
 def test_update_global_config_returns_error_when_enqueue_fails(mock_tables, monkeypatch):
     import handlers.config as h_config
+    import utils as _utils
 
     class _BrokenSQS:
         def send_message(self, QueueUrl, MessageBody):
             raise RuntimeError("queue unavailable")
 
-    monkeypatch.setattr(h_config, "_sqs_client", _BrokenSQS())
+    monkeypatch.setattr(_utils, "_sqs_client", _BrokenSQS())
     monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
 
     resp = restaurants_app.update_global_config(
@@ -391,12 +393,13 @@ def test_update_global_config_rejects_empty_label(mock_tables):
 
 def test_update_global_config_updates_labels_only(mock_tables, monkeypatch):
     import handlers.config as h_config
+    import utils as _utils
 
     class _FakeSQS:
         def send_message(self, QueueUrl, MessageBody):
             return {"MessageId": "msg-1"}
 
-    monkeypatch.setattr(h_config, "_sqs_client", _FakeSQS())
+    monkeypatch.setattr(_utils, "_sqs_client", _FakeSQS())
     monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
 
     resp = restaurants_app.update_global_config(

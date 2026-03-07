@@ -5,7 +5,7 @@ import uuid
 
 from shared.logger import get_logger
 from utils import (
-    CORS_HEADERS, get_user_claims, _is_admin_or_owner,
+    get_user_claims, _is_admin_or_owner, make_response,
     restaurants_table, s3_client, RESTAURANT_IMAGES_BUCKET,
     _build_image_url,
 )
@@ -16,21 +16,21 @@ logger = get_logger("restaurants.images")
 def create_image_upload_url(event, restaurant_id):
     """Generate a short-lived pre-signed S3 URL for restaurant image uploads."""
     if not restaurant_id:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'restaurant_id is required'})}
+        return make_response(400, {'error': 'restaurant_id is required'}, event)
 
     claims = get_user_claims(event)
     if not _is_admin_or_owner(claims, restaurant_id):
-        return {'statusCode': 403, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Access denied'})}
+        return make_response(403, {'error': 'Access denied'}, event)
 
     if not RESTAURANT_IMAGES_BUCKET:
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Image bucket not configured'})}
+        return make_response(500, {'error': 'Image bucket not configured'}, event)
 
     restaurant_record = None
     if restaurants_table:
         resp = restaurants_table.get_item(Key={'restaurant_id': restaurant_id})
         restaurant_record = resp.get('Item')
         if not restaurant_record:
-            return {'statusCode': 404, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Restaurant not found'})}
+            return make_response(404, {'error': 'Restaurant not found'}, event)
 
     try:
         body = json.loads(event.get('body', '{}'))
@@ -40,16 +40,16 @@ def create_image_upload_url(event, restaurant_id):
     file_name = str(body.get('file_name') or 'upload.jpg').strip()
     content_type = str(body.get('content_type') or '').strip().lower()
     if not content_type.startswith('image/'):
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'content_type must be an image/* MIME type'})}
+        return make_response(400, {'error': 'content_type must be an image/* MIME type'}, event)
 
     if content_type == 'image/svg+xml':
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'SVG uploads are not allowed'})}
+        return make_response(400, {'error': 'SVG uploads are not allowed'}, event)
 
     existing_image_keys = []
     if isinstance(restaurant_record, dict):
         existing_image_keys = restaurant_record.get('restaurant_image_keys') or []
     if isinstance(existing_image_keys, list) and len(existing_image_keys) >= 5:
-        return {'statusCode': 400, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'A maximum of 5 restaurant images is allowed'})}
+        return make_response(400, {'error': 'A maximum of 5 restaurant images is allowed'}, event)
 
     ext = os.path.splitext(file_name)[1].lower()
     if ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'):
@@ -78,15 +78,11 @@ def create_image_upload_url(event, restaurant_id):
         )
     except Exception as e:
         logger.error("presigned_url_failed", extra={"restaurant_id": restaurant_id, "error": str(e)})
-        return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Failed to generate upload URL'})}
+        return make_response(500, {'error': 'Failed to generate upload URL'}, event)
 
-    return {
-        'statusCode': 200,
-        'headers': CORS_HEADERS,
-        'body': json.dumps({
-            'upload_url': upload_url,
-            'object_key': object_key,
-            'preview_url': _build_image_url(object_key),
-            'expires_in_seconds': upload_ttl_seconds,
-        }),
-    }
+    return make_response(200, {
+        'upload_url': upload_url,
+        'object_key': object_key,
+        'preview_url': _build_image_url(object_key),
+        'expires_in_seconds': upload_ttl_seconds,
+    }, event)

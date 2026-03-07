@@ -93,14 +93,14 @@ def list_restaurants(event):
             price_tier_filter = query_params.get('price_tier')
 
             try:
-                limit = min(int(query_params.get('limit', 25)), 100)
+                limit = max(1, min(int(query_params.get('limit', 25)), 100))
             except (ValueError, TypeError):
                 limit = 25
             next_token = query_params.get('next_token')
 
             if role == 'admin' and not cuisine_filter and not price_tier_filter:
                 try:
-                    admin_limit = min(int(query_params.get('limit', 50)), 200)
+                    admin_limit = max(1, min(int(query_params.get('limit', 50)), 200))
                 except (ValueError, TypeError):
                     admin_limit = 50
                 scan_kwargs = {'Limit': admin_limit}

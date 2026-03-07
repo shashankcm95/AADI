@@ -90,12 +90,13 @@ def test_restaurants_health_check():
 
 def test_global_config_routes_admin(mock_tables, monkeypatch):
     import handlers.config as h_config
+    import utils as _utils
 
     class _FakeSQS:
         def send_message(self, QueueUrl, MessageBody):
             return {"MessageId": "msg-1"}
 
-    monkeypatch.setattr(h_config, "_sqs_client", _FakeSQS())
+    monkeypatch.setattr(_utils, "_sqs_client", _FakeSQS())
     monkeypatch.setattr(h_config, "GEOFENCE_RESYNC_QUEUE_URL", "https://sqs.us-east-1.amazonaws.com/123/geofence-resync")
 
     get_response = restaurants_app.lambda_handler(

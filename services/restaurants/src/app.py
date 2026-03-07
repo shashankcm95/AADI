@@ -90,34 +90,34 @@ def lambda_handler(event, context):
         if route_key == 'DELETE /v1/restaurants/{restaurant_id}':
             return delete_restaurant(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'GET /v1/restaurants/{restaurant_id}/menu':
+        if route_key == 'GET /v1/restaurants/{restaurant_id}/menu':
             return get_menu(path_params.get('restaurant_id'))
 
-        elif route_key == 'POST /v1/restaurants/{restaurant_id}/menu':
+        if route_key == 'POST /v1/restaurants/{restaurant_id}/menu':
             return update_menu(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'GET /v1/restaurants/{restaurant_id}/config':
+        if route_key == 'GET /v1/restaurants/{restaurant_id}/config':
             return get_config(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'PUT /v1/restaurants/{restaurant_id}/config':
+        if route_key == 'PUT /v1/restaurants/{restaurant_id}/config':
             return update_config(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'GET /v1/admin/global-config':
+        if route_key == 'GET /v1/admin/global-config':
             return get_global_config(event)
 
-        elif route_key == 'PUT /v1/admin/global-config':
+        if route_key == 'PUT /v1/admin/global-config':
             return update_global_config(event)
 
-        elif route_key == 'POST /v1/restaurants/{restaurant_id}/images/upload-url':
+        if route_key == 'POST /v1/restaurants/{restaurant_id}/images/upload-url':
             return create_image_upload_url(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'GET /v1/favorites':
+        if route_key == 'GET /v1/favorites':
             return list_favorites(event)
 
-        elif route_key == 'PUT /v1/favorites/{restaurant_id}':
+        if route_key == 'PUT /v1/favorites/{restaurant_id}':
             return add_favorite(event, path_params.get('restaurant_id'))
 
-        elif route_key == 'DELETE /v1/favorites/{restaurant_id}':
+        if route_key == 'DELETE /v1/favorites/{restaurant_id}':
             return remove_favorite(event, path_params.get('restaurant_id'))
 
         return make_response(404, {'error': 'Not Found'})

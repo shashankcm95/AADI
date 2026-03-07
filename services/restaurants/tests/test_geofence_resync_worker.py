@@ -1,6 +1,7 @@
 import json
 
 import geofence_resync_worker as worker
+import utils as _utils
 
 
 def _queue_event(payload):
@@ -22,7 +23,7 @@ def test_worker_completes_single_batch_job(mock_tables, monkeypatch):
     monkeypatch.setattr(worker, 'restaurants_table', mock_tables['restaurants'])
     monkeypatch.setattr(worker, 'GEOFENCE_RESYNC_BATCH_SIZE', 50)
     monkeypatch.setattr(worker, 'upsert_restaurant_geofences', lambda _id, _loc: True)
-    monkeypatch.setattr(worker, '_sqs_client', _NoopSQS())
+    monkeypatch.setattr(_utils, '_sqs_client', _NoopSQS())
 
     response = worker.lambda_handler(_queue_event({'task_type': 'geofence_resync', 'job_id': 'job-1'}), None)
     assert response['statusCode'] == 200
@@ -53,7 +54,7 @@ def test_worker_enqueues_follow_up_when_scan_has_more_pages(mock_tables, monkeyp
     monkeypatch.setattr(worker, 'GEOFENCE_RESYNC_BATCH_SIZE', 2)
     monkeypatch.setattr(worker, 'GEOFENCE_RESYNC_QUEUE_URL', 'https://sqs.us-east-1.amazonaws.com/123/geofence-resync')
     monkeypatch.setattr(worker, 'upsert_restaurant_geofences', lambda _id, _loc: True)
-    monkeypatch.setattr(worker, '_sqs_client', _FakeSQS())
+    monkeypatch.setattr(_utils, '_sqs_client', _FakeSQS())
 
     response = worker.lambda_handler(_queue_event({'task_type': 'geofence_resync', 'job_id': 'job-2'}), None)
     assert response['statusCode'] == 200

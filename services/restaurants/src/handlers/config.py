@@ -4,8 +4,6 @@ import os
 import time
 import uuid
 
-import boto3
-
 from shared.logger import get_logger
 
 from utils import (
@@ -18,6 +16,7 @@ from utils import (
     config_table,
     get_global_zone_labels,
     get_global_zone_distances,
+    get_sqs_client,
     get_user_claims,
     make_response,
     normalize_dispatch_trigger_event,
@@ -33,19 +32,6 @@ GEOFENCE_RESYNC_QUEUE_URL = os.environ.get('GEOFENCE_RESYNC_QUEUE_URL', '').stri
 GEOFENCE_RESYNC_TASK_TYPE = 'geofence_resync'
 
 log = get_logger("restaurants.config", service="restaurants")
-_sqs_client = None
-
-
-def _get_sqs_client():
-    global _sqs_client
-    if _sqs_client is not None:
-        return _sqs_client if _sqs_client else None
-    try:
-        _sqs_client = boto3.client('sqs')
-    except Exception as e:
-        log.error("sqs_client_init_failed", extra={"error": str(e)})
-        _sqs_client = False
-    return _sqs_client if _sqs_client else None
 
 
 def _build_geofence_sync_state(job_id, now, status='QUEUED'):
@@ -63,7 +49,7 @@ def _build_geofence_sync_state(job_id, now, status='QUEUED'):
 def _enqueue_geofence_resync_job(job_id, queued_at):
     if not GEOFENCE_RESYNC_QUEUE_URL:
         return False, 'GEOFENCE_RESYNC_QUEUE_URL is not configured'
-    sqs = _get_sqs_client()
+    sqs = get_sqs_client()
     if sqs is None:
         return False, 'SQS client unavailable'
 
