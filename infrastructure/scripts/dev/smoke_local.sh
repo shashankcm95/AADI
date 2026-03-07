@@ -8,17 +8,24 @@ IFS=$'\n\t'
 API="${API:-http://127.0.0.1:3000}"
 RID="${RID:-rst_001}"
 
-CFG_TABLE="${CFG_TABLE:-arrive-dev-RestaurantConfigTable-4CJXU663PPYC}"
-ORDERS_TABLE="${ORDERS_TABLE:-arrive-dev-OrdersTable-1NZGZZ1LUTWVV}"
-CAPACITY_TABLE="${CAPACITY_TABLE:-arrive-dev-CapacityTable-P79F5A2T9RZ3}"
-IDEMPOTENCY_TABLE="${IDEMPOTENCY_TABLE:-arrive-dev-IdempotencyTable-VUBEBNT8L1N6}"
+REGION="${REGION:-us-east-1}"
+
+_lookup_table() {
+  aws dynamodb list-tables --region "$REGION" \
+    --query "TableNames[?contains(@, '$1')]|[0]" --output text 2>/dev/null || echo ""
+}
+
+CFG_TABLE="${CFG_TABLE:-$(_lookup_table RestaurantConfigTable)}"
+ORDERS_TABLE="${ORDERS_TABLE:-$(_lookup_table OrdersTable)}"
+CAPACITY_TABLE="${CAPACITY_TABLE:-$(_lookup_table CapacityTable)}"
+IDEMPOTENCY_TABLE="${IDEMPOTENCY_TABLE:-$(_lookup_table IdempotencyTable)}"
 
 
 ITEM_ID="${ITEM_ID:-it_001}"
 ITEM_NAME="${ITEM_NAME:-Turkey Sandwich}"
 PRICE_CENTS="${PRICE_CENTS:-1099}"
 PREP_UNITS="${PREP_UNITS:-2}"
-CAP_TABLE="${CAP_TABLE:-arrive-dev-CapacityTable-P79F5A2T9RZ3}"
+CAP_TABLE="${CAP_TABLE:-${CAPACITY_TABLE}}"
 WINDOW_SECONDS="${WINDOW_SECONDS:-600}"
 
 fail() {

@@ -16,7 +16,7 @@ fi
 
 # 1. Login as Super Admin
 echo "🔐 Logging in as Super Admin..."
-ADMIN_TOKEN=$(./scripts/get_token.sh "$ADMIN_EMAIL" "$PASSWORD" | tail -n 1)
+ADMIN_TOKEN=$(./scripts/dev/get_token.sh "$ADMIN_EMAIL" "$PASSWORD" | tail -n 1)
 
 if [ -z "$ADMIN_TOKEN" ]; then
     echo "❌ Admin Login Failed"

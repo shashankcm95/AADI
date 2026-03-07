@@ -3,10 +3,10 @@ import os
 import pytest
 from unittest.mock import MagicMock
 
-# Reuse orders engine for shared behavior checks
+# Orders engine tests (relocated from infrastructure/tests/)
 sys.path.append(
     os.path.abspath(
-        os.path.join(os.path.dirname(__file__), '../../services/orders/src')
+        os.path.join(os.path.dirname(__file__), '../src')
     )
 )
 

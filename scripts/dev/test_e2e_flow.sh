@@ -21,7 +21,7 @@ PASSWORD="$E2E_PASSWORD"
 
 # Helper Functions
 get_token() {
-    ./scripts/get_token.sh "$1" "$PASSWORD" | tail -n 1
+    ./scripts/dev/get_token.sh "$1" "$PASSWORD" | tail -n 1
 }
 
 echo "🚀 Starting End-to-End Test Automation..."

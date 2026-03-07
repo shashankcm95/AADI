@@ -16,10 +16,10 @@ echo "🔗 API URL: $API_URL"
 
 # 1. Get Tokens
 echo "🔑 Getting token for ADMIN..."
-ADMIN_TOKEN=$(./scripts/get_token.sh "$ADMIN_EMAIL" "$PASSWORD" | tail -n 1)
+ADMIN_TOKEN=$(./scripts/dev/get_token.sh "$ADMIN_EMAIL" "$PASSWORD" | tail -n 1)
 
 echo "🔑 Getting token for RESTAURANT ADMIN..."
-REST_TOKEN=$(./scripts/get_token.sh "$REST_EMAIL" "$PASSWORD" | tail -n 1)
+REST_TOKEN=$(./scripts/dev/get_token.sh "$REST_EMAIL" "$PASSWORD" | tail -n 1)
 
 if [ -z "$ADMIN_TOKEN" ] || [ -z "$REST_TOKEN" ]; then
     echo "❌ Failed to get tokens"

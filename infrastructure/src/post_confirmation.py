@@ -3,11 +3,12 @@ import boto3
 import os
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 cognito = boto3.client('cognito-idp')
 dynamodb = boto3.resource('dynamodb')
 USERS_TABLE = os.environ.get('USERS_TABLE')
+_users_table = dynamodb.Table(USERS_TABLE) if USERS_TABLE else None
 
 logger = logging.getLogger("post_confirmation")
 logger.setLevel(logging.INFO)
@@ -47,10 +48,10 @@ def lambda_handler(event, context):
             logger.info("role_already_set", extra={"username": username, "role": current_role})
 
         # 2. Create DynamoDB Profile
-        if USERS_TABLE and user_id:
-            table = dynamodb.Table(USERS_TABLE)
+        if _users_table and user_id:
+            table = _users_table
             timestamp = int(time.time())
-            iso_timestamp = datetime.utcnow().isoformat()
+            iso_timestamp = datetime.now(timezone.utc).isoformat()
             
             item = {
                 'user_id': user_id,

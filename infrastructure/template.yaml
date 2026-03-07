@@ -3,7 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   arrive-api
 
-  Sample SAM Template for arrive-api
+  AADI infrastructure: Cognito, CloudFront, S3, Location, shared layer, nested service stacks
 
 Parameters:
   GoogleClientId:
@@ -121,7 +121,6 @@ Resources:
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_USER_SRP_AUTH
         - ALLOW_REFRESH_TOKEN_AUTH
-        - ALLOW_ADMIN_USER_PASSWORD_AUTH
       CallbackURLs:
         - "http://localhost:3000/callback" 
         - "http://localhost:5173/"
@@ -160,6 +159,8 @@ Resources:
               Resource: !GetAtt UserPool.Arn
         - DynamoDBCrudPolicy:
             TableName: !GetAtt UsersService.Outputs.UsersTableName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt PostConfirmationDLQ.QueueName
 
   PostConfirmationInvokePermission:
     Type: AWS::Lambda::Permission
@@ -168,6 +169,22 @@ Resources:
       FunctionName: !Ref PostConfirmationFunction
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt UserPool.Arn
+
+  PostConfirmationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${AWS::StackName}-post-confirmation-dlq"
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  PostConfirmationEventInvokeConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref PostConfirmationFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 2
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt PostConfirmationDLQ.Arn
 
   # Attaches the PostConfirmation trigger to the UserPool via a CustomResource to
   # avoid a circular dependency (UserPool → PostConfirmationFunction → UsersService → UserPool).
@@ -180,15 +197,25 @@ Resources:
             cognito = boto3.client('cognito-idp')
             props = event['ResourceProperties']
             try:
+                # Read current LambdaConfig to avoid wiping other triggers
+                resp = cognito.describe_user_pool(UserPoolId=props['UserPoolId'])
+                current_config = resp.get('UserPool', {}).get('LambdaConfig', {})
+                # Remove internal metadata keys returned by describe_user_pool
+                current_config.pop('PreSignUp', None) if event['RequestType'] == 'noop' else None
+                for key in list(current_config.keys()):
+                    if key.startswith('Custom') and isinstance(current_config[key], dict):
+                        pass  # keep nested custom configs as-is
                 if event['RequestType'] in ('Create', 'Update'):
+                    current_config['PostConfirmation'] = props['LambdaArn']
                     cognito.update_user_pool(
                         UserPoolId=props['UserPoolId'],
-                        LambdaConfig={'PostConfirmation': props['LambdaArn']}
+                        LambdaConfig=current_config
                     )
                 elif event['RequestType'] == 'Delete':
+                    current_config.pop('PostConfirmation', None)
                     cognito.update_user_pool(
                         UserPoolId=props['UserPoolId'],
-                        LambdaConfig={}
+                        LambdaConfig=current_config
                     )
                 cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
             except Exception as e:
@@ -391,6 +418,17 @@ Resources:
           CachedMethods: [GET, HEAD, OPTIONS]
           # CachingOptimized managed policy (no query string / cookie forwarding)
           CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          # AWS managed SecurityHeadersPolicy (HSTS, X-Content-Type-Options, X-Frame-Options)
+          ResponseHeadersPolicyId: "67f7725c-6f97-4210-82d7-5512b31e9d03"
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
 
   AdminPortalDistribution:
     Type: AWS::CloudFront::Distribution
@@ -410,6 +448,17 @@ Resources:
           CachedMethods: [GET, HEAD, OPTIONS]
           # CachingOptimized managed policy (no query string / cookie forwarding)
           CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          # AWS managed SecurityHeadersPolicy (HSTS, X-Content-Type-Options, X-Frame-Options)
+          ResponseHeadersPolicyId: "67f7725c-6f97-4210-82d7-5512b31e9d03"
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
 
 Outputs:
   AuthUrl:
@@ -480,3 +529,7 @@ Outputs:
   LocationGeofenceCollectionArn:
     Description: "Amazon Location geofence collection ARN"
     Value: !GetAtt LocationGeofenceCollection.Arn
+
+  PostConfirmationDLQUrl:
+    Description: "SQS DLQ for failed PostConfirmation triggers"
+    Value: !Ref PostConfirmationDLQ

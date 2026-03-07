@@ -81,3 +81,19 @@ def test_cd_workflow_runs_authenticated_post_deploy_smoke():
     assert "aws cognito-idp initiate-auth" in text
     assert "Run Authenticated Post-Deploy Smoke" in text
     assert "./scripts/smoke_authenticated_order_flow.sh" in text
+
+
+def test_root_infra_cloudfront_spa_routing_and_security_headers():
+    text = _read(INFRA_TEMPLATE)
+    # SPA routing: custom error responses for 403/404
+    assert 'CustomErrorResponses:' in text
+    assert 'ResponsePagePath: /index.html' in text
+    # AWS managed SecurityHeadersPolicy
+    assert '67f7725c-6f97-4210-82d7-5512b31e9d03' in text
+    # PostConfirmation DLQ
+    assert 'PostConfirmationDLQ' in text
+    assert 'EventInvokeConfig' in text
+    # LambdaConfig merge (reads before writing)
+    assert 'describe_user_pool' in text
+    # Admin auth flow removed
+    assert 'ALLOW_ADMIN_USER_PASSWORD_AUTH' not in text
