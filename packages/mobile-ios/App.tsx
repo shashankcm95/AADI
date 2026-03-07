@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -170,19 +171,21 @@ export default function App() {
     }, []);
 
     return (
-        <CartProvider>
-            <ToastProvider>
-                <NavigationContainer theme={navTheme}>
-                    <View style={styles.container}>
-                        <StatusBar style="dark" />
-                        <RootStack.Navigator screenOptions={{ headerShown: false }}>
-                            <RootStack.Screen name="Login" component={LoginScreen} />
-                            <RootStack.Screen name="MainTabs" component={MainTabs} />
-                        </RootStack.Navigator>
-                    </View>
-                </NavigationContainer>
-            </ToastProvider>
-        </CartProvider>
+        <SafeAreaProvider>
+            <CartProvider>
+                <ToastProvider>
+                    <NavigationContainer theme={navTheme}>
+                        <View style={styles.container}>
+                            <StatusBar style="dark" />
+                            <RootStack.Navigator screenOptions={{ headerShown: false }}>
+                                <RootStack.Screen name="Login" component={LoginScreen} />
+                                <RootStack.Screen name="MainTabs" component={MainTabs} />
+                            </RootStack.Navigator>
+                        </View>
+                    </NavigationContainer>
+                </ToastProvider>
+            </CartProvider>
+        </SafeAreaProvider>
     );
 }
 

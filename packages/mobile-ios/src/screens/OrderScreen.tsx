@@ -212,6 +212,7 @@ export default function OrderScreen({ navigation, route }: Props) {
                         }
                     } catch (err) {
                         await stopLocationTracking();
+                        trackingSetupDoneRef.current = true;
                         console.warn('[OrderScreen] Could not fetch restaurant details:', err);
                     }
                 }

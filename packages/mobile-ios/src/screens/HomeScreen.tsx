@@ -32,18 +32,7 @@ type Props = {
     route: any;
 };
 
-type Category = {
-    id: string;
-    label: string;
-    icon: string;
-};
-
-const CATEGORIES: Category[] = [
-    { id: 'restaurants', label: 'Restaurants', icon: '🍽️' },
-    { id: 'grocery', label: 'Grocery', icon: '🛍️' },
-    { id: 'alcohol', label: 'Alcohol', icon: '🍷' },
-    { id: 'convenience', label: 'Convenience', icon: '🧃' },
-];
+const ALL_TAG = 'All';
 
 // Tab items now defined in App.tsx via createBottomTabNavigator
 
@@ -53,42 +42,12 @@ function primaryRestaurantImage(restaurant: Restaurant): ImageSourcePropType | u
     return sourceUrl ? { uri: sourceUrl } : undefined;
 }
 
-function bannerRestaurantImage(restaurant: Restaurant | undefined): ImageSourcePropType | undefined {
-    if (!restaurant) {
-        return undefined;
-    }
-
-    const uploaded = Array.isArray(restaurant.restaurant_images) ? restaurant.restaurant_images : [];
-    const sourceUrl = uploaded[1] || uploaded[0] || restaurant.banner_image_url || restaurant.image_url;
-    return sourceUrl ? { uri: sourceUrl } : undefined;
-}
-
-function matchesCategoryFilter(category: string, restaurant: Restaurant): boolean {
-    if (category === 'restaurants') {
-        return true;
-    }
-
-    const probe = `${restaurant.name ?? ''} ${restaurant.cuisine ?? ''} ${(restaurant.tags || []).join(' ')}`.toLowerCase();
-
-    if (category === 'grocery') {
-        return /(grocery|market|mart|fresh|produce)/.test(probe);
-    }
-
-    if (category === 'alcohol') {
-        return /(bar|wine|beer|spirits|cocktail|pub)/.test(probe);
-    }
-
-    if (category === 'convenience') {
-        return /(convenience|quick|snack|deli|corner)/.test(probe);
-    }
-
-    return true;
-}
+// bannerRestaurantImage removed — banner now uses static background asset
 
 export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     const { width } = useWindowDimensions();
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState('restaurants');
+    const [selectedCategory, setSelectedCategory] = useState(ALL_TAG);
     const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const [favoriteUpdating, setFavoriteUpdating] = useState<Record<string, boolean>>({});
@@ -161,27 +120,51 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         }
     };
 
-    const categoryCounts = useMemo(() => {
+    const availableTags = useMemo(() => {
+        const tagSet = new Set<string>();
+        for (const r of restaurants) {
+            if (!r?.restaurant_id) continue;
+            if (r.cuisine) tagSet.add(r.cuisine);
+            if (Array.isArray(r.tags)) {
+                for (const t of r.tags) {
+                    if (t) tagSet.add(t);
+                }
+            }
+        }
+        const sorted = Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+        return [ALL_TAG, ...sorted];
+    }, [restaurants]);
+
+    const tagCounts = useMemo(() => {
         const counts: Record<string, number> = {};
-        for (const cat of CATEGORIES) {
-            counts[cat.id] = restaurants.filter((r) => r?.restaurant_id && matchesCategoryFilter(cat.id, r)).length;
+        const valid = restaurants.filter((r) => r?.restaurant_id);
+        counts[ALL_TAG] = valid.length;
+        for (const tag of availableTags) {
+            if (tag === ALL_TAG) continue;
+            counts[tag] = valid.filter(
+                (r) => r.cuisine === tag || (Array.isArray(r.tags) && r.tags.includes(tag)),
+            ).length;
         }
         return counts;
-    }, [restaurants]);
+    }, [restaurants, availableTags]);
 
     const filteredRestaurants = useMemo(() => {
         const normalizedSearch = searchQuery.trim().toLowerCase();
 
         return restaurants.filter((restaurant) => {
-            if (!restaurant?.restaurant_id) {
-                return false;
-            }
+            if (!restaurant?.restaurant_id) return false;
 
             const probe = `${restaurant.name ?? ''} ${restaurant.cuisine ?? ''} ${(restaurant.tags || []).join(' ')}`.toLowerCase();
             const matchesSearch = !normalizedSearch || probe.includes(normalizedSearch);
-            const matchesCategory = matchesCategoryFilter(selectedCategory, restaurant);
 
-            return matchesSearch && matchesCategory;
+            let matchesTag = true;
+            if (selectedCategory !== ALL_TAG) {
+                matchesTag =
+                    restaurant.cuisine === selectedCategory ||
+                    (Array.isArray(restaurant.tags) && restaurant.tags.includes(selectedCategory));
+            }
+
+            return matchesSearch && matchesTag;
         });
     }, [restaurants, searchQuery, selectedCategory]);
 
@@ -278,7 +261,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                     <PrimaryButton
                         label="Browse all restaurants"
                         onPress={() => {
-                            setSelectedCategory('restaurants');
+                            setSelectedCategory(ALL_TAG);
                             setSearchQuery('');
                         }}
                         style={styles.emptyButton}
@@ -349,14 +332,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.chipRow}
                 >
-                    {CATEGORIES.map((category) => (
+                    {availableTags.map((tag) => (
                         <CategoryChip
-                            key={category.id}
-                            label={category.label}
-                            count={categoryCounts[category.id] || 0}
-                            icon={<Text style={styles.chipIcon}>{category.icon}</Text>}
-                            selected={selectedCategory === category.id}
-                            onPress={() => setSelectedCategory(category.id)}
+                            key={tag}
+                            label={tag}
+                            count={tagCounts[tag] || 0}
+                            selected={selectedCategory === tag}
+                            onPress={() => setSelectedCategory(tag)}
                             onTintedBackground
                         />
                     ))}
@@ -385,7 +367,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                                 title="Explore Nearby"
                                 subtitle="Up to 50% Off"
                                 ctaLabel="Browse Restaurants"
-                                image={bannerRestaurantImage(filteredRestaurants[0])}
                                 onPress={() => {}}
                             />
                         )}
@@ -425,10 +406,6 @@ const styles = StyleSheet.create({
     chipRow: {
         paddingTop: theme.spacing.sm,
         paddingBottom: theme.spacing.xs,
-    },
-    chipIcon: {
-        fontSize: 14,
-        lineHeight: 18,
     },
     contentArea: {
         flex: 1,

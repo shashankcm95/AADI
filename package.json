@@ -32,6 +32,7 @@
     "url": "https://github.com/arrive-platform/arrive"
   },
   "dependencies": {
+    "@react-navigation/bottom-tabs": "^7.15.5",
     "expo": "~54.0.33",
     "react": "19.1.0",
     "react-dom": "19.1.0",
