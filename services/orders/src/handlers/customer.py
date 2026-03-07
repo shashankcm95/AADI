@@ -299,12 +299,12 @@ def create_order(event):
                     req_log.info("idempotency_hit_completed", extra={"idempotency_key": idempotency_key})
                     return {
                         'statusCode': 201,
-                        'headers': db.CORS_HEADERS,
+                        'headers': db.cors_headers(event),
                         'body': entry['body']
                     }
                 else:
                     req_log.warning("idempotency_hit_in_progress", extra={"idempotency_key": idempotency_key})
-                    return {'statusCode': 409, 'headers': db.CORS_HEADERS, 'body': json.dumps({'error': 'Request in progress'})}
+                    return {'statusCode': 409, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Request in progress'})}
             else:
                 raise e
 
@@ -346,7 +346,7 @@ def create_order(event):
                 resp = db.config_table.get_item(Key={'restaurant_id': restaurant_id})
             req_log.info("restaurant_lookup", extra={"duration_ms": t.elapsed_ms, "found": 'Item' in resp})
             if 'Item' not in resp:
-                return {'statusCode': 400, 'body': json.dumps({'error': f'Restaurant {restaurant_id} not found'})}
+                return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': f'Restaurant {restaurant_id} not found'})}
         else:
             req_log.warning("config_table_not_configured")
 
@@ -520,7 +520,7 @@ def list_customer_orders(event):
 
     query_params = event.get('queryStringParameters') or {}
     try:
-        limit = min(int(query_params.get('limit', 25)), 100)
+        limit = max(1, min(int(query_params.get('limit', 25)), 100))
     except (ValueError, TypeError):
         limit = 25
     next_token = query_params.get('next_token')
@@ -539,7 +539,7 @@ def list_customer_orders(event):
                         base64.b64decode(next_token).decode()
                     )
                 except Exception:
-                    return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid pagination token'})}
+                    return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Invalid pagination token'})}
 
             resp = db.orders_table.query(**kwargs)
 
@@ -703,7 +703,7 @@ def update_vicinity(order_id, event, customer_id=None):
 
     # Fetch current state
     if not db.orders_table:
-        return {'statusCode': 500, 'headers': db.cors_headers(event)}
+        return {'statusCode': 500, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'DB not configured'})}
 
     with Timer() as t:
         resp = db.orders_table.get_item(Key={'order_id': order_id})
@@ -836,7 +836,7 @@ def update_vicinity(order_id, event, customer_id=None):
     # Apply updates
     if plan.response.get('error'):
         req_log.warning("vicinity_update_rejected", extra={"error": plan.response.get('error')})
-        return {'statusCode': 400, 'body': json.dumps(plan.response)}
+        return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps(plan.response)}
 
     if event_source == SAME_LOCATION_BOOTSTRAP_SOURCE:
         notice = _build_same_location_notice(plan.response.get('status'))

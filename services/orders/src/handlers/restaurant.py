@@ -27,7 +27,7 @@ def list_restaurant_orders(restaurant_id, event):
     query_params = event.get('queryStringParameters') or {}
     status = query_params.get('status')
     try:
-        limit = min(int(query_params.get('limit', 25)), 100)
+        limit = max(1, min(int(query_params.get('limit', 25)), 100))
     except (ValueError, TypeError):
         limit = 25
     next_token = query_params.get('next_token')
@@ -42,7 +42,7 @@ def list_restaurant_orders(restaurant_id, event):
                         base64.b64decode(next_token).decode()
                     )
                 except Exception:
-                    return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid pagination token'})}
+                    return {'statusCode': 400, 'headers': db.cors_headers(event), 'body': json.dumps({'error': 'Invalid pagination token'})}
 
             if status:
                 kwargs.update({
