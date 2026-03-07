@@ -6,11 +6,16 @@ Tests patch these module-level variables to inject in-memory mocks.
 import os
 import json
 import boto3
-from decimal import Decimal
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
 from shared.serialization import decimal_default
+from shared.auth import (
+    get_raw_claims as get_auth_claims,
+    get_user_role,
+    get_customer_id,
+    get_restaurant_id as get_assigned_restaurant_id,
+)
 
 import capacity
 
@@ -50,45 +55,6 @@ def make_response(status_code, body, event=None):
         'body': json.dumps(body, default=str)
     }
 
-
-def get_auth_claims(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract raw auth claims from API Gateway event (HTTP API v2 or REST v1).
-
-    NOTE: This returns the *raw* JWT claims dict for accessing arbitrary claim
-    fields (name, given_name, email, etc.).  For normalized role/restaurant_id
-    access, prefer ``shared.auth.get_user_claims(event)`` instead.
-    """
-    try:
-        return event['requestContext']['authorizer']['jwt']['claims']
-    except (KeyError, TypeError):
-        try:
-            return event['requestContext']['authorizer']['claims']
-        except (KeyError, TypeError):
-            return {}
-
-
-def get_user_role(event: Dict[str, Any], default: str = "") -> str:
-    """
-    Return normalized role from claims.
-    Defaults to empty role for fail-closed authorization handling.
-    """
-    claims = get_auth_claims(event)
-    return claims.get('custom:role') or claims.get('role') or default
-
-
-def get_assigned_restaurant_id(event: Dict[str, Any]) -> Optional[str]:
-    """Return the restaurant id bound to a restaurant_admin account, if present."""
-    claims = get_auth_claims(event)
-    return claims.get('custom:restaurant_id') or claims.get('restaurant_id')
-
-
-def get_customer_id(event):
-    """
-    Extract customer ID from Cognito auth claims.
-    Falls back to 'cust_demo' only if auth is missing (local testing).
-    """
-    claims = get_auth_claims(event)
-    return claims.get('sub')
 
 
 def release_capacity_slot(session: Dict[str, Any]) -> None:

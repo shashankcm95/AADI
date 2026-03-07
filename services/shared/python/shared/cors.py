@@ -9,14 +9,14 @@ doesn't have access to the event.
 
 import os
 
-_CORS_ALLOW_ORIGINS = [
+_CORS_ALLOW_ORIGINS = list(dict.fromkeys(
     o.strip() for o in [
         os.environ.get('CORS_ALLOW_ORIGIN', ''),
         os.environ.get('CORS_ALLOW_ORIGIN_ADMIN', ''),
         'http://localhost:5173',
         'http://localhost:5174',
     ] if o.strip()
-]
+))
 
 _DEFAULT_CORS_HEADERS = {
     'Content-Type': 'application/json',
