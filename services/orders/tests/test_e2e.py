@@ -964,5 +964,69 @@ class TestCancelRace:
 
 
 # =============================================================================
+# CORS Header Verification
+# =============================================================================
+
+class TestCORSHeaders:
+    def test_201_response_includes_cors(self, tables):
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'salad', 'qty': 1}],
+        })
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 201
+        assert 'Access-Control-Allow-Origin' in resp.get('headers', {})
+
+    def test_400_response_includes_cors(self, tables):
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [],
+        })
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 400
+        assert 'Access-Control-Allow-Origin' in resp.get('headers', {})
+
+    def test_404_response_includes_cors(self, tables):
+        event = _make_event('GET /v1/orders/{order_id}',
+                            path_params={'order_id': 'ord_ghost'})
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 404
+        assert 'Access-Control-Allow-Origin' in resp.get('headers', {})
+
+    def test_router_404_includes_cors(self, tables):
+        event = _make_event('GET /v1/nonexistent')
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 404
+        assert 'Access-Control-Allow-Origin' in resp.get('headers', {})
+
+
+# =============================================================================
+# Customer Name Through Create → Get
+# =============================================================================
+
+class TestCustomerNameFlowIntegration:
+    def test_customer_name_persists_through_create_and_get(self, tables):
+        """Create order with customer_name → GET order → name appears in response."""
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'tacos', 'qty': 2}],
+            'customer_name': '  Alice   Wonderland  ',
+        })
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 201
+        body = json.loads(resp['body'])
+        oid = body['order_id']
+
+        # GET the order
+        event = _make_event('GET /v1/orders/{order_id}',
+                            path_params={'order_id': oid})
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        # Name should be sanitized: stripped + collapsed spaces
+        assert body.get('customer_name') == 'Alice Wonderland'
+
+
+# =============================================================================
 # Removed Flow Notes (Kept for historical context)
 # =============================================================================
