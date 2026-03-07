@@ -98,7 +98,16 @@ export default function ProfileScreen({ navigation }: Props) {
                 name: editName,
                 phone_number: editPhone
             });
-            setProfile(updated);
+            // Normalize picture the same way fetchProfile does, so the avatar
+            // doesn't disappear when the API returns a raw S3 key in `picture`.
+            const mergedPicture =
+                normalizeAvatarUri(updated.picture_url) ||
+                normalizeAvatarUri(updated.picture) ||
+                normalizeAvatarUri(profile?.picture);
+            setProfile({
+                ...updated,
+                picture: mergedPicture || undefined,
+            });
             setEditing(false);
             Alert.alert('Success', 'Profile updated');
         } catch (error) {

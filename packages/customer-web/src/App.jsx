@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Authenticator } from '@aws-amplify/ui-react'
 import '@aws-amplify/ui-react/styles.css'
 import './App.css'
@@ -10,7 +10,7 @@ import Cart from './components/Cart'
 import OrderList from './components/OrderList'
 import Profile from './components/Profile'
 import Favorites from './components/Favorites'
-import { RESTAURANTS_API_URL, ORDERS_API_URL, USERS_API_URL } from './config'
+import * as api from './services/api'
 
 
 function CustomerAuthHeader() {
@@ -41,7 +41,7 @@ function App() {
 
 
 function MainAppContent({ user, signOut }) {
-  const { token, loading } = useAuth(signOut)
+  const { loading } = useAuth(signOut)
 
   // Restaurant & Menu
   const [restaurants, setRestaurants] = useState([])
@@ -51,71 +51,55 @@ function MainAppContent({ user, signOut }) {
 
   // Orders
   const [myOrders, setMyOrders] = useState([])
-  const [apiResponse, setApiResponse] = useState(null)
+  const [orderLoading, setOrderLoading] = useState(false)
+  const [statusMessage, setStatusMessage] = useState(null)
   const [customerName, setCustomerName] = useState('')
   const [customerEmail, setCustomerEmail] = useState('')
 
   // Navigation
   const [currentView, setCurrentView] = useState('home') // home | profile | favorites
 
+  // Ref for stable polling callback — avoids interval churn
+  const myOrdersRef = useRef(myOrders)
+  useEffect(() => { myOrdersRef.current = myOrders }, [myOrders])
+
+  // Ref guard for double-submit prevention
+  const placingOrderRef = useRef(false)
+
 
   /* ── Data fetching ────────────────────────────────────────────── */
 
   const fetchRestaurants = useCallback(async () => {
     try {
-      const res = await fetch(`${RESTAURANTS_API_URL}/v1/restaurants`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setRestaurants(data.restaurants || [])
-        if (data.restaurants?.length > 0) {
-          setSelectedRestaurant(data.restaurants[0].restaurant_id)
-        }
+      const list = await api.fetchRestaurants()
+      setRestaurants(list)
+      if (list.length > 0) {
+        setSelectedRestaurant(list[0].restaurant_id)
       }
     } catch (err) {
       console.error('Failed to fetch restaurants:', err)
     }
-  }, [token])
+  }, [])
 
   const fetchMenu = useCallback(async (restaurantId) => {
     try {
-      const res = await fetch(`${RESTAURANTS_API_URL}/v1/restaurants/${restaurantId}/menu`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const rawItems = data.items || data.menu?.items || []
-        const items = rawItems.map(item => ({
-          ...item,
-          price_cents: item.price_cents !== undefined
-            ? item.price_cents
-            : (item.price ? Math.round(Number(item.price) * 100) : 0)
-        }))
-        setMenu({ items })
-      } else {
-        setMenu({ items: [] })
-      }
-      setCart([])
+      const items = await api.fetchMenu(restaurantId)
+      setMenu({ items })
     } catch (err) {
       console.error('Failed to fetch menu:', err)
       setMenu({ items: [] })
     }
-  }, [token])
+    setCart([])
+  }, [])
 
   const fetchMyOrders = useCallback(async () => {
     try {
-      const res = await fetch(`${ORDERS_API_URL}/v1/orders`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setMyOrders(data.orders || [])
-      }
+      const orders = await api.fetchOrders()
+      setMyOrders(orders)
     } catch (err) {
       console.error('Failed to fetch my orders:', err)
     }
-  }, [token])
+  }, [])
 
   const fallbackCustomerName = useCallback(() => {
     if (!user?.username) return ''
@@ -124,14 +108,8 @@ function MainAppContent({ user, signOut }) {
   }, [user])
 
   const fetchCustomerProfileName = useCallback(async () => {
-    if (!token) return null
     try {
-      const res = await fetch(`${USERS_API_URL}/v1/users/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (!res.ok) return null
-
-      const data = await res.json()
+      const data = await api.getUserProfile()
       const profileEmail = (data?.email || '').trim()
       const profileName = (data?.name || '').trim()
       if (profileEmail) {
@@ -145,52 +123,49 @@ function MainAppContent({ user, signOut }) {
       // Non-blocking: we can still place orders with a fallback name.
     }
     return null
-  }, [token])
+  }, [])
 
   const refreshOrderStatuses = useCallback(async () => {
-    const activeOrders = myOrders.filter(o =>
+    const activeOrders = myOrdersRef.current.filter(o =>
       !['COMPLETED', 'CANCELED', 'EXPIRED'].includes(o.status)
     )
     for (const order of activeOrders) {
       try {
-        const res = await fetch(`${ORDERS_API_URL}/v1/orders/${order.order_id}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setMyOrders(prev => prev.map(o =>
-            o.order_id === order.order_id ? { ...o, status: data.status } : o
-          ))
-        }
+        const data = await api.getOrderStatus(order.order_id)
+        setMyOrders(prev => prev.map(o =>
+          o.order_id === order.order_id
+            ? { ...o, status: data.status, arrival_status: data.arrival_status }
+            : o
+        ))
       } catch (_err) {
         // Silently continue
       }
     }
-  }, [token, myOrders])
+  }, [])
 
 
   /* ── Effects ──────────────────────────────────────────────────── */
 
   useEffect(() => {
-    if (token) {
+    if (!loading) {
       fetchRestaurants()
       fetchMyOrders()
       fetchCustomerProfileName()
     }
-  }, [token, fetchRestaurants, fetchMyOrders, fetchCustomerProfileName])
+  }, [loading, fetchRestaurants, fetchMyOrders, fetchCustomerProfileName])
 
   useEffect(() => {
-    if (token && selectedRestaurant) {
+    if (!loading && selectedRestaurant) {
       fetchMenu(selectedRestaurant)
     }
-  }, [token, selectedRestaurant, fetchMenu])
+  }, [loading, selectedRestaurant, fetchMenu])
 
   useEffect(() => {
-    if (token && myOrders.length > 0) {
+    if (!loading && myOrders.length > 0) {
       const interval = setInterval(refreshOrderStatuses, 5000)
       return () => clearInterval(interval)
     }
-  }, [token, myOrders, refreshOrderStatuses])
+  }, [loading, myOrders.length, refreshOrderStatuses])
 
 
   /* ── Cart helpers ─────────────────────────────────────────────── */
@@ -212,100 +187,89 @@ function MainAppContent({ user, signOut }) {
   /* ── Order actions ────────────────────────────────────────────── */
 
   async function placeOrder() {
-    if (!token || !selectedRestaurant || cart.length === 0) return
-    setApiResponse({ loading: true })
+    if (placingOrderRef.current || !selectedRestaurant || cart.length === 0) return
+    placingOrderRef.current = true
+    setOrderLoading(true)
+    setStatusMessage(null)
 
     try {
       const latestProfileName = await fetchCustomerProfileName()
       const resolvedCustomerName = latestProfileName || customerName || fallbackCustomerName() || 'Guest'
 
-      const res = await fetch(`${ORDERS_API_URL}/v1/orders`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          restaurant_id: selectedRestaurant,
-          customer_name: resolvedCustomerName,
-          items: cart.map(c => ({
-            id: c.id,
-            qty: c.qty,
-            name: c.name,
-            price_cents: c.price_cents || 0,
-          })),
-        }),
+      const { ok, data } = await api.placeOrder({
+        restaurant_id: selectedRestaurant,
+        customer_name: resolvedCustomerName,
+        items: cart.map(c => ({
+          id: c.id,
+          qty: c.qty,
+          name: c.name,
+          price_cents: c.price_cents || 0,
+        })),
       })
-      const data = await res.json()
-      setApiResponse({ status: res.status, data })
-      if (data.order_id) {
+      if (ok && data.order_id) {
         setMyOrders(prev => [{ order_id: data.order_id, status: data.status }, ...prev])
         setCart([])
-        setApiResponse({ status: res.status, data, message: 'Order Placed Successfully!' })
+        setStatusMessage({ type: 'success', text: 'Order placed successfully!' })
         setTimeout(() => {
           document.querySelector('.orders-section')?.scrollIntoView({ behavior: 'smooth' })
         }, 100)
+      } else {
+        setStatusMessage({ type: 'error', text: data?.error || 'Failed to place order' })
       }
     } catch (err) {
-      setApiResponse({ error: err.message, message: 'Failed to place order: ' + err.message })
+      console.error('Failed to place order:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to place order. Please try again.' })
+    } finally {
+      placingOrderRef.current = false
+      setOrderLoading(false)
     }
   }
 
   async function enterVicinity(orderId) {
-    setApiResponse({ loading: true })
     try {
-      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}/vicinity`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ event: 'AT_DOOR' }),
-      })
-      const data = await res.json()
-      setApiResponse({ status: res.status, data, action: 'vicinity' })
-      if (res.ok && data.status) {
+      const { ok, data } = await api.enterVicinity(orderId)
+      if (ok && data.status) {
         setMyOrders(prev => prev.map(o =>
-          o.order_id === orderId ? { ...o, status: data.status } : o
+          o.order_id === orderId
+            ? { ...o, status: data.status, arrival_status: data.arrival_status || o.arrival_status }
+            : o
         ))
+        setStatusMessage({ type: 'success', text: 'Arrival confirmed!' })
+      } else {
+        setStatusMessage({ type: 'error', text: data?.error || 'Failed to update vicinity' })
       }
     } catch (err) {
-      setApiResponse({ error: err.message })
+      console.error('Failed to enter vicinity:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to update vicinity. Please try again.' })
     }
   }
 
   async function cancelOrder(orderId) {
-    setApiResponse({ loading: true })
     try {
-      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}/cancel`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      const data = await res.json()
-      setApiResponse({ status: res.status, data, action: 'cancel' })
-      if (res.ok && data.status === 'CANCELED') {
+      const { ok, data } = await api.cancelOrder(orderId)
+      if (ok && data.status === 'CANCELED') {
         setMyOrders(prev => prev.map(o =>
           o.order_id === orderId ? { ...o, status: 'CANCELED' } : o
         ))
+      } else {
+        setStatusMessage({ type: 'error', text: data?.error || 'Failed to cancel order' })
       }
     } catch (err) {
-      setApiResponse({ error: err.message })
+      console.error('Failed to cancel order:', err)
+      setStatusMessage({ type: 'error', text: 'Failed to cancel order. Please try again.' })
     }
   }
 
-  async function getOrderStatus(orderId) {
-    setApiResponse({ loading: true })
+  async function handleGetOrderStatus(orderId) {
     try {
-      const res = await fetch(`${ORDERS_API_URL}/v1/orders/${orderId}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      })
-      const data = await res.json()
-      setApiResponse({ status: res.status, data })
+      const data = await api.getOrderStatus(orderId)
       setMyOrders(prev => prev.map(o =>
-        o.order_id === orderId ? { ...o, status: data.status } : o
+        o.order_id === orderId
+          ? { ...o, status: data.status, arrival_status: data.arrival_status }
+          : o
       ))
     } catch (err) {
-      setApiResponse({ error: err.message })
+      console.error('Failed to get order status:', err)
     }
   }
 
@@ -357,6 +321,13 @@ function MainAppContent({ user, signOut }) {
         </div>
       </header>
 
+      {statusMessage && (
+        <div style={{ padding: '10px 16px', marginBottom: '1rem', borderRadius: 8, background: statusMessage.type === 'error' ? '#fce4ec' : '#e8f5e9', color: statusMessage.type === 'error' ? '#c62828' : '#2e7d32', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{statusMessage.text}</span>
+          <button onClick={() => setStatusMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+        </div>
+      )}
+
       {currentView === 'home' && (
         <>
           <RestaurantSelector
@@ -369,13 +340,13 @@ function MainAppContent({ user, signOut }) {
             <MenuGrid menu={menu} onAddToCart={addToCart} />
           )}
 
-          <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} isLoading={apiResponse?.loading} />
+          <Cart cart={cart} onRemove={removeFromCart} onPlaceOrder={placeOrder} isLoading={orderLoading} />
 
           <OrderList
             orders={myOrders}
             onVicinity={enterVicinity}
             onCancel={cancelOrder}
-            onRefresh={getOrderStatus}
+            onRefresh={handleGetOrderStatus}
           />
         </>
       )}
@@ -392,16 +363,6 @@ function MainAppContent({ user, signOut }) {
             setCurrentView('home');
           }}
         />
-      )}
-
-      {/* Debug API Response */}
-      {apiResponse && (
-        <section className="response-section" style={{ marginTop: '2rem', opacity: 0.7 }}>
-          <h3>Last Response:</h3>
-          {apiResponse.loading ? <p>Loading...</p> : (
-            <pre style={{ background: '#eee', padding: '1rem', borderRadius: '12px' }}>{JSON.stringify(apiResponse, null, 2)}</pre>
-          )}
-        </section>
       )}
     </div>
   )

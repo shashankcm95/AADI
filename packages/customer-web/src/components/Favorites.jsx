@@ -1,19 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { getFavorites, removeFavorite } from '../services/api';
-
-const isSafeUrl = (url) => {
-    if (!url) return false;
-    try {
-        const parsed = new URL(url, window.location.origin);
-        return ['http:', 'https:'].includes(parsed.protocol);
-    } catch { return false; }
-};
+import { isSafeUrl } from '../utils';
 
 export default function Favorites({ restaurants, onSelectRestaurant }) {
     const [favorites, setFavorites] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [statusMessage, setStatusMessage] = useState(null);
+    const [confirmingRemove, setConfirmingRemove] = useState(null);
 
     useEffect(() => {
         loadFavorites();
@@ -33,7 +27,11 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
 
     const handleRemove = async (e, restaurantId) => {
         e.stopPropagation();
-        if (!window.confirm('Remove from favorites?')) return;
+        if (confirmingRemove !== restaurantId) {
+            setConfirmingRemove(restaurantId);
+            return;
+        }
+        setConfirmingRemove(null);
         try {
             await removeFavorite(restaurantId);
             setFavorites(prev => prev.filter(f => f.restaurant_id !== restaurantId));
@@ -85,19 +83,40 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
                         className="restaurant-card"
                         onClick={() => onSelectRestaurant(restaurant.restaurant_id)}
                     >
-                        <div className="card-image" style={{ backgroundImage: `url(${isSafeUrl(restaurant.image_url) ? restaurant.image_url : '/placeholder_food.jpg'})` }}>
+                        <div className="card-image" style={{ backgroundImage: `url(${isSafeUrl(restaurant.image_url) ? restaurant.image_url : '/logo_icon_stylized.png'})` }}>
                             <span className="card-emoji">{restaurant.emoji}</span>
                         </div>
                         <div className="card-content">
                             <h3>{restaurant.name}</h3>
                             <p>{restaurant.cuisine} • {restaurant.rating} ★</p>
-                            <button
-                                className="btn-icon remove-fav"
-                                onClick={(e) => handleRemove(e, restaurant.restaurant_id)}
-                                title="Remove from favorites"
-                            >
-                                💔
-                            </button>
+                            {confirmingRemove === restaurant.restaurant_id ? (
+                                <span style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <button
+                                        className="btn-icon remove-fav"
+                                        onClick={(e) => handleRemove(e, restaurant.restaurant_id)}
+                                        title="Confirm remove"
+                                        style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.85rem' }}
+                                    >
+                                        Confirm?
+                                    </button>
+                                    <button
+                                        className="btn-icon"
+                                        onClick={(e) => { e.stopPropagation(); setConfirmingRemove(null); }}
+                                        title="Cancel"
+                                        style={{ fontSize: '0.85rem' }}
+                                    >
+                                        ✕
+                                    </button>
+                                </span>
+                            ) : (
+                                <button
+                                    className="btn-icon remove-fav"
+                                    onClick={(e) => handleRemove(e, restaurant.restaurant_id)}
+                                    title="Remove from favorites"
+                                >
+                                    💔
+                                </button>
+                            )}
                         </div>
                     </div>
                 ))}

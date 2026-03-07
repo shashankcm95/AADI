@@ -1,5 +1,5 @@
 /**
- * Single order card with status badge, vicinity, cancel and refresh actions.
+ * Single order card with status badge, arrival indicator, vicinity, cancel and refresh actions.
  */
 
 const STATUS_CONFIG = {
@@ -14,19 +14,40 @@ const STATUS_CONFIG = {
     'EXPIRED': { label: '⏰ Expired', color: '#ef4444' },
 }
 
+const ARRIVAL_LABELS = {
+    '5_MIN_OUT': '📍 5 min away',
+    'PARKING': '🅿️ Parking',
+    'AT_DOOR': '🚪 At door',
+}
+
 export default function OrderCard({ order, onVicinity, onCancel, onRefresh }) {
     const config = STATUS_CONFIG[order.status] || { label: order.status, color: '#6b7280' }
+    const arrivalLabel = order.arrival_status ? ARRIVAL_LABELS[order.arrival_status] : null
+    // Hide "I'm Here" button once arrival is confirmed (AT_DOOR or beyond)
+    const showVicinity = config.canVicinity && order.arrival_status !== 'AT_DOOR'
 
     return (
         <div className="my-order-card organic-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <span className="order-id" style={{ color: 'var(--text-muted)' }}>#{order.order_id.slice(-8)}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <span className="order-id" style={{ color: 'var(--text-muted)' }}>#{(order.order_id || '').slice(-8)}</span>
                 <span className="order-status" style={{ backgroundColor: config.color, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                     {config.label}
                 </span>
+                {arrivalLabel && (
+                    <span style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        color: '#6366f1',
+                        backgroundColor: '#eef2ff',
+                        padding: '4px 10px',
+                        borderRadius: '12px',
+                    }}>
+                        {arrivalLabel}
+                    </span>
+                )}
             </div>
             <div className="order-actions">
-                {config.canVicinity && (
+                {showVicinity && (
                     <button onClick={() => onVicinity(order.order_id)} className="btn btn-vicinity" style={{ borderRadius: '20px' }}>
                         📍 I'm Here
                     </button>

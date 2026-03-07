@@ -1,13 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getUserProfile, updateUserProfile, getAvatarUploadUrl, uploadAvatarToS3 } from '../services/api';
-
-const isSafeUrl = (url) => {
-    if (!url) return false;
-    try {
-        const parsed = new URL(url, window.location.origin);
-        return ['http:', 'https:'].includes(parsed.protocol);
-    } catch { return false; }
-};
+import { isSafeUrl } from '../utils';
 
 export default function Profile({ user, signOut }) {
     const [profile, setProfile] = useState(null);
@@ -165,7 +158,11 @@ export default function Profile({ user, signOut }) {
                                 />
                             </div>
                             <div className="button-group">
-                                <button className="btn btn-secondary" onClick={() => setEditing(false)}>Cancel</button>
+                                <button className="btn btn-secondary" onClick={() => {
+                                    setEditing(false);
+                                    setEditName(profile?.name || '');
+                                    setEditPhone(profile?.phone_number || '');
+                                }}>Cancel</button>
                                 <button className="btn btn-primary" onClick={handleSave}>Save</button>
                             </div>
                         </div>

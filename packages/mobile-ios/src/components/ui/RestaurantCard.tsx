@@ -103,7 +103,7 @@ export const RestaurantCard: React.FC<Props> = ({
                         colors={theme.gradients.secondary}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={[styles.image, styles.imageFallback, image && !imageFailed && styles.imagePlaceholder]}
+                        style={[styles.image, styles.imageFallback, (image && !imageFailed) ? styles.imagePlaceholder : undefined]}
                     >
                         <Text style={styles.emoji}>{emoji}</Text>
                     </LinearGradient>

@@ -1,5 +1,3 @@
-import './RestaurantSelector.css'
-
 /**
  * Restaurant selector dropdown.
  * Shows available restaurants and lets the customer pick one.
