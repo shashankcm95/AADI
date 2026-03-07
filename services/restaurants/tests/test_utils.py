@@ -265,3 +265,111 @@ def test_get_global_zone_labels_uses_config(monkeypatch):
     monkeypatch.setattr(utils, "config_table", MockConfigTable())
     labels = utils.get_global_zone_labels()
     assert labels == {"ZONE_1": "Far", "ZONE_2": "Queue", "ZONE_3": "Door"}
+
+
+# =============================================================================
+# Geofence Geometry Tests
+# =============================================================================
+
+class TestBuildCirclePolygon:
+    def test_polygon_is_closed(self):
+        """First point must equal last point (closed ring)."""
+        points = utils._build_circle_polygon(30.2672, -97.7431, 1000)
+        assert len(points) > 2
+        assert points[0] == points[-1]
+
+    def test_correct_number_of_vertices(self):
+        """Default 12 segments → 12+1 points (closed)."""
+        points = utils._build_circle_polygon(30.2672, -97.7431, 1000, segments=12)
+        assert len(points) == 13  # 12 + closing point
+
+    def test_minimum_segments_enforced(self):
+        """Segments < 8 are clamped to 8."""
+        points = utils._build_circle_polygon(30.2672, -97.7431, 1000, segments=3)
+        assert len(points) == 9  # max(8, 3) = 8 + closing point
+
+    def test_coordinates_within_valid_range(self):
+        """All coordinates must be in valid lon [-180, 180], lat [-90, 90]."""
+        points = utils._build_circle_polygon(30.2672, -97.7431, 5000, segments=16)
+        for lon, lat in points:
+            assert -180 <= lon <= 180, f"Longitude {lon} out of range"
+            assert -90 <= lat <= 90, f"Latitude {lat} out of range"
+
+    def test_small_radius(self):
+        """Small radius should still produce a valid polygon."""
+        points = utils._build_circle_polygon(0.0, 0.0, 10)
+        assert len(points) > 2
+        assert points[0] == points[-1]
+
+
+class TestUpsertRestaurantGeofences:
+    def test_missing_lat_lon_returns_false(self, monkeypatch):
+        """Missing lat or lon in location → returns False."""
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', 'test-collection')
+        assert utils.upsert_restaurant_geofences('r1', {'lat': 30.0}) is False
+        assert utils.upsert_restaurant_geofences('r1', {}) is False
+        assert utils.upsert_restaurant_geofences('r1', None) is False
+
+    def test_no_collection_returns_false(self, monkeypatch):
+        """No geofence collection configured → returns False."""
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', '')
+        assert utils.upsert_restaurant_geofences('r1', {'lat': 30.0, 'lon': -97.0}) is False
+
+    def test_creates_three_geofence_zones(self, monkeypatch):
+        """Valid location → 3 geofence entries (one per zone)."""
+        mock_client = MagicMock()
+        mock_client.batch_put_geofence.return_value = {'Errors': []}
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', 'test-collection')
+        monkeypatch.setattr(utils, '_get_location_client', lambda: mock_client)
+
+        result = utils.upsert_restaurant_geofences('r1', {'lat': 30.0, 'lon': -97.0})
+        assert result is True
+        call_kwargs = mock_client.batch_put_geofence.call_args[1]
+        assert len(call_kwargs['Entries']) == 3
+
+        geofence_ids = [e['GeofenceId'] for e in call_kwargs['Entries']]
+        assert 'r1|5_MIN_OUT' in geofence_ids
+        assert 'r1|PARKING' in geofence_ids
+        assert 'r1|AT_DOOR' in geofence_ids
+
+    def test_location_service_error_returns_false(self, monkeypatch):
+        """Location service exception → returns False gracefully."""
+        mock_client = MagicMock()
+        mock_client.batch_put_geofence.side_effect = Exception("Service error")
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', 'test-collection')
+        monkeypatch.setattr(utils, '_get_location_client', lambda: mock_client)
+
+        result = utils.upsert_restaurant_geofences('r1', {'lat': 30.0, 'lon': -97.0})
+        assert result is False
+
+
+class TestDeleteRestaurantGeofences:
+    def test_builds_correct_geofence_ids(self, monkeypatch):
+        """Delete builds IDs for all 3 zones."""
+        mock_client = MagicMock()
+        mock_client.batch_delete_geofence.return_value = {'Errors': []}
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', 'test-collection')
+        monkeypatch.setattr(utils, '_get_location_client', lambda: mock_client)
+
+        result = utils.delete_restaurant_geofences('r1')
+        assert result is True
+        call_kwargs = mock_client.batch_delete_geofence.call_args[1]
+        ids = call_kwargs['GeofenceIds']
+        assert 'r1|5_MIN_OUT' in ids
+        assert 'r1|PARKING' in ids
+        assert 'r1|AT_DOOR' in ids
+
+    def test_location_service_error_returns_false(self, monkeypatch):
+        """Exception → returns False gracefully."""
+        mock_client = MagicMock()
+        mock_client.batch_delete_geofence.side_effect = Exception("Service error")
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', 'test-collection')
+        monkeypatch.setattr(utils, '_get_location_client', lambda: mock_client)
+
+        result = utils.delete_restaurant_geofences('r1')
+        assert result is False
+
+    def test_no_collection_returns_false(self, monkeypatch):
+        """No collection configured → returns False."""
+        monkeypatch.setattr(utils, 'LOCATION_GEOFENCE_COLLECTION_NAME', '')
+        assert utils.delete_restaurant_geofences('r1') is False
