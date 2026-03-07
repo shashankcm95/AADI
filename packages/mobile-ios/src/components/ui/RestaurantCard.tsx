@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -44,6 +44,10 @@ export const RestaurantCard: React.FC<Props> = ({
     emoji = '🍽️',
 }) => {
     const favoriteScale = useRef(new Animated.Value(1)).current;
+    const [imageLoaded, setImageLoaded] = useState(false);
+    const [imageFailed, setImageFailed] = useState(false);
+
+    const showFallback = !image || !imageLoaded || imageFailed;
 
     const metaTags = useMemo(() => {
         if (tags && tags.length > 0) {
@@ -72,6 +76,10 @@ export const RestaurantCard: React.FC<Props> = ({
             }),
         ]).start();
 
+        try {
+            const Haptics = require('expo-haptics');
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } catch {}
         onFavoriteToggle();
     };
 
@@ -90,17 +98,24 @@ export const RestaurantCard: React.FC<Props> = ({
             testID="restaurant-card"
         >
             <View style={[styles.imageWrap, isList && styles.listImageWrap]}>
-                {image ? (
-                    <Image source={image} style={styles.image} resizeMode="cover" />
-                ) : (
+                {showFallback && (
                     <LinearGradient
                         colors={theme.gradients.secondary}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
-                        style={[styles.image, styles.imageFallback]}
+                        style={[styles.image, styles.imageFallback, image && !imageFailed && styles.imagePlaceholder]}
                     >
                         <Text style={styles.emoji}>{emoji}</Text>
                     </LinearGradient>
+                )}
+                {image && !imageFailed && (
+                    <Image
+                        source={image}
+                        style={[styles.image, !imageLoaded && styles.imageHidden]}
+                        resizeMode="cover"
+                        onLoad={() => setImageLoaded(true)}
+                        onError={() => setImageFailed(true)}
+                    />
                 )}
 
                 <View style={styles.cuisineBadge}>
@@ -167,6 +182,20 @@ const styles = StyleSheet.create({
     imageFallback: {
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    imagePlaceholder: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 0,
+    },
+    imageHidden: {
+        opacity: 0,
+        position: 'absolute',
+        top: 0,
+        left: 0,
     },
     emoji: {
         fontSize: 42,

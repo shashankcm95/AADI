@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -15,7 +16,7 @@ import { SearchBar } from '../components/ui/SearchBar';
 import { CategoryChip } from '../components/ui/CategoryChip';
 import { PromoBannerCard } from '../components/ui/PromoBannerCard';
 import { RestaurantCard } from '../components/ui/RestaurantCard';
-import { BottomTabBar, BottomTabItem } from '../components/ui/BottomTabBar';
+// BottomTabBar removed — tabs now handled by React Navigation in App.tsx
 import { PrimaryButton } from '../components/ui/PrimaryButton';
 import { Restaurant } from '../services/api';
 import {
@@ -44,13 +45,7 @@ const CATEGORIES: Category[] = [
     { id: 'convenience', label: 'Convenience', icon: '🧃' },
 ];
 
-const TAB_ITEMS: BottomTabItem[] = [
-    { key: 'home', label: 'Home', icon: '⌂' },
-    { key: 'browse', label: 'Browse', icon: '⌕' },
-    { key: 'orders', label: 'Orders', icon: '🛒' },
-    { key: 'favorites', label: 'Favorites', icon: '♥' },
-    { key: 'profile', label: 'Profile', icon: '◉' },
-];
+// Tab items now defined in App.tsx via createBottomTabNavigator
 
 function primaryRestaurantImage(restaurant: Restaurant): ImageSourcePropType | undefined {
     const firstUploaded = Array.isArray(restaurant.restaurant_images) ? restaurant.restaurant_images[0] : undefined;
@@ -94,11 +89,11 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     const { width } = useWindowDimensions();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('restaurants');
-    const [activeTab, setActiveTab] = useState('home');
     const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const [favoriteUpdating, setFavoriteUpdating] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [restaurantsError, setRestaurantsError] = useState('');
     const { cartCount } = useCart();
 
@@ -147,6 +142,33 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
         }
     };
 
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        try {
+            const [restaurantRes, favoritesRes] = await Promise.allSettled([
+                getRestaurantsWithCache({ forceRefresh: true }),
+                getFavoritesWithCache({ forceRefresh: true }),
+            ]);
+            if (restaurantRes.status === 'fulfilled') {
+                setRestaurants(restaurantRes.value.restaurants || []);
+                setRestaurantsError('');
+            }
+            if (favoritesRes.status === 'fulfilled') {
+                setFavorites(favoriteIdsToMap(favoritesRes.value.favoriteRestaurantIds));
+            }
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const categoryCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const cat of CATEGORIES) {
+            counts[cat.id] = restaurants.filter((r) => r?.restaurant_id && matchesCategoryFilter(cat.id, r)).length;
+        }
+        return counts;
+    }, [restaurants]);
+
     const filteredRestaurants = useMemo(() => {
         const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -168,35 +190,6 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
     const cardWidth = isSmallPhone
         ? width - theme.screenPadding.horizontal * 2
         : (width - theme.screenPadding.horizontal * 2 - theme.spacing.md) / 2;
-
-    const handleTabPress = (tabKey: string) => {
-        setActiveTab(tabKey);
-
-        if (tabKey === 'home') {
-            return;
-        }
-
-        if (tabKey === 'browse') {
-            navigation?.navigate?.('Restaurants', {
-                customerName: route?.params?.customerName || 'Guest',
-            });
-            return;
-        }
-
-        if (tabKey === 'orders') {
-            navigation?.navigate?.('Orders');
-            return;
-        }
-
-        if (tabKey === 'favorites') {
-            navigation?.navigate?.('Favorites');
-            return;
-        }
-
-        if (tabKey === 'profile') {
-            navigation?.navigate?.('Profile');
-        }
-    };
 
     const handleFavoriteToggle = async (restaurantId: string) => {
         if (!restaurantId || favoriteUpdating[restaurantId]) {
@@ -346,7 +339,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 <SearchBar
                     value={searchQuery}
                     onChange={setSearchQuery}
-                    placeholder="Deliver to Your Location"
+                    placeholder="Search by name or cuisine"
                     rightIcon={<Text style={styles.searchRightIcon}>⌄</Text>}
                     style={styles.searchBar}
                 />
@@ -360,6 +353,7 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                         <CategoryChip
                             key={category.id}
                             label={category.label}
+                            count={categoryCounts[category.id] || 0}
                             icon={<Text style={styles.chipIcon}>{category.icon}</Text>}
                             selected={selectedCategory === category.id}
                             onPress={() => setSelectedCategory(category.id)}
@@ -373,6 +367,15 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
                 <ScrollView
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.scrollContent}
+                    keyboardDismissMode="on-drag"
+                    keyboardShouldPersistTaps="handled"
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={handleRefresh}
+                            tintColor={theme.colors.primary}
+                        />
+                    }
                 >
                     <View style={styles.section}>
                         {loading ? (
@@ -390,19 +393,13 @@ export const HomeScreen: React.FC<Props> = ({ navigation, route }) => {
 
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Popular Near You</Text>
-                        <TouchableOpacity onPress={() => navigation.navigate('Restaurants', { customerName: route?.params?.customerName || 'Guest' })}>
+                        <TouchableOpacity onPress={() => navigation.getParent()?.navigate('Browse')}>
                             <Text style={styles.seeAll}>See all ›</Text>
                         </TouchableOpacity>
                     </View>
 
                     {renderRestaurantGrid()}
                 </ScrollView>
-
-                <BottomTabBar
-                    items={TAB_ITEMS}
-                    activeKey={activeTab}
-                    onTabPress={handleTabPress}
-                />
             </View>
         </View>
     );

@@ -11,6 +11,7 @@ import {
     ActivityIndicator,
     AppState,
     AppStateStatus,
+    ScrollView,
 } from 'react-native';
 import { getOrder, sendArrivalEvent, getRestaurant, getLeaveAdvisory, LeaveAdvisory, sendLocationSample } from '../services/api';
 import {
@@ -128,7 +129,7 @@ export default function OrderScreen({ navigation, route }: Props) {
             const data = await getOrder(orderId);
             setOrder(data);
 
-            if (['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(data.status)) {
+            if (['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY', 'SENT_TO_DESTINATION'].includes(data.status)) {
                 try {
                     const advisory = await getLeaveAdvisory(orderId);
                     setLeaveAdvisory(advisory);
@@ -268,14 +269,111 @@ export default function OrderScreen({ navigation, route }: Props) {
         ? Math.ceil(Math.max(0, Number(leaveAdvisory.estimated_wait_seconds || 0)) / 60)
         : 0;
 
+    const isTerminal = TERMINAL_STATUSES.includes(order?.status);
+    const isCanceled = ['CANCELED', 'DECLINED', 'EXPIRED'].includes(order?.status);
+    const showLeaveAdvisory = leaveAdvisory && ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY', 'SENT_TO_DESTINATION'].includes(order?.status);
+    const isLeaveNow = leaveAdvisory?.recommended_action === 'LEAVE_NOW';
+    const isUrgent = !isLeaveNow && estimatedWaitMinutes > 0 && estimatedWaitMinutes <= 5;
+
+    // Step indicator logic
+    const STEPS = ['Confirmed', 'Preparing', 'Ready', 'Picked Up'] as const;
+    const statusToStep: Record<string, number> = {
+        PENDING_NOT_SENT: 0, SENT_TO_DESTINATION: 0, WAITING_FOR_CAPACITY: 0,
+        IN_PROGRESS: 1,
+        READY: 2,
+        FULFILLING: 3, COMPLETED: 3,
+    };
+    const currentStep = isCanceled ? -1 : (statusToStep[order?.status] ?? 0);
+
+    // Elapsed time
+    const createdAt = order?.created_at;
+    let elapsedText = '';
+    if (createdAt) {
+        const epoch = Number(createdAt) > 1e12 ? Number(createdAt) : Number(createdAt) * 1000;
+        const elapsedMs = Date.now() - epoch;
+        const elapsedMin = Math.max(0, Math.floor(elapsedMs / 60000));
+        elapsedText = elapsedMin < 1 ? 'Just now' : `${elapsedMin} min ago`;
+    }
+
     return (
-        <View style={styles.container}>
+        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
             <View style={styles.card}>
                 <Text style={styles.orderId}>Order #{orderId.slice(-6)}</Text>
 
-                <View style={[styles.statusBadge, { backgroundColor: statusInfo.color + '20' }]}>
-                    <Text style={styles.statusEmoji}>{statusInfo.emoji}</Text>
-                    <Text style={[styles.statusLabel, { color: statusInfo.color }]}>{statusInfo.label}</Text>
+                {/* Hero Leave Advisory */}
+                {showLeaveAdvisory && (
+                    <View style={[styles.heroAdvisory, isLeaveNow && styles.heroAdvisoryUrgent, isUrgent && styles.heroAdvisoryWarn]}>
+                        {isLeaveNow ? (
+                            <>
+                                <Text style={styles.heroAdvisoryLabel}>Time to go!</Text>
+                                <Text style={styles.heroAdvisoryNumber}>NOW</Text>
+                                <Text style={styles.heroAdvisorySubtext}>Capacity is available — head out now</Text>
+                            </>
+                        ) : estimatedWaitMinutes > 0 ? (
+                            <>
+                                <Text style={[styles.heroAdvisoryLabel, isUrgent && styles.heroAdvisoryLabelUrgent]}>Leave in</Text>
+                                <Text style={[styles.heroAdvisoryNumber, isUrgent && styles.heroAdvisoryNumberUrgent]}>
+                                    {estimatedWaitMinutes}
+                                </Text>
+                                <Text style={[styles.heroAdvisoryUnit, isUrgent && styles.heroAdvisoryLabelUrgent]}>minutes</Text>
+                                <Text style={styles.heroAdvisorySubtext}>We'll have your order ready when you arrive</Text>
+                            </>
+                        ) : (
+                            <>
+                                <Text style={styles.heroAdvisoryLabel}>Estimating</Text>
+                                <Text style={styles.heroAdvisorySubtext}>Calculating the best time for you to leave</Text>
+                            </>
+                        )}
+                    </View>
+                )}
+
+                {/* Step Indicator */}
+                <View style={styles.stepContainer}>
+                    <Text style={styles.stepMeta}>
+                        {isCanceled ? statusInfo.label : `Step ${currentStep + 1} of 4`}
+                        {elapsedText ? ` · ${elapsedText}` : ''}
+                    </Text>
+                    {STEPS.map((stepLabel, idx) => {
+                        const isCompleted = !isCanceled && idx < currentStep;
+                        const isActive = !isCanceled && idx === currentStep;
+                        const isFuture = isCanceled || idx > currentStep;
+                        const isLast = idx === STEPS.length - 1;
+
+                        return (
+                            <View key={stepLabel} style={styles.stepRow}>
+                                <View style={styles.stepIndicatorCol}>
+                                    <View style={[
+                                        styles.stepDot,
+                                        isCompleted && styles.stepDotCompleted,
+                                        isActive && styles.stepDotActive,
+                                        isCanceled && styles.stepDotCanceled,
+                                        isFuture && !isCanceled && styles.stepDotFuture,
+                                    ]}>
+                                        <Text style={styles.stepDotText}>
+                                            {isCanceled ? '✕' : isCompleted ? '✓' : isActive ? (idx + 1).toString() : (idx + 1).toString()}
+                                        </Text>
+                                    </View>
+                                    {!isLast && (
+                                        <View style={[
+                                            styles.stepLine,
+                                            isCompleted && styles.stepLineCompleted,
+                                            (isFuture || isCanceled) && styles.stepLineFuture,
+                                        ]} />
+                                    )}
+                                </View>
+                                <View style={styles.stepLabelCol}>
+                                    <Text style={[
+                                        styles.stepLabel,
+                                        isActive && styles.stepLabelActive,
+                                        isCompleted && styles.stepLabelCompleted,
+                                        (isFuture || isCanceled) && styles.stepLabelFuture,
+                                    ]}>
+                                        {stepLabel}
+                                    </Text>
+                                </View>
+                            </View>
+                        );
+                    })}
                 </View>
 
                 {arrivalLabel && (
@@ -284,18 +382,6 @@ export default function OrderScreen({ navigation, route }: Props) {
 
                 {locationNotice && (
                     <Text style={styles.locationNotice}>{locationNotice}</Text>
-                )}
-
-                {leaveAdvisory && ['PENDING_NOT_SENT', 'WAITING_FOR_CAPACITY'].includes(order?.status) && (
-                    <View style={styles.advisoryCard}>
-                        <Text style={styles.advisoryTitle}>Leave-time estimate</Text>
-                        <Text style={styles.advisoryBody}>
-                            {leaveAdvisory.recommended_action === 'LEAVE_NOW'
-                                ? 'Leave now. Capacity looks available right now.'
-                                : `Wait about ${estimatedWaitMinutes} min before heading out.`}
-                        </Text>
-                        <Text style={styles.advisoryNote}>Estimate only. Capacity is reserved on arrival dispatch.</Text>
-                    </View>
                 )}
 
                 {/* Order Items */}
@@ -331,27 +417,149 @@ export default function OrderScreen({ navigation, route }: Props) {
                     </View>
                 </View>
             )}
-        </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: theme.colors.background, padding: 20 },
+    container: { flex: 1, backgroundColor: theme.colors.background },
+    scrollContent: { padding: 20 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background },
     card: {
         ...theme.layout.card,
         backgroundColor: '#fff',
     },
     orderId: { color: theme.colors.textMuted, fontSize: 14, marginBottom: 16 },
-    statusBadge: {
-        flexDirection: 'row',
+    // Hero leave advisory
+    heroAdvisory: {
+        backgroundColor: theme.colors.primary + '10',
+        borderRadius: 16,
+        padding: 24,
+        marginBottom: 20,
         alignItems: 'center',
-        padding: 16,
-        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.primary + '30',
+    },
+    heroAdvisoryUrgent: {
+        backgroundColor: '#ef4444' + '15',
+        borderColor: '#ef4444' + '40',
+    },
+    heroAdvisoryWarn: {
+        backgroundColor: '#f59e0b' + '15',
+        borderColor: '#f59e0b' + '40',
+    },
+    heroAdvisoryLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: theme.colors.primary,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    heroAdvisoryLabelUrgent: {
+        color: '#f59e0b',
+    },
+    heroAdvisoryNumber: {
+        fontSize: 56,
+        fontWeight: '800',
+        color: theme.colors.primary,
+        lineHeight: 64,
+        marginVertical: 4,
+    },
+    heroAdvisoryNumberUrgent: {
+        color: '#f59e0b',
+    },
+    heroAdvisoryUnit: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: theme.colors.primary,
+        marginBottom: 8,
+    },
+    heroAdvisorySubtext: {
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+    },
+    // Step indicator
+    stepContainer: {
+        marginBottom: 20,
+        paddingLeft: 4,
+    },
+    stepMeta: {
+        fontSize: 13,
+        color: theme.colors.textSecondary,
+        fontWeight: '600',
         marginBottom: 16,
     },
-    statusEmoji: { fontSize: 24, marginRight: 12 },
-    statusLabel: { fontSize: 18, fontWeight: '700' },
+    stepRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+    },
+    stepIndicatorCol: {
+        alignItems: 'center',
+        width: 32,
+        marginRight: 12,
+    },
+    stepDot: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: theme.colors.border,
+    },
+    stepDotCompleted: {
+        backgroundColor: theme.colors.primary,
+    },
+    stepDotActive: {
+        backgroundColor: theme.colors.teal3,
+        borderWidth: 2,
+        borderColor: theme.colors.primary,
+    },
+    stepDotCanceled: {
+        backgroundColor: '#ef4444',
+    },
+    stepDotFuture: {
+        backgroundColor: theme.colors.overlayTopTint,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+    },
+    stepDotText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    stepLine: {
+        width: 2,
+        height: 24,
+        backgroundColor: theme.colors.border,
+    },
+    stepLineCompleted: {
+        backgroundColor: theme.colors.primary,
+    },
+    stepLineFuture: {
+        backgroundColor: theme.colors.border,
+    },
+    stepLabelCol: {
+        flex: 1,
+        paddingTop: 4,
+        minHeight: 52,
+    },
+    stepLabel: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: theme.colors.text,
+    },
+    stepLabelActive: {
+        color: theme.colors.primary,
+        fontWeight: '700',
+    },
+    stepLabelCompleted: {
+        color: theme.colors.textSecondary,
+    },
+    stepLabelFuture: {
+        color: theme.colors.textMuted,
+        fontWeight: '400',
+    },
     arrivalStatus: { color: theme.colors.primary, fontSize: 16, marginBottom: 16, textAlign: 'center', fontWeight: 'bold' },
     locationNotice: {
         marginBottom: 14,
@@ -364,29 +572,6 @@ const styles = StyleSheet.create({
         lineHeight: 18,
         fontWeight: '600',
     },
-    advisoryCard: {
-        borderWidth: 1,
-        borderColor: '#fde68a',
-        backgroundColor: '#fffbeb',
-        borderRadius: 12,
-        padding: 12,
-        marginBottom: 16,
-    },
-    advisoryTitle: {
-        color: '#92400e',
-        fontSize: 14,
-        fontWeight: '700',
-        marginBottom: 4,
-    },
-    advisoryBody: {
-        color: '#78350f',
-        fontSize: 14,
-    },
-    advisoryNote: {
-        color: '#a16207',
-        fontSize: 12,
-        marginTop: 6,
-    },
     itemsContainer: { borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
     itemLine: { color: theme.colors.text, fontSize: 16, marginBottom: 8 },
     total: { color: theme.colors.primary, fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'right' },
@@ -397,6 +582,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#e2e8f0',
         borderStyle: 'dashed',
+        marginTop: 16,
     },
     simTitle: { color: theme.colors.textMuted, fontSize: 14, marginBottom: 12, textAlign: 'center' },
     simButtons: { flexDirection: 'row', gap: 12 },

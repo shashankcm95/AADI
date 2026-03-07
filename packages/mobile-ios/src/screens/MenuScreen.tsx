@@ -10,17 +10,16 @@ import {
     TouchableOpacity,
     StyleSheet,
     Alert,
-    ActivityIndicator,
 } from 'react-native';
-import { createOrder, getRestaurantMenu, Restaurant, sendArrivalEvent, sendLocationSample } from '../services/api';
+import { getRestaurantMenu, Restaurant } from '../services/api';
 import {
     getFavoritesWithCache,
     setFavoriteForCurrentUser,
 } from '../services/favorites';
-import { requestPermissions, startLocationTracking, stopLocationTracking } from '../services/location';
 import { theme } from '../theme';
 import { useCart } from '../state/CartContext';
-import { upsertOrderInCache } from '../services/orderHistory';
+import { useToast } from '../components/ui/Toast';
+import { SkeletonBox } from '../components/ui/SkeletonBox';
 
 interface Props {
     navigation: any;
@@ -30,9 +29,9 @@ interface Props {
 export default function MenuScreen({ navigation, route }: Props) {
     const [menuItems, setMenuItems] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [placingOrder, setPlacingOrder] = useState(false);
     const [isFavorite, setIsFavorite] = useState(false);
     const [favoriteUpdating, setFavoriteUpdating] = useState(false);
+    const { showToast } = useToast();
 
     const restaurant: Restaurant | undefined = route.params?.restaurant;
     const customerName = route.params?.customerName || 'Guest';
@@ -167,6 +166,11 @@ export default function MenuScreen({ navigation, route }: Props) {
 
         const result = addItemToCart({ ...item, qty: 1 }, restaurant);
         if (result === 'added') {
+            try {
+                const Haptics = require('expo-haptics');
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch {}
+            showToast(`${item.name} added to cart`);
             return;
         }
 
@@ -180,80 +184,11 @@ export default function MenuScreen({ navigation, route }: Props) {
                     style: 'destructive',
                     onPress: () => {
                         forceAddItemToCart({ ...item, qty: 1 }, restaurant);
+                        showToast(`${item.name} added to cart`);
                     },
                 },
             ]
         );
-    };
-
-    const handlePlaceOrder = async () => {
-        if (visibleCartItems.length === 0) {
-            Alert.alert('Cart Empty', 'Add some items first!');
-            return;
-        }
-
-        try {
-            if (!restaurant?.restaurant_id) {
-                Alert.alert('Restaurant Missing', 'Please select a restaurant to continue.');
-                return;
-            }
-
-            setPlacingOrder(true);
-            const order = await createOrder(restaurant.restaurant_id, visibleCartItems, customerName);
-            await upsertOrderInCache(order);
-
-            navigation.navigate('Order', { orderId: order.order_id });
-            clearCart();
-
-            // Try location tracking in background (non-blocking)
-            try {
-                const hasPermission = await requestPermissions({ requestBackground: true });
-                if (hasPermission) {
-                    const hasCoordinates = Number.isFinite(restaurant.latitude) && Number.isFinite(restaurant.longitude);
-                    if (hasCoordinates) {
-                        await startLocationTracking(
-                            {
-                                latitude: Number(restaurant.latitude),
-                                longitude: Number(restaurant.longitude),
-                                restaurantId: restaurant.restaurant_id,
-                            },
-                            order.order_id,
-                            async (event, eventOrderId) => {
-                                if (!['5_MIN_OUT', 'PARKING', 'AT_DOOR'].includes(event)) {
-                                    return;
-                                }
-
-                                if (event === 'AT_DOOR') {
-                                    await stopLocationTracking();
-                                }
-
-                                try {
-                                    await sendArrivalEvent(eventOrderId, event);
-                                } catch (arrivalError) {
-                                    console.warn('[MenuScreen] Failed to send arrival event:', arrivalError);
-                                }
-                            },
-                            async (sampleOrderId, sample) => {
-                                try {
-                                    await sendLocationSample(sampleOrderId, sample);
-                                } catch (sampleError) {
-                                    console.warn('[MenuScreen] Failed to send location sample:', sampleError);
-                                }
-                            },
-                        );
-                    } else {
-                        console.warn('[MenuScreen] Restaurant coordinates unavailable; background arrival tracking skipped.');
-                    }
-                }
-            } catch (locErr) {
-                console.warn('[MenuScreen] Location tracking skipped:', locErr);
-            }
-        } catch (error: any) {
-            console.error('[MenuScreen] Order placement FAILED:', error?.message);
-            Alert.alert('Error', `Failed to place order: ${error?.message || 'Network error'}`);
-        } finally {
-            setPlacingOrder(false);
-        }
     };
 
     const renderMenuItem = ({ item }: { item: any }) => (
@@ -289,8 +224,17 @@ export default function MenuScreen({ navigation, route }: Props) {
             ) : null}
 
             {loading ? (
-                <View style={styles.center}>
-                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                <View style={styles.skeletonList}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <View key={`skel-${i}`} style={styles.skeletonItem}>
+                            <View style={{ flex: 1 }}>
+                                <SkeletonBox width="60%" height={16} borderRadius={8} />
+                                <SkeletonBox width="90%" height={12} borderRadius={6} style={{ marginTop: 8 }} />
+                                <SkeletonBox width="30%" height={14} borderRadius={6} style={{ marginTop: 8 }} />
+                            </View>
+                            <SkeletonBox width={44} height={44} borderRadius={22} />
+                        </View>
+                    ))}
                 </View>
             ) : (
                 <SectionList
@@ -305,24 +249,22 @@ export default function MenuScreen({ navigation, route }: Props) {
                     contentContainerStyle={styles.list}
                     ListEmptyComponent={<Text style={styles.emptyText}>No items available</Text>}
                     stickySectionHeadersEnabled={false}
+                    keyboardDismissMode="on-drag"
+                    keyboardShouldPersistTaps="handled"
                 />
             )}
 
             {visibleCartItems.length > 0 && (
                 <View style={styles.cartBar}>
-                    <TouchableOpacity style={styles.cartSummary} onPress={() => navigation.navigate('Cart')}>
+                    <View style={styles.cartSummary}>
                         <Text style={styles.cartText}>{cartCount} items · ${(cartTotalCents / 100).toFixed(2)}</Text>
-                        <Text style={styles.cartLink}>View Cart</Text>
-                    </TouchableOpacity>
+                    </View>
 
                     <TouchableOpacity
-                        style={[styles.orderButton, placingOrder && styles.orderButtonDisabled]}
-                        onPress={handlePlaceOrder}
-                        disabled={placingOrder}
+                        style={styles.orderButton}
+                        onPress={() => navigation.navigate('Cart')}
                     >
-                        {placingOrder
-                            ? <ActivityIndicator color={theme.colors.white} />
-                            : <Text style={styles.orderButtonText}>Place Order</Text>}
+                        <Text style={styles.orderButtonText}>View Cart →</Text>
                     </TouchableOpacity>
                 </View>
             )}
@@ -446,11 +388,6 @@ const styles = StyleSheet.create({
         color: theme.colors.text,
         fontWeight: '700',
     },
-    cartLink: {
-        ...theme.typography.caption,
-        color: theme.colors.primary,
-        marginTop: 2,
-    },
     orderButton: {
         backgroundColor: theme.colors.primary,
         paddingHorizontal: 18,
@@ -459,8 +396,15 @@ const styles = StyleSheet.create({
         minWidth: 130,
         alignItems: 'center',
     },
-    orderButtonDisabled: {
-        opacity: 0.7,
-    },
     orderButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+    skeletonList: {
+        padding: 16,
+    },
+    skeletonItem: {
+        ...theme.layout.card,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 20,
+        backgroundColor: '#fff',
+    },
 });

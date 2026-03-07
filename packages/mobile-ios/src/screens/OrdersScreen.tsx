@@ -12,6 +12,7 @@ import { theme } from '../theme';
 import { Order, Restaurant } from '../services/api';
 import { getMyOrdersWithCache } from '../services/orderHistory';
 import { getRestaurantsWithCache } from '../services/restaurantsCatalog';
+import { EmptyState } from '../components/ui/EmptyState';
 
 interface Props {
     navigation: any;
@@ -157,16 +158,13 @@ export default function OrdersScreen({ navigation }: Props) {
                     />
                 )}
                 ListEmptyComponent={(
-                    <View style={styles.emptyWrap}>
-                        <Text style={styles.emptyTitle}>No past orders yet</Text>
-                        <Text style={styles.emptyBody}>When you place your first order, it will show up here.</Text>
-                        <TouchableOpacity
-                            style={styles.browseButton}
-                            onPress={() => navigation.navigate('Home')}
-                        >
-                            <Text style={styles.browseText}>Browse restaurants</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <EmptyState
+                        emoji="📋"
+                        title="No orders yet"
+                        subtitle="Place your first order to see it here"
+                        buttonLabel="Browse restaurants"
+                        onButtonPress={() => navigation.getParent()?.navigate('Home')}
+                    />
                 )}
                 contentContainerStyle={orders.length === 0 ? styles.emptyList : styles.list}
                 renderItem={({ item }) => {
@@ -278,36 +276,5 @@ const styles = StyleSheet.create({
     },
     emptyList: {
         flexGrow: 1,
-    },
-    emptyWrap: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: theme.spacing.xl,
-    },
-    emptyTitle: {
-        ...theme.typography.h2,
-        color: theme.colors.text,
-        textAlign: 'center',
-    },
-    emptyBody: {
-        ...theme.typography.body,
-        color: theme.colors.textSecondary,
-        marginTop: theme.spacing.sm,
-        textAlign: 'center',
-    },
-    browseButton: {
-        marginTop: theme.spacing.lg,
-        borderRadius: theme.radii.button,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        backgroundColor: theme.colors.surface,
-        paddingHorizontal: theme.spacing.lg,
-        paddingVertical: theme.spacing.md,
-    },
-    browseText: {
-        ...theme.typography.body,
-        color: theme.colors.text,
-        fontWeight: '700',
     },
 });

@@ -14,6 +14,7 @@ import { upsertOrderInCache } from '../services/orderHistory';
 import { getCurrentUserProfile } from '../services/session';
 import { requestPermissions, startLocationTracking, stopLocationTracking } from '../services/location';
 import { useCart } from '../state/CartContext';
+import { EmptyState } from '../components/ui/EmptyState';
 
 interface Props {
     navigation: any;
@@ -53,6 +54,7 @@ export default function CartScreen({ navigation }: Props) {
         try {
             const order = await createOrder(cartRestaurant.restaurant_id, cartItems, customerName);
             await upsertOrderInCache(order);
+            try { const H = require('expo-haptics'); H.notificationAsync(H.NotificationFeedbackType.Success); } catch {}
 
             // Keep existing background location behavior for arrival events.
             try {
@@ -106,11 +108,13 @@ export default function CartScreen({ navigation }: Props) {
     if (cartItems.length === 0) {
         return (
             <View style={styles.emptyWrap}>
-                <Text style={styles.emptyTitle}>Your cart is empty</Text>
-                <Text style={styles.emptyBody}>Add items from a menu to continue checkout.</Text>
-                <TouchableOpacity style={styles.browseButton} onPress={() => navigation.navigate('Home')}>
-                    <Text style={styles.browseText}>Browse restaurants</Text>
-                </TouchableOpacity>
+                <EmptyState
+                    emoji="🛒"
+                    title="Your cart is empty"
+                    subtitle="Browse restaurants and add items to get started"
+                    buttonLabel="Browse restaurants"
+                    onButtonPress={() => navigation.getParent()?.navigate('Home')}
+                />
             </View>
         );
     }
@@ -126,29 +130,48 @@ export default function CartScreen({ navigation }: Props) {
                 data={cartItems}
                 keyExtractor={(item) => item.cart_item_key}
                 contentContainerStyle={styles.list}
-                renderItem={({ item }) => (
-                    <View style={styles.itemCard}>
-                        <View style={styles.itemBody}>
-                            <Text style={styles.itemName}>{item.name}</Text>
-                            {item.description ? <Text style={styles.itemDesc}>{item.description}</Text> : null}
-                            <Text style={styles.itemPrice}>{money((item.price_cents || 0) * (item.qty || 0))}</Text>
-                        </View>
+                renderItem={({ item }) => {
+                    const hapticSelection = () => { try { const H = require('expo-haptics'); H.selectionAsync(); } catch {} };
+                    const hapticMedium = () => { try { const H = require('expo-haptics'); H.impactAsync(H.ImpactFeedbackStyle.Medium); } catch {} };
+                    return (
+                        <View style={styles.itemCard}>
+                            <View style={styles.itemBody}>
+                                <Text style={styles.itemName}>{item.name}</Text>
+                                {item.description ? <Text style={styles.itemDesc}>{item.description}</Text> : null}
+                                <Text style={styles.itemPrice}>{money((item.price_cents || 0) * (item.qty || 0))}</Text>
+                            </View>
 
-                        <View style={styles.qtyWrap}>
-                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.cart_item_key, item.qty - 1)}>
-                                <Text style={styles.qtyText}>-</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.qtyValue}>{item.qty}</Text>
-                            <TouchableOpacity style={styles.qtyButton} onPress={() => setItemQty(item.cart_item_key, item.qty + 1)}>
-                                <Text style={styles.qtyText}>+</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.removeButton} onPress={() => removeItem(item.cart_item_key)}>
-                                <Text style={styles.removeText}>Remove</Text>
-                            </TouchableOpacity>
+                            <View style={styles.qtyWrap}>
+                                <TouchableOpacity style={styles.qtyButton} onPress={() => { hapticSelection(); setItemQty(item.cart_item_key, item.qty - 1); }}>
+                                    <Text style={styles.qtyText}>-</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.qtyValue}>{item.qty}</Text>
+                                <TouchableOpacity style={styles.qtyButton} onPress={() => { hapticSelection(); setItemQty(item.cart_item_key, item.qty + 1); }}>
+                                    <Text style={styles.qtyText}>+</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.removeButton} onPress={() => { hapticMedium(); removeItem(item.cart_item_key); }}>
+                                    <Text style={styles.removeText}>Remove</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                    </View>
-                )}
+                    );
+                }}
             />
+
+            <View style={styles.summaryCard}>
+                <Text style={styles.summaryTitle}>Review your order</Text>
+                {cartItems.map((item) => (
+                    <View key={item.cart_item_key} style={styles.summaryRow}>
+                        <Text style={styles.summaryItemName}>{item.qty}x {item.name}</Text>
+                        <Text style={styles.summaryItemPrice}>{money((item.price_cents || 0) * (item.qty || 0))}</Text>
+                    </View>
+                ))}
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryRow}>
+                    <Text style={styles.summarySubtotalLabel}>Subtotal</Text>
+                    <Text style={styles.summarySubtotalValue}>{money(cartTotalCents)}</Text>
+                </View>
+            </View>
 
             <View style={styles.checkoutBar}>
                 <View>
@@ -293,34 +316,48 @@ const styles = StyleSheet.create({
     },
     emptyWrap: {
         flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: theme.spacing.xl,
         backgroundColor: theme.colors.background,
     },
-    emptyTitle: {
-        ...theme.typography.h2,
-        color: theme.colors.text,
-        textAlign: 'center',
+    summaryCard: {
+        marginHorizontal: theme.spacing.lg,
+        marginBottom: theme.spacing.md,
+        ...theme.layout.card,
+        padding: theme.spacing.lg,
     },
-    emptyBody: {
-        ...theme.typography.body,
+    summaryTitle: {
+        ...theme.typography.h3,
+        color: theme.colors.text,
+        marginBottom: theme.spacing.md,
+    },
+    summaryRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: theme.spacing.xs,
+    },
+    summaryItemName: {
+        ...theme.typography.bodySm,
+        color: theme.colors.text,
+        flex: 1,
+    },
+    summaryItemPrice: {
+        ...theme.typography.bodySm,
         color: theme.colors.textSecondary,
-        marginTop: theme.spacing.sm,
-        textAlign: 'center',
+        fontWeight: '600',
     },
-    browseButton: {
-        marginTop: theme.spacing.lg,
-        borderRadius: theme.radii.button,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        paddingHorizontal: theme.spacing.lg,
-        paddingVertical: theme.spacing.md,
-        backgroundColor: theme.colors.surface,
+    summaryDivider: {
+        height: 1,
+        backgroundColor: theme.colors.border,
+        marginVertical: theme.spacing.sm,
     },
-    browseText: {
+    summarySubtotalLabel: {
         ...theme.typography.body,
         color: theme.colors.text,
+        fontWeight: '700',
+    },
+    summarySubtotalValue: {
+        ...theme.typography.body,
+        color: theme.colors.primary,
         fontWeight: '700',
     },
 });

@@ -10,6 +10,7 @@ import {
     Platform,
     ActivityIndicator,
     Image,
+    ScrollView,
 } from 'react-native';
 import {
     confirmResetPassword,
@@ -129,7 +130,7 @@ export default function LoginScreen({ navigation }: Props) {
             index: 0,
             routes: [
                 {
-                    name: 'Home',
+                    name: 'MainTabs',
                     params: {
                         customerName: (claimEmail || normalizedEmail).split('@')[0] || 'Guest',
                     },
@@ -469,7 +470,11 @@ export default function LoginScreen({ navigation }: Props) {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
             <View style={styles.backgroundAccent} />
-            <View style={styles.content}>
+            <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+            >
                 <View style={styles.brandRow}>
                     <Image
                         source={require('../../assets/logo_icon_stylized.png')}
@@ -687,7 +692,7 @@ export default function LoginScreen({ navigation }: Props) {
                         </>
                     )}
                 </View>
-            </View>
+            </ScrollView>
         </KeyboardAvoidingView>
     );
 }
@@ -708,7 +713,7 @@ const styles = StyleSheet.create({
         borderRadius: 150,
     },
     content: {
-        flex: 1,
+        flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
         padding: 24,

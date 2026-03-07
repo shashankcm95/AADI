@@ -11,6 +11,8 @@ import {
     View,
 } from 'react-native';
 import { RestaurantCard } from '../components/ui/RestaurantCard';
+import { SkeletonBox } from '../components/ui/SkeletonBox';
+import { EmptyState } from '../components/ui/EmptyState';
 import { theme } from '../theme';
 import { Restaurant } from '../services/api';
 import {
@@ -159,9 +161,14 @@ export default function FavoritesScreen({ navigation, route }: Props) {
 
     if (loading) {
         return (
-            <View style={styles.center}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
-                <Text style={styles.helper}>Loading your favorites...</Text>
+            <View style={styles.skeletonContainer}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <View key={`skel-${i}`} style={[styles.skeletonCard, { width: cardWidth }]}>
+                        <SkeletonBox width="100%" height={140} borderRadius={12} />
+                        <SkeletonBox width="70%" height={16} borderRadius={8} style={{ marginTop: 12 }} />
+                        <SkeletonBox width="50%" height={12} borderRadius={6} style={{ marginTop: 8 }} />
+                    </View>
+                ))}
             </View>
         );
     }
@@ -191,23 +198,19 @@ export default function FavoritesScreen({ navigation, route }: Props) {
                 columnWrapperStyle={isSmallPhone ? undefined : styles.gridRow}
                 keyExtractor={(item) => item.restaurant_id}
                 ListEmptyComponent={(
-                    <View style={styles.emptyWrap}>
-                        <Text style={styles.emptyTitle}>No favorites yet</Text>
-                        <Text style={styles.emptyBody}>Tap the heart icon on any restaurant to save it here.</Text>
-                        <TouchableOpacity
-                            style={styles.browseButton}
-                            onPress={() => navigation.navigate('Home', { customerName })}
-                        >
-                            <Text style={styles.browseText}>Browse restaurants</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <EmptyState
+                        emoji="❤️"
+                        title="No favorites yet"
+                        subtitle="Tap the heart on a restaurant to save it"
+                        buttonLabel="Browse restaurants"
+                        onButtonPress={() => navigation.navigate('Home', { customerName })}
+                    />
                 )}
                 renderItem={({ item, index }) => {
                     const image = primaryRestaurantImage(item);
 
                     const priceTier = item.price_tier || 2;
                     const cuisineTag = item.cuisine || 'Cuisine';
-                    const ratingValue = Number(item.rating) || 0;
 
                     return (
                         <View
@@ -221,10 +224,6 @@ export default function FavoritesScreen({ navigation, route }: Props) {
                             <RestaurantCard
                                 name={item.name || 'Restaurant'}
                                 image={image}
-                                rating={ratingValue}
-                                ratingCount={1000 + index * 25}
-                                deliveryTime={index % 2 === 0 ? '20-30 min' : '15-25 min'}
-                                deliveryFee={index % 2 === 0 ? '$1.99 delivery' : '$0.99 delivery'}
                                 tags={item.tags && item.tags.length ? item.tags : [cuisineTag]}
                                 isFavorite={Boolean(favorites[item.restaurant_id])}
                                 onFavoriteToggle={() => handleFavoriteToggle(item.restaurant_id)}
@@ -292,35 +291,18 @@ const styles = StyleSheet.create({
     emptyList: {
         flexGrow: 1,
     },
-    emptyWrap: {
+    skeletonContainer: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: theme.spacing.xl,
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        paddingHorizontal: theme.screenPadding.horizontal,
+        paddingTop: theme.spacing.lg,
     },
-    emptyTitle: {
-        ...theme.typography.h2,
-        color: theme.colors.text,
-        textAlign: 'center',
-    },
-    emptyBody: {
-        ...theme.typography.body,
-        color: theme.colors.textSecondary,
-        marginTop: theme.spacing.sm,
-        textAlign: 'center',
-    },
-    browseButton: {
-        marginTop: theme.spacing.lg,
-        borderRadius: theme.radii.button,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
+    skeletonCard: {
+        marginBottom: theme.spacing.md,
+        borderRadius: theme.radii.card,
         backgroundColor: theme.colors.surface,
-        paddingHorizontal: theme.spacing.lg,
-        paddingVertical: theme.spacing.md,
-    },
-    browseText: {
-        ...theme.typography.body,
-        color: theme.colors.text,
-        fontWeight: '700',
+        padding: theme.spacing.md,
     },
 });

@@ -9,7 +9,6 @@ import {
     FlatList,
     TouchableOpacity,
     StyleSheet,
-    ActivityIndicator,
     Alert,
     Image,
 } from 'react-native';
@@ -20,6 +19,7 @@ import {
     setFavoriteForCurrentUser,
 } from '../services/favorites';
 import { getRestaurantsWithCache } from '../services/restaurantsCatalog';
+import { SkeletonBox } from '../components/ui/SkeletonBox';
 import { theme } from '../theme';
 
 interface Props {
@@ -162,9 +162,19 @@ export default function RestaurantsScreen({ navigation, route }: Props) {
 
     if (loading) {
         return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
-                <Text style={styles.loadingText}>Loading restaurants...</Text>
+            <View style={styles.container}>
+                <Text style={styles.greeting}>Hi, {customerName || 'Guest'}! 👋</Text>
+                <Text style={styles.title}>Where are you dining?</Text>
+                {Array.from({ length: 4 }).map((_, i) => (
+                    <View key={`skel-${i}`} style={styles.skeletonCard}>
+                        <SkeletonBox width={62} height={62} borderRadius={14} />
+                        <View style={{ flex: 1, marginLeft: 14 }}>
+                            <SkeletonBox width="60%" height={16} borderRadius={8} />
+                            <SkeletonBox width="80%" height={12} borderRadius={6} style={{ marginTop: 8 }} />
+                            <SkeletonBox width="30%" height={12} borderRadius={6} style={{ marginTop: 8 }} />
+                        </View>
+                    </View>
+                ))}
             </View>
         );
     }
@@ -190,17 +200,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: theme.colors.background,
         padding: 20,
-    },
-    loadingContainer: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        color: theme.colors.textMuted,
-        marginTop: 16,
-        fontSize: 16,
     },
     greeting: {
         fontSize: 16,
@@ -277,10 +276,6 @@ const styles = StyleSheet.create({
         color: theme.colors.accent,
         fontWeight: '600',
     },
-    arrow: {
-        fontSize: 24,
-        color: theme.colors.accent,
-    },
     favoriteButton: {
         width: 36,
         height: 36,
@@ -296,5 +291,10 @@ const styles = StyleSheet.create({
         color: theme.colors.primary,
         fontSize: 20,
         lineHeight: 22,
+    },
+    skeletonCard: {
+        ...theme.layout.card,
+        flexDirection: 'row',
+        alignItems: 'center',
     },
 });

@@ -6,6 +6,7 @@ import { theme } from '../../theme';
 interface Props {
     label: string;
     icon?: ReactNode;
+    count?: number;
     selected?: boolean;
     onPress: () => void;
     onTintedBackground?: boolean;
@@ -14,10 +15,12 @@ interface Props {
 export const CategoryChip: React.FC<Props> = ({
     label,
     icon,
+    count,
     selected = false,
     onPress,
     onTintedBackground = false,
 }) => {
+    const displayLabel = count && count > 0 ? `${label} (${count})` : label;
     if (selected) {
         return (
             <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={styles.outer}>
@@ -29,7 +32,7 @@ export const CategoryChip: React.FC<Props> = ({
                 >
                     {icon ? <View style={styles.icon}>{icon}</View> : null}
                     <Text style={[styles.text, styles.selectedText]} numberOfLines={1}>
-                        {label}
+                        {displayLabel}
                     </Text>
                 </LinearGradient>
             </TouchableOpacity>
@@ -49,7 +52,7 @@ export const CategoryChip: React.FC<Props> = ({
         >
             {icon ? <View style={styles.icon}>{icon}</View> : null}
             <Text style={[styles.text, styles.unselectedText]} numberOfLines={1}>
-                {label}
+                {displayLabel}
             </Text>
         </TouchableOpacity>
     );
