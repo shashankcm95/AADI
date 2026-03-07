@@ -1,11 +1,10 @@
 """Customer favorites handlers."""
-import json
 import time
 from boto3.dynamodb.conditions import Key
 
 from shared.logger import get_logger
 from utils import (
-    CORS_HEADERS, decimal_default, _require_customer, make_response,
+    _require_customer, make_response,
     favorites_table, restaurants_table,
 )
 

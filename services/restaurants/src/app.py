@@ -7,9 +7,7 @@ This file is responsible only for:
   2. Running the global inactive-restaurant gate
   3. Dispatching to the correct handler
 """
-import json
-
-from utils import CORS_HEADERS, get_user_claims, restaurants_table, make_response
+from utils import get_user_claims, restaurants_table, make_response
 from shared.logger import get_logger, extract_correlation_id
 
 from handlers.restaurants import (
@@ -57,23 +55,15 @@ def lambda_handler(event, context):
                         "restaurant_id": restaurant_id,
                         "route_key": route_key,
                     })
-                    return {
-                        'statusCode': 403,
-                        'headers': CORS_HEADERS,
-                        'body': json.dumps({'error': 'Restaurant is currently inactive/on-hold. Please contact support.'})
-                    }
+                    return make_response(403, {'error': 'Restaurant is currently inactive/on-hold. Please contact support.'}, event)
         except Exception as e:
             req_log.error("restaurant_status_check_failed", extra={"error": str(e)}, exc_info=True)
-            return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'Internal authorization error'})}
+            return make_response(500, {'error': 'Internal authorization error'}, event)
 
     # ── Route Dispatch ──
     try:
         if route_key == 'GET /v1/restaurants/health':
-            return {
-                'statusCode': 200,
-                'headers': CORS_HEADERS,
-                'body': json.dumps({'status': 'healthy'})
-            }
+            return make_response(200, {'status': 'healthy'}, event)
 
         if route_key == 'GET /v1/restaurants':
             return list_restaurants(event)

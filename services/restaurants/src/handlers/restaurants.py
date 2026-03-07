@@ -253,7 +253,7 @@ def create_restaurant(event):
             'created_at': timestamp,
             'updated_at': timestamp,
             'cuisine': body.get('cuisine', 'Other'),
-            'price_tier': int(body.get('price_tier', 1)),
+            'price_tier': max(1, min(int(body.get('price_tier', 1)), 5)),
             'tags': body.get('tags', []),
             'rating': Decimal(str(body.get('rating', '0.0'))),
             'restaurant_image_keys': restaurant_image_keys,
@@ -428,7 +428,7 @@ def update_restaurant(event, restaurant_id):
             expr_attr_values[':cu'] = cuisine
         if price_tier is not None:
             set_parts.append("price_tier = :pt")
-            expr_attr_values[':pt'] = int(price_tier)
+            expr_attr_values[':pt'] = max(1, min(int(price_tier), 5))
         if tags is not None:
             set_parts.append("tags = :tg")
             expr_attr_values[':tg'] = tags

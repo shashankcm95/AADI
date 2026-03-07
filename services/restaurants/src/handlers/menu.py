@@ -5,7 +5,7 @@ import time
 from decimal import Decimal, ROUND_HALF_UP
 
 from utils import (
-    CORS_HEADERS, decimal_default, get_user_claims, make_response,
+    get_user_claims, make_response,
     menus_table,
 )
 from shared.logger import get_logger
