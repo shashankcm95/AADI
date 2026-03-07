@@ -240,8 +240,8 @@ def create_avatar_upload_url(event):
                 if requested_ct and requested_ct in _CONTENT_TYPE_TO_EXT:
                     content_type = requested_ct
                     ext = _CONTENT_TYPE_TO_EXT[content_type]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("avatar_upload_body_parse_failed", extra={"user_id": user_id, "error": str(e)})
 
         timestamp = int(time.time())
         s3_key = f"avatars/{user_id}-{timestamp}.{ext}"

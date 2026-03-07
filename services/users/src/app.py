@@ -1,5 +1,4 @@
 import json
-import os
 from handlers import users
 from shared.cors import cors_headers
 from shared.logger import get_logger
