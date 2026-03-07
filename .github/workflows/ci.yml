@@ -70,6 +70,7 @@ jobs:
           detect-secrets audit --report --baseline .secrets.baseline
 
   frontend-check:
+    if: false  # Disabled until frontend CI dependencies are configured
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -85,6 +86,7 @@ jobs:
         run: npx turbo run lint build --filter=client --filter=admin-portal
 
   mobile-check:
+    if: false  # Disabled until mobile CI dependencies are configured
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   deploy:
+    if: false  # Disabled until AWS OIDC credentials are configured in repo secrets
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -124,6 +125,7 @@ jobs:
           ./scripts/smoke_authenticated_order_flow.sh "$ORDERS_API_URL" "$RESTAURANTS_API_URL" "$SMOKE_ID_TOKEN"
 
   deploy-frontend:
+    if: false  # Disabled until AWS OIDC credentials are configured in repo secrets
     needs: deploy
     runs-on: ubuntu-latest
     env:
