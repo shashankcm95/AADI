@@ -199,6 +199,141 @@ def test_handle_create_order_empty_items_returns_400(mock_db):
     assert resp['statusCode'] == 400
 
 
+# =============================================================================
+# _validate_transition Unit Tests
+# =============================================================================
+
+def test_validate_transition_idempotent():
+    """Same status → empty string (accepted)."""
+    assert handlers._validate_transition('IN_PROGRESS', 'IN_PROGRESS') == ''
+    assert handlers._validate_transition('COMPLETED', 'COMPLETED') == ''
+    assert handlers._validate_transition('PENDING_NOT_SENT', 'PENDING_NOT_SENT') == ''
+
+
+def test_validate_transition_pending_to_sent():
+    """PENDING_NOT_SENT → SENT_TO_DESTINATION is valid."""
+    assert handlers._validate_transition('PENDING_NOT_SENT', 'SENT_TO_DESTINATION') == ''
+
+
+def test_validate_transition_waiting_to_sent():
+    """WAITING_FOR_CAPACITY → SENT_TO_DESTINATION is valid."""
+    assert handlers._validate_transition('WAITING_FOR_CAPACITY', 'SENT_TO_DESTINATION') == ''
+
+
+def test_validate_transition_chain_transitions():
+    """Each valid chain transition should succeed."""
+    assert handlers._validate_transition('SENT_TO_DESTINATION', 'IN_PROGRESS') == ''
+    assert handlers._validate_transition('IN_PROGRESS', 'READY') == ''
+    assert handlers._validate_transition('READY', 'FULFILLING') == ''
+    assert handlers._validate_transition('FULFILLING', 'COMPLETED') == ''
+
+
+def test_validate_transition_invalid_jump():
+    """Skipping chain steps should fail."""
+    result = handlers._validate_transition('PENDING_NOT_SENT', 'READY')
+    assert 'Invalid transition' in result
+    assert 'PENDING_NOT_SENT' in result
+    assert 'READY' in result
+
+
+def test_validate_transition_backward_jump():
+    """Going backward in the chain should fail."""
+    result = handlers._validate_transition('COMPLETED', 'PENDING_NOT_SENT')
+    assert 'Invalid transition' in result
+
+
+def test_validate_transition_sent_from_invalid_source():
+    """SENT_TO_DESTINATION only allowed from PENDING or WAITING."""
+    result = handlers._validate_transition('IN_PROGRESS', 'SENT_TO_DESTINATION')
+    assert 'Invalid transition' in result
+
+
+def test_validate_transition_empty_target():
+    """Empty target status → 'Missing status'."""
+    assert handlers._validate_transition('PENDING_NOT_SENT', '') == 'Missing status'
+    assert handlers._validate_transition('PENDING_NOT_SENT', None) == 'Missing status'
+
+
+def test_validate_transition_none_current():
+    """None/empty current status is stringified and handled."""
+    # None current → str(None or '') → ''
+    result = handlers._validate_transition(None, 'SENT_TO_DESTINATION')
+    assert 'Invalid transition' in result
+
+    result = handlers._validate_transition('', 'SENT_TO_DESTINATION')
+    assert 'Invalid transition' in result
+
+
+# =============================================================================
+# handle_get_menu Tests
+# =============================================================================
+
+def test_handle_get_menu_happy_path(mock_db):
+    """Menu exists in DB → returns menu items."""
+    mock_db['menus'].items['rest_1'] = {
+        'restaurant_id': 'rest_1',
+        'menu_version': 'latest',
+        'items': [
+            {'id': 'm1', 'name': 'Burger', 'price_cents': 1200},
+            {'id': 'm2', 'name': 'Fries', 'price_cents': 500},
+        ]
+    }
+
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_get_menu(key_record)
+
+    assert resp['statusCode'] == 200
+    body = json.loads(resp['body'])
+    assert body['restaurant_id'] == 'rest_1'
+    assert len(body['menu']) == 2
+    assert body['menu'][0]['name'] == 'Burger'
+
+
+def test_handle_get_menu_no_menu_in_db(mock_db):
+    """No menu record → returns empty menu."""
+    key_record = {'restaurant_id': 'rest_no_menu'}
+    resp = handlers.handle_get_menu(key_record)
+
+    assert resp['statusCode'] == 200
+    body = json.loads(resp['body'])
+    assert body['menu'] == []
+    assert body['restaurant_id'] == 'rest_no_menu'
+
+
+def test_handle_get_menu_table_is_none(mock_db):
+    """menus_table is None → returns empty menu (not 500)."""
+    original = handlers.menus_table
+    handlers.menus_table = None
+    try:
+        key_record = {'restaurant_id': 'rest_1'}
+        resp = handlers.handle_get_menu(key_record)
+
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body['menu'] == []
+    finally:
+        handlers.menus_table = original
+
+
+def test_handle_get_menu_db_exception(mock_db):
+    """DynamoDB exception → returns empty menu (graceful degradation)."""
+    from unittest.mock import MagicMock
+
+    original = handlers.menus_table
+    failing_table = MagicMock()
+    failing_table.get_item.side_effect = Exception("DynamoDB timeout")
+    handlers.menus_table = failing_table
+    try:
+        key_record = {'restaurant_id': 'rest_1'}
+        resp = handlers.handle_get_menu(key_record)
+
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body['menu'] == []
+    finally:
+        handlers.menus_table = original
+
+
 def test_handle_webhook(mock_db):
     """Verify webhook routing and idempotency."""
     key_record = {'restaurant_id': 'rest_1'}

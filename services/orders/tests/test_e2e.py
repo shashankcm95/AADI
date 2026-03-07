@@ -653,7 +653,8 @@ class TestVicinityNonCapacityEvents:
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
         body = json.loads(resp['body'])
-        assert body.get('arrival_status') == 'PARKING' or 'status' in body
+        assert body.get('arrival_status') == 'PARKING'
+        assert body.get('status') == 'SENT_TO_DESTINATION'
 
     def test_at_door_event(self, tables):
         oid = self._create_sent_order(tables)
@@ -663,6 +664,9 @@ class TestVicinityNonCapacityEvents:
                             path_params={'order_id': oid})
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body.get('arrival_status') == 'AT_DOOR'
+        assert body.get('status') == 'SENT_TO_DESTINATION'
 
     def test_exit_vicinity_event(self, tables):
         oid = self._create_sent_order(tables)
@@ -675,6 +679,11 @@ class TestVicinityNonCapacityEvents:
                             path_params={'order_id': oid})
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert body.get('arrival_status') == 'EXIT_VICINITY'
+        assert body.get('status') == 'COMPLETED'
+        # Verify DB state reflects auto-complete
+        assert tables['orders'].items[oid]['status'] == 'COMPLETED'
 
     def test_unknown_event_returns_error(self, tables):
         oid = self._create_sent_order(tables)
@@ -683,8 +692,9 @@ class TestVicinityNonCapacityEvents:
                             body={'event': 'TELEPORT'},
                             path_params={'order_id': oid})
         resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 400
         body = json.loads(resp['body'])
-        assert resp['statusCode'] in (200, 400)
+        assert 'Invalid vicinity event' in body.get('error', '')
 
 
 # =============================================================================

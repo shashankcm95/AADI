@@ -16,6 +16,42 @@ import capacity
 
 
 # =============================================================================
+# normalize_dispatch_trigger_event
+# =============================================================================
+
+class TestNormalizeDispatchTriggerEvent:
+    def test_five_min_out_alias(self):
+        """'FIVE_MIN_OUT' is normalized to '5_MIN_OUT'."""
+        assert capacity.normalize_dispatch_trigger_event("FIVE_MIN_OUT") == "5_MIN_OUT"
+
+    def test_five_min_out_as_is(self):
+        """'5_MIN_OUT' is returned unchanged."""
+        assert capacity.normalize_dispatch_trigger_event("5_MIN_OUT") == "5_MIN_OUT"
+
+    def test_parking_is_valid(self):
+        assert capacity.normalize_dispatch_trigger_event("PARKING") == "PARKING"
+
+    def test_at_door_is_valid(self):
+        assert capacity.normalize_dispatch_trigger_event("AT_DOOR") == "AT_DOOR"
+
+    def test_invalid_event_falls_back_to_default(self):
+        assert capacity.normalize_dispatch_trigger_event("INVALID_EVENT") == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
+
+    def test_none_falls_back_to_default(self):
+        assert capacity.normalize_dispatch_trigger_event(None) == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
+
+    def test_empty_string_falls_back_to_default(self):
+        """Empty string → str('' or DEFAULT) → DEFAULT, which is valid."""
+        assert capacity.normalize_dispatch_trigger_event("") == capacity.DEFAULT_DISPATCH_TRIGGER_EVENT
+
+    def test_whitespace_and_lowercase_normalized(self):
+        """Leading/trailing whitespace stripped, lowercased input uppercased."""
+        assert capacity.normalize_dispatch_trigger_event("  five_min_out  ") == "5_MIN_OUT"
+        assert capacity.normalize_dispatch_trigger_event("parking") == "PARKING"
+        assert capacity.normalize_dispatch_trigger_event("  at_door  ") == "AT_DOOR"
+
+
+# =============================================================================
 # get_window_start
 # =============================================================================
 
