@@ -190,24 +190,42 @@ def test_handle_sync_menu_empty_items_returns_400(mock_db):
     finally:
         handlers.POS_MENU_SYNC_ENABLED = prev
 
+def test_handle_create_order_empty_items_returns_400(mock_db):
+    """Orders with no items should be rejected."""
+    key_record = {'restaurant_id': 'rest_1', 'pos_system': 'generic'}
+
+    resp = handlers.handle_create_order({'items': []}, key_record)
+    assert resp['statusCode'] == 400
+
+    resp = handlers.handle_create_order({}, key_record)
+    assert resp['statusCode'] == 400
+
+
 def test_handle_webhook(mock_db):
     """Verify webhook routing and idempotency."""
     key_record = {'restaurant_id': 'rest_1'}
-    
-    # 1. New Event (Order Created)
-    body = {'event_type': 'order.created', 'webhook_id': 'wh_1', 'data': {'items': [], 'pos_order_ref': 'ref1'}}
-    
+
+    # 1. New Event (Order Created) — must include at least one item
+    body = {
+        'event_type': 'order.created',
+        'webhook_id': 'wh_1',
+        'data': {
+            'items': [{'name': 'Burger', 'price_cents': 1000, 'qty': 1}],
+            'pos_order_ref': 'ref1',
+        },
+    }
+
     resp = handlers.handle_webhook(body, key_record)
     assert resp['statusCode'] == 201 # from create_order
-    
+
     # Verify webhook logged
     assert 'wh_1' in mock_db['webhooks'].items
-    
+
     # 2. Duplicate Event
     resp = handlers.handle_webhook(body, key_record)
     assert resp['statusCode'] == 200
     assert json.loads(resp['body'])['status'] == 'already_processed'
-    
+
     # 3. Unknown Event
     body_unk = {'event_type': 'unknown.event', 'webhook_id': 'wh_2'}
     resp = handlers.handle_webhook(body_unk, key_record)

@@ -12,7 +12,7 @@ import os
 import time
 import uuid
 import boto3
-from typing import Dict, Any, List
+from typing import Dict, Any
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Attr
 from pos_mapper import pos_order_to_session, session_to_pos_order, pos_menu_to_resources
@@ -70,20 +70,19 @@ def _fetch_order(order_id: str):
     return resp.get('Item')
 
 
-def _status_map() -> Dict[str, str]:
-    return {
-        'PREPARING': STATUS_IN_PROGRESS,
-        'READY': STATUS_READY,
-        'PICKED_UP': STATUS_FULFILLING,
-        'COMPLETED': STATUS_COMPLETED,
-        # Also accept Arrive-native statuses
-        STATUS_IN_PROGRESS: STATUS_IN_PROGRESS,
-        STATUS_FULFILLING: STATUS_FULFILLING,
-        STATUS_PENDING: STATUS_PENDING,
-        STATUS_SENT: STATUS_SENT,
-        STATUS_READY: STATUS_READY,
-        STATUS_COMPLETED: STATUS_COMPLETED,
-    }
+_STATUS_MAP: Dict[str, str] = {
+    'PREPARING': STATUS_IN_PROGRESS,
+    'READY': STATUS_READY,
+    'PICKED_UP': STATUS_FULFILLING,
+    'COMPLETED': STATUS_COMPLETED,
+    # Also accept Arrive-native statuses
+    STATUS_IN_PROGRESS: STATUS_IN_PROGRESS,
+    STATUS_FULFILLING: STATUS_FULFILLING,
+    STATUS_PENDING: STATUS_PENDING,
+    STATUS_SENT: STATUS_SENT,
+    STATUS_READY: STATUS_READY,
+    STATUS_COMPLETED: STATUS_COMPLETED,
+}
 
 
 def _validate_transition(current_status: str, target_status: str) -> str:
@@ -215,9 +214,15 @@ def handle_create_order(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dic
             "statusCode": 400,
             "body": json.dumps({"error": "Only PAY_AT_RESTAURANT is supported"}),
         }
-    
+
     # Translate POS format → Arrive format
     session_data = pos_order_to_session(body, pos_system)
+
+    if not session_data.get('items'):
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Order must contain at least one item"}),
+        }
     
     # Override restaurant_id from API key (security: POS can only create for their own restaurant)
     session_data['restaurant_id'] = restaurant_id
@@ -324,11 +329,11 @@ def handle_update_status(order_id: str, body: Dict[str, Any], key_record: Dict[s
     restaurant_id = key_record['restaurant_id']
     new_status = body.get('status')
 
-    arrive_status = _status_map().get(new_status)
+    arrive_status = _STATUS_MAP.get(new_status)
     if not arrive_status:
         return {
             'statusCode': 400,
-            'body': json.dumps({'error': f'Unknown status: {new_status}', 'valid_statuses': list(_status_map().keys())})
+            'body': json.dumps({'error': f'Unknown status: {new_status}', 'valid_statuses': list(_STATUS_MAP.keys())})
         }
 
     if orders_table:
@@ -344,8 +349,8 @@ def handle_update_status(order_id: str, body: Dict[str, Any], key_record: Dict[s
             return {'statusCode': 409, 'body': json.dumps({'error': transition_error})}
 
         if current_status == arrive_status:
-            if arrive_status == STATUS_COMPLETED:
-                _release_capacity_slot(session)
+            # Idempotent — no side-effects. Capacity was already released
+            # on the first transition, so do NOT release again.
             return {
                 'statusCode': 200,
                 'body': json.dumps({'order_id': order_id, 'status': arrive_status, 'idempotent': True})
@@ -490,7 +495,14 @@ def handle_webhook(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[str
     Handles various POS event types (order.created, order.updated, etc.)
     with idempotency via webhook_id dedup.
     """
-    webhook_id = body.get('webhook_id', body.get('event_id', f"wh_{uuid.uuid4().hex[:12]}"))
+    webhook_id = body.get('webhook_id') or body.get('event_id')
+    if not webhook_id:
+        webhook_id = f"wh_{uuid.uuid4().hex[:12]}"
+        log.warning("webhook_missing_id", extra={
+            "restaurant_id": key_record.get('restaurant_id'),
+            "event_type": body.get('event_type', body.get('type', 'unknown')),
+            "generated_id": webhook_id,
+        })
     event_type = body.get('event_type', body.get('type', 'unknown'))
 
     # Idempotency check
@@ -502,7 +514,7 @@ def handle_webhook(body: Dict[str, Any], key_record: Dict[str, Any]) -> Dict[str
                     'event_type': event_type,
                     'restaurant_id': key_record['restaurant_id'],
                     'received_at': int(time.time()),
-                    'ttl': int(time.time()) + 86400,  # 24h TTL
+                    'ttl': int(time.time()) + 604800,  # 7-day dedup window
                     'payload': json.dumps(body),
                 },
                 ConditionExpression='attribute_not_exists(webhook_id)',

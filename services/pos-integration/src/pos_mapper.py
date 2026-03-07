@@ -78,7 +78,7 @@ def _toast_order_to_session(payload: Dict[str, Any]) -> Dict[str, Any]:
                 'id': selection.get('guid', selection.get('externalId', '')),
                 'name': selection.get('displayName', 'Unknown'),
                 'qty': selection.get('quantity', 1),
-                'price_cents': int(selection.get('price', 0) * 100),
+                'price_cents': int(round(selection.get('price', 0) * 100)),
                 'work_units': selection.get('prepTimeMinutes', 1),
             })
 
