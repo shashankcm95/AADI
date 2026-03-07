@@ -4,7 +4,7 @@ import json
 import os
 from urllib.parse import urlparse
 from botocore.exceptions import ClientError
-from utils import get_user_claims, json_response, users_table, s3_client
+from utils import get_user_claims, make_response, users_table, s3_client
 from shared.logger import get_logger
 
 logger = get_logger("users")
@@ -19,7 +19,7 @@ _CONTENT_TYPE_TO_EXT = {
 }
 
 # Pattern: avatars/{user_id}-{unix_timestamp}.{ext}
-_AVATAR_KEY_RE = re.compile(r'^avatars/[^/]+-\d+\.(jpg|png|webp|gif)$')
+_AVATAR_KEY_RE = re.compile(r'^avatars/[a-zA-Z0-9_-]+-\d+\.(jpg|png|webp|gif)$')
 _DEFAULT_AVATAR_GET_URL_TTL_SECONDS = 900
 
 
@@ -109,23 +109,23 @@ def get_profile(event):
     user_id = claims.get('user_id')
 
     if not user_id:
-        return json_response(401, {'error': 'Unauthorized'}, event)
+        return make_response(401, {'error': 'Unauthorized'}, event)
 
     try:
         if not users_table:
-            return json_response(500, {'error': 'Database configuration error'}, event)
+            return make_response(500, {'error': 'Database configuration error'}, event)
 
         response = users_table.get_item(Key={'user_id': user_id})
         item = response.get('Item')
 
         if not item:
-            return json_response(404, {'error': 'Profile not found'}, event)
+            return make_response(404, {'error': 'Profile not found'}, event)
 
-        return json_response(200, _with_picture_url(item), event)
+        return make_response(200, _with_picture_url(item), event)
 
     except Exception as e:
         logger.error("Error fetching profile", extra={"user_id": user_id, "error": str(e)})
-        return json_response(500, {'error': 'Failed to fetch profile'}, event)
+        return make_response(500, {'error': 'Failed to fetch profile'}, event)
 
 
 def update_profile(event):
@@ -139,16 +139,16 @@ def update_profile(event):
     user_id = claims.get('user_id')
 
     if not user_id:
-        return json_response(401, {'error': 'Unauthorized'}, event)
+        return make_response(401, {'error': 'Unauthorized'}, event)
 
     try:
         if not event.get('body'):
-            return json_response(400, {'error': 'Missing request body'}, event)
+            return make_response(400, {'error': 'Missing request body'}, event)
 
         body = json.loads(event['body'])
 
     except Exception:
-        return json_response(400, {'error': 'Invalid JSON'}, event)
+        return make_response(400, {'error': 'Invalid JSON'}, event)
 
     # Allowed updates
     update_expression_parts = []
@@ -170,14 +170,24 @@ def update_profile(event):
         if field not in body:
             continue
 
+        if field == 'name':
+            val = body[field]
+            if not isinstance(val, str) or not val.strip() or len(val) > 255:
+                return make_response(400, {'error': 'name must be a non-empty string (max 255 chars)'}, event)
+
+        if field == 'phone_number':
+            val = body[field]
+            if not isinstance(val, str) or len(val) > 30:
+                return make_response(400, {'error': 'phone_number must be a string (max 30 chars)'}, event)
+
         if field == 'picture':
             # Validate that the key belongs to this user and matches expected format
             picture_val = body[field]
             if not isinstance(picture_val, str) or not _AVATAR_KEY_RE.match(picture_val):
-                return json_response(400, {'error': 'Invalid picture key format'}, event)
+                return make_response(400, {'error': 'Invalid picture key format'}, event)
             # Ensure the key is scoped to the authenticated user
             if not picture_val.startswith(f'avatars/{user_id}-'):
-                return json_response(400, {'error': 'picture key does not belong to this user'}, event)
+                return make_response(400, {'error': 'picture key does not belong to this user'}, event)
 
         attr_placeholder = f"#{field}"
         val_placeholder = f":{field}"
@@ -186,7 +196,7 @@ def update_profile(event):
         expression_attribute_values[val_placeholder] = body[field]
 
     if len(update_expression_parts) == 1:  # Only updated_at
-        return json_response(400, {'error': 'No valid fields to update'}, event)
+        return make_response(400, {'error': 'No valid fields to update'}, event)
 
     update_expression = "SET " + ", ".join(update_expression_parts)
 
@@ -200,17 +210,17 @@ def update_profile(event):
             ReturnValues="ALL_NEW",
         )
 
-        return json_response(200, _with_picture_url(response.get('Attributes')), event)
+        return make_response(200, _with_picture_url(response.get('Attributes')), event)
 
     except ClientError as e:
         if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-            return json_response(404, {'error': 'Profile not found'}, event)
+            return make_response(404, {'error': 'Profile not found'}, event)
         logger.error("Error updating profile", extra={"user_id": user_id, "error": str(e)})
-        return json_response(500, {'error': 'Failed to update profile'}, event)
+        return make_response(500, {'error': 'Failed to update profile'}, event)
 
     except Exception as e:
         logger.error("Error updating profile", extra={"user_id": user_id, "error": str(e)})
-        return json_response(500, {'error': 'Failed to update profile'}, event)
+        return make_response(500, {'error': 'Failed to update profile'}, event)
 
 
 def create_avatar_upload_url(event):
@@ -223,11 +233,11 @@ def create_avatar_upload_url(event):
     user_id = claims.get('user_id')
 
     if not user_id:
-        return json_response(401, {'error': 'Unauthorized'}, event)
+        return make_response(401, {'error': 'Unauthorized'}, event)
 
     bucket_name = os.environ.get('AVATARS_BUCKET_NAME')
     if not bucket_name:
-        return json_response(500, {'error': 'Storage configuration error'}, event)
+        return make_response(500, {'error': 'Storage configuration error'}, event)
 
     try:
         content_type = 'image/jpeg'
@@ -257,7 +267,7 @@ def create_avatar_upload_url(event):
             ExpiresIn=upload_expires_in,
         )
 
-        return json_response(200, {
+        return make_response(200, {
             'upload_url': upload_url,
             's3_key': s3_key,
             'expires_in': upload_expires_in,
@@ -265,4 +275,4 @@ def create_avatar_upload_url(event):
 
     except Exception as e:
         logger.error("Error generating upload URL", extra={"user_id": user_id, "error": str(e)})
-        return json_response(500, {'error': 'Failed to generate upload URL'}, event)
+        return make_response(500, {'error': 'Failed to generate upload URL'}, event)
