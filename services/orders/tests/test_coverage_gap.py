@@ -50,11 +50,7 @@ def test_router_exceptions():
     _test_exc(ValidationError("foo"), 400)
     _test_exc(Exception("Generic"), 500)
 
-def test_router_unknown_route():
-    event = {'routeKey': 'GET /v1/unknown'}
-    resp = app.lambda_handler(event, None)
-    assert resp['statusCode'] == 404
-    assert 'Route not found' in resp['body']
+# test_router_unknown_route removed — duplicate of test_app_errors.py::test_handler_routing_404
 
 # ---------------------------------------------------------------------------
 # Models Hydration Tests

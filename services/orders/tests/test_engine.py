@@ -454,3 +454,37 @@ class TestEnsureNotExpired:
         # now > expires_at, so when now == expires_at + 1
         with pytest.raises(ExpiredError):
             ensure_not_expired({"expires_at": NOW}, NOW + 1)
+
+
+# =============================================================================
+# _sanitize_customer_name (from handlers/customer.py)
+# =============================================================================
+from handlers.customer import _sanitize_customer_name
+
+
+class TestSanitizeCustomerName:
+    def test_normal_string(self):
+        assert _sanitize_customer_name("Alice Smith") == "Alice Smith"
+
+    def test_strips_whitespace(self):
+        assert _sanitize_customer_name("  Bob  ") == "Bob"
+
+    def test_collapses_internal_spaces(self):
+        assert _sanitize_customer_name("  Alice   Smith  ") == "Alice Smith"
+
+    def test_empty_string_returns_none(self):
+        assert _sanitize_customer_name("") is None
+
+    def test_whitespace_only_returns_none(self):
+        assert _sanitize_customer_name("   ") is None
+
+    def test_none_returns_none(self):
+        assert _sanitize_customer_name(None) is None
+
+    def test_non_string_returns_none(self):
+        assert _sanitize_customer_name(123) is None
+
+    def test_truncates_at_80_chars(self):
+        long_name = "A" * 100
+        result = _sanitize_customer_name(long_name)
+        assert len(result) == 80

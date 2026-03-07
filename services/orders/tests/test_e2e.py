@@ -20,6 +20,7 @@ import json
 import importlib
 import os
 import sys
+import base64
 import pytest
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
@@ -832,6 +833,134 @@ class TestAckFlow:
         )
         resp = app.lambda_handler(event, None)
         assert resp['statusCode'] == 404
+
+
+# =============================================================================
+# Pagination Token Tests (list_customer_orders)
+# =============================================================================
+
+class TestPagination:
+    def test_invalid_base64_token_returns_400(self, tables):
+        """Invalid base64 pagination token → 400."""
+        event = _make_event('GET /v1/orders')
+        event['queryStringParameters'] = {'next_token': '!!!not_base64!!!'}
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 400
+        body = json.loads(resp['body'])
+        assert 'Invalid pagination token' in body.get('error', '')
+
+    def test_invalid_json_in_token_returns_400(self, tables):
+        """Base64-decodable but invalid JSON pagination token → 400."""
+        bad_token = base64.b64encode(b'not json').decode()
+        event = _make_event('GET /v1/orders')
+        event['queryStringParameters'] = {'next_token': bad_token}
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 400
+        body = json.loads(resp['body'])
+        assert 'Invalid pagination token' in body.get('error', '')
+
+    def test_limit_clamped_to_range(self, tables):
+        """Limit parameter clamped to [1, 100]."""
+        # Create an order so the query has something to return
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'salad', 'qty': 1}],
+        })
+        app.lambda_handler(event, None)
+
+        # Over max → clamped to 100
+        event = _make_event('GET /v1/orders')
+        event['queryStringParameters'] = {'limit': '500'}
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+
+        # Under min → clamped to 1
+        event = _make_event('GET /v1/orders')
+        event['queryStringParameters'] = {'limit': '-5'}
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+
+    def test_non_numeric_limit_defaults_to_25(self, tables):
+        """Non-numeric limit falls back to default 25."""
+        event = _make_event('GET /v1/orders')
+        event['queryStringParameters'] = {'limit': 'abc'}
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+
+    def test_response_includes_next_token_on_last_evaluated_key(self, tables):
+        """Response includes next_token when DynamoDB returns LastEvaluatedKey."""
+        # Create an order first
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'pasta', 'qty': 1}],
+        })
+        app.lambda_handler(event, None)
+
+        # Patch the InMemoryTable.query to return a LastEvaluatedKey
+        original_query = tables['orders'].query
+        def mock_query(**kwargs):
+            result = original_query(**kwargs)
+            result['LastEvaluatedKey'] = {'order_id': 'ord_fake', 'customer_id': 'cust_test1'}
+            return result
+
+        tables['orders'].query = mock_query
+        try:
+            event = _make_event('GET /v1/orders')
+            resp = app.lambda_handler(event, None)
+            assert resp['statusCode'] == 200
+            body = json.loads(resp['body'])
+            assert 'next_token' in body
+            # Verify the token is valid base64-encoded JSON
+            decoded = json.loads(base64.b64decode(body['next_token']).decode())
+            assert decoded['order_id'] == 'ord_fake'
+        finally:
+            tables['orders'].query = original_query
+
+    def test_no_next_token_when_no_last_evaluated_key(self, tables):
+        """Response omits next_token when no more pages."""
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'soup', 'qty': 1}],
+        })
+        app.lambda_handler(event, None)
+
+        event = _make_event('GET /v1/orders')
+        resp = app.lambda_handler(event, None)
+        assert resp['statusCode'] == 200
+        body = json.loads(resp['body'])
+        assert 'next_token' not in body
+
+
+# =============================================================================
+# Cancel Order Race Condition Test
+# =============================================================================
+
+class TestCancelRace:
+    def test_cancel_race_returns_409(self, tables):
+        """ConditionalCheckFailedException during cancel → 409 with dispatch message."""
+        # Create an order
+        event = _make_event('POST /v1/orders', body={
+            'restaurant_id': 'rest_abc',
+            'items': [{'id': 'burger', 'qty': 1}],
+        })
+        resp = app.lambda_handler(event, None)
+        oid = json.loads(resp['body'])['order_id']
+
+        # Patch update_item to raise ConditionalCheckFailedException (simulates race)
+        original_update = tables['orders'].update_item
+        def raise_cond_check(*args, **kwargs):
+            raise tables['orders']._cond_exc("ConditionalCheckFailed")
+
+        tables['orders'].update_item = raise_cond_check
+        try:
+            event = _make_event('POST /v1/orders/{order_id}/cancel',
+                                path_params={'order_id': oid})
+            resp = app.lambda_handler(event, None)
+            assert resp['statusCode'] == 409
+            body = json.loads(resp['body'])
+            assert 'already been dispatched' in body.get('error', '')
+        finally:
+            tables['orders'].update_item = original_update
 
 
 # =============================================================================

@@ -437,3 +437,83 @@ def test_handle_webhook(mock_db):
     resp = handlers.handle_webhook(body_unk, key_record)
     assert resp['statusCode'] == 200
     assert json.loads(resp['body'])['status'] == 'acknowledged'
+
+
+# =============================================================================
+# Webhook Edge Cases
+# =============================================================================
+
+def test_handle_webhook_order_status_changed(mock_db):
+    """order.status_changed event routes to update_status."""
+    # Seed an order first
+    order_id = 'o_webhook_status'
+    mock_db['orders'].items[order_id] = {
+        'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'SENT_TO_DESTINATION'
+    }
+
+    key_record = {'restaurant_id': 'rest_1'}
+    body = {
+        'event_type': 'order.status_changed',
+        'webhook_id': 'wh_status_1',
+        'data': {
+            'order_id': order_id,
+            'status': 'PREPARING',
+        },
+    }
+    resp = handlers.handle_webhook(body, key_record)
+    assert resp['statusCode'] == 200
+    assert mock_db['orders'].items[order_id]['status'] == 'IN_PROGRESS'
+
+
+def test_handle_webhook_order_updated(mock_db):
+    """order.updated event routes to update_status."""
+    order_id = 'o_webhook_updated'
+    mock_db['orders'].items[order_id] = {
+        'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'IN_PROGRESS'
+    }
+
+    key_record = {'restaurant_id': 'rest_1'}
+    body = {
+        'event_type': 'order.updated',
+        'webhook_id': 'wh_updated_1',
+        'data': {
+            'order_id': order_id,
+            'status': 'READY',
+        },
+    }
+    resp = handlers.handle_webhook(body, key_record)
+    assert resp['statusCode'] == 200
+    assert mock_db['orders'].items[order_id]['status'] == 'READY'
+
+
+def test_handle_webhook_missing_webhook_id(mock_db):
+    """Missing webhook_id → auto-generated, still processes."""
+    key_record = {'restaurant_id': 'rest_1'}
+    body = {
+        'event_type': 'order.created',
+        # No webhook_id
+        'data': {
+            'items': [{'name': 'Salad', 'price_cents': 800, 'qty': 1}],
+            'pos_order_ref': 'ref_no_wh',
+        },
+    }
+    resp = handlers.handle_webhook(body, key_record)
+    assert resp['statusCode'] == 201  # Order still created
+
+    # Verify a webhook log entry was created with auto-generated ID
+    wh_keys = [k for k in mock_db['webhooks'].items.keys() if k.startswith('wh_')]
+    assert len(wh_keys) >= 1
+
+
+def test_handle_webhook_missing_data_field(mock_db):
+    """order.created with missing data uses body as fallback."""
+    key_record = {'restaurant_id': 'rest_1'}
+    body = {
+        'event_type': 'order.created',
+        'webhook_id': 'wh_no_data',
+        # No 'data' key — body itself is used
+        'items': [{'name': 'Coffee', 'price_cents': 400, 'qty': 1}],
+        'pos_order_ref': 'ref_fallback',
+    }
+    resp = handlers.handle_webhook(body, key_record)
+    assert resp['statusCode'] == 201

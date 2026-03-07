@@ -201,5 +201,138 @@ class TestUsers(unittest.TestCase):
         self.assertNotIn('public_url', body)
 
 
+    # ── get_profile error paths ──────────────────────────────────────────────
+
+    def test_get_profile_missing_user_id(self):
+        """Missing user_id in claims → 401."""
+        event = {
+            'requestContext': {
+                'authorizer': {'jwt': {'claims': {}}}  # No 'sub'
+            },
+            'headers': {'origin': 'http://localhost:5173'},
+        }
+        response = users.get_profile(event)
+        self.assertEqual(response['statusCode'], 401)
+
+    def test_get_profile_table_is_none(self):
+        """users_table is None → 500."""
+        original = users.users_table
+        users.users_table = None
+        try:
+            event = _make_event()
+            response = users.get_profile(event)
+            self.assertEqual(response['statusCode'], 500)
+            self.assertIn('Database', json.loads(response['body']).get('error', ''))
+        finally:
+            users.users_table = original
+
+    def test_get_profile_dynamodb_exception(self):
+        """DynamoDB exception on get_item → 500."""
+        self.mock_table.get_item.side_effect = Exception("DDB timeout")
+        event = _make_event()
+        response = users.get_profile(event)
+        self.assertEqual(response['statusCode'], 500)
+
+    # ── update_profile error paths ─────────────────────────────────────────
+
+    def test_update_profile_missing_user_id(self):
+        """Missing user_id → 401."""
+        event = {
+            'requestContext': {
+                'authorizer': {'jwt': {'claims': {}}}
+            },
+            'headers': {'origin': 'http://localhost:5173'},
+            'body': json.dumps({'name': 'Test'}),
+        }
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 401)
+
+    def test_update_profile_no_body(self):
+        """Missing body → 400."""
+        event = _make_event()
+        event['body'] = None
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+        self.assertIn('Missing', json.loads(response['body']).get('error', ''))
+
+    def test_update_profile_invalid_json(self):
+        """Invalid JSON → 400."""
+        event = _make_event()
+        event['body'] = '{invalid_json'
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+        self.assertIn('Invalid JSON', json.loads(response['body']).get('error', ''))
+
+    def test_update_profile_name_not_string(self):
+        """name as non-string → 400."""
+        event = _make_event({'name': 12345})
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+        self.assertIn('name', json.loads(response['body']).get('error', '').lower())
+
+    def test_update_profile_name_empty(self):
+        """Empty name → 400."""
+        event = _make_event({'name': '   '})
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+
+    def test_update_profile_name_too_long(self):
+        """Name > 255 chars → 400."""
+        event = _make_event({'name': 'A' * 256})
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+
+    def test_update_profile_phone_too_long(self):
+        """phone_number > 30 chars → 400."""
+        event = _make_event({'phone_number': '1' * 31})
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+
+    def test_update_profile_no_valid_fields(self):
+        """Only invalid fields → 400."""
+        event = _make_event({'role': 'admin', 'email': 'hack@evil.com'})
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 400)
+        self.assertIn('No valid fields', json.loads(response['body']).get('error', ''))
+
+    def test_update_profile_dynamodb_exception(self):
+        """General DynamoDB exception → 500."""
+        event = _make_event({'name': 'Valid Name'})
+        self.mock_table.update_item.side_effect = Exception("DDB timeout")
+        response = users.update_profile(event)
+        self.assertEqual(response['statusCode'], 500)
+
+    # ── create_avatar_upload_url error paths ───────────────────────────────
+
+    def test_create_avatar_upload_url_missing_user_id(self):
+        """Missing user_id → 401."""
+        event = {
+            'requestContext': {
+                'authorizer': {'jwt': {'claims': {}}}
+            },
+            'headers': {'origin': 'http://localhost:5173'},
+        }
+        response = users.create_avatar_upload_url(event)
+        self.assertEqual(response['statusCode'], 401)
+
+    def test_create_avatar_upload_url_no_bucket(self):
+        """AVATARS_BUCKET_NAME not set → 500."""
+        event = _make_event({'content_type': 'image/jpeg'})
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove AVATARS_BUCKET_NAME from env
+            os.environ.pop('AVATARS_BUCKET_NAME', None)
+            response = users.create_avatar_upload_url(event)
+        self.assertEqual(response['statusCode'], 500)
+        self.assertIn('Storage', json.loads(response['body']).get('error', ''))
+
+    def test_create_avatar_upload_url_s3_exception(self):
+        """S3 presigned URL exception → 500."""
+        event = _make_event({'content_type': 'image/jpeg'})
+        self.mock_s3.generate_presigned_url.side_effect = Exception("S3 error")
+        with patch.dict(os.environ, {'AVATARS_BUCKET_NAME': 'test-bucket'}, clear=False):
+            response = users.create_avatar_upload_url(event)
+        self.assertEqual(response['statusCode'], 500)
+
+
 if __name__ == '__main__':
     unittest.main()
