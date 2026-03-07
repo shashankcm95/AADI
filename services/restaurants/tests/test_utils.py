@@ -1,7 +1,6 @@
 import pytest
 import json
 from unittest.mock import MagicMock, call
-import sys
 
 # conftest.py adds src/ to path
 import utils

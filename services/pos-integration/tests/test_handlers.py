@@ -1,7 +1,5 @@
 
 import json
-import pytest
-from unittest.mock import MagicMock
 import handlers
 
 # Reuse mock_auth fixture logic manually or use fixture injection

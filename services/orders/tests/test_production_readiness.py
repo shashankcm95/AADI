@@ -17,8 +17,6 @@ for _loaded in list(sys.modules):
 
 import app
 import db
-import models
-from errors import ExpiredError, InvalidStateError
 
 # Mock tables
 @pytest.fixture
