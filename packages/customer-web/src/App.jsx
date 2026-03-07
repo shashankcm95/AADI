@@ -129,18 +129,25 @@ function MainAppContent({ user, signOut }) {
     const activeOrders = myOrdersRef.current.filter(o =>
       !['COMPLETED', 'CANCELED', 'EXPIRED'].includes(o.status)
     )
-    for (const order of activeOrders) {
-      try {
-        const data = await api.getOrderStatus(order.order_id)
-        setMyOrders(prev => prev.map(o =>
-          o.order_id === order.order_id
-            ? { ...o, status: data.status, arrival_status: data.arrival_status }
-            : o
-        ))
-      } catch (_err) {
-        // Silently continue
-      }
-    }
+    if (activeOrders.length === 0) return
+
+    const results = await Promise.allSettled(
+      activeOrders.map(order => api.getOrderStatus(order.order_id))
+    )
+    setMyOrders(prev => {
+      let updated = prev
+      activeOrders.forEach((order, i) => {
+        if (results[i].status === 'fulfilled') {
+          const data = results[i].value
+          updated = updated.map(o =>
+            o.order_id === order.order_id
+              ? { ...o, status: data.status, arrival_status: data.arrival_status }
+              : o
+          )
+        }
+      })
+      return updated
+    })
   }, [])
 
 
@@ -157,6 +164,11 @@ function MainAppContent({ user, signOut }) {
   useEffect(() => {
     if (!loading && selectedRestaurant) {
       fetchMenu(selectedRestaurant)
+    } else if (!loading && !selectedRestaurant) {
+      // Clear cart and menu when no restaurant is selected to prevent
+      // stale items from a previous restaurant remaining visible.
+      setCart([])
+      setMenu(null)
     }
   }, [loading, selectedRestaurant, fetchMenu])
 
@@ -171,16 +183,17 @@ function MainAppContent({ user, signOut }) {
   /* ── Cart helpers ─────────────────────────────────────────────── */
 
   function addToCart(item) {
-    const existing = cart.find(c => c.id === item.id)
-    if (existing) {
-      setCart(cart.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c))
-    } else {
-      setCart([...cart, { ...item, qty: 1 }])
-    }
+    setCart(prev => {
+      const existing = prev.find(c => c.id === item.id)
+      if (existing) {
+        return prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c)
+      }
+      return [...prev, { ...item, qty: 1 }]
+    })
   }
 
   function removeFromCart(itemId) {
-    setCart(cart.filter(c => c.id !== itemId))
+    setCart(prev => prev.filter(c => c.id !== itemId))
   }
 
 

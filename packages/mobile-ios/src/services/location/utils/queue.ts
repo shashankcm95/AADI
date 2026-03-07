@@ -46,6 +46,7 @@ export class SerialEventQueue {
     private processing = false;
     private sender: ((event: string, orderId: string, metadata?: any) => Promise<void>) | null = null;
     private maxRetries = 3;
+    private cleared = false;
 
     setSender(fn: (event: string, orderId: string, metadata?: any) => Promise<void>) {
         this.sender = fn;
@@ -60,14 +61,18 @@ export class SerialEventQueue {
     private async drain() {
         if (this.processing || !this.sender) return;
         this.processing = true;
+        this.cleared = false;
 
-        while (this.queue.length > 0) {
+        while (this.queue.length > 0 && !this.cleared) {
             const event = this.queue[0];
             try {
+                if (!this.sender) break;
                 await this.sender(event.eventName, event.orderId, event.metadata);
+                if (this.cleared) break;
                 this.queue.shift(); // Success: remove from queue
                 console.log(`[EventQueue] Sent: ${event.eventName} (remaining: ${this.queue.length})`);
             } catch (err) {
+                if (this.cleared) break;
                 event.retries++;
                 if (event.retries >= this.maxRetries) {
                     console.error(`[EventQueue] DROPPED ${event.eventName} after ${this.maxRetries} retries:`, err);
@@ -81,10 +86,14 @@ export class SerialEventQueue {
             }
         }
 
-        this.processing = false;
+        // Only reset processing if we weren't cleared by an external call
+        if (!this.cleared) {
+            this.processing = false;
+        }
     }
 
     clear() {
+        this.cleared = true;
         this.queue = [];
         this.processing = false;
         this.sender = null;

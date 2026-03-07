@@ -143,8 +143,17 @@ export default function ProfileScreen({ navigation }: Props) {
 
             // 3. Update Profile with the canonical storage key.
             const updated = await updateUserProfile({ picture: s3_key });
+            // Normalize picture the same way fetchProfile/handleSave do, so
+            // the avatar doesn't disappear when the API returns a raw S3 key.
+            const mergedPicture =
+                normalizeAvatarUri(updated.picture_url) ||
+                normalizeAvatarUri(updated.picture) ||
+                normalizeAvatarUri(profile?.picture);
             setAvatarLoadFailed(false);
-            setProfile(updated);
+            setProfile({
+                ...updated,
+                picture: mergedPicture || undefined,
+            });
 
             Alert.alert('Success', 'Profile picture updated');
 

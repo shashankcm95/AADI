@@ -58,13 +58,18 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
         );
     }
 
-    if (favoriteRestaurants.length === 0) {
+    if (favorites.length === 0) {
         return (
             <div className="empty-state">
                 <h3>No Favorites Yet</h3>
                 <p>Mark restaurants as favorites to see them here.</p>
             </div>
         );
+    }
+
+    if (favoriteRestaurants.length === 0) {
+        // Favorites exist but restaurant data hasn't loaded yet
+        return <div className="p-4">Loading favorites...</div>;
     }
 
     return (
@@ -83,7 +88,12 @@ export default function Favorites({ restaurants, onSelectRestaurant }) {
                         className="restaurant-card"
                         onClick={() => onSelectRestaurant(restaurant.restaurant_id)}
                     >
-                        <div className="card-image" style={{ backgroundImage: `url(${isSafeUrl(restaurant.image_url) ? restaurant.image_url : '/logo_icon_stylized.png'})` }}>
+                        <div className="card-image">
+                            <img
+                                src={isSafeUrl(restaurant.image_url) ? restaurant.image_url : '/logo_icon_stylized.png'}
+                                alt={restaurant.name || 'Restaurant'}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
                             <span className="card-emoji">{restaurant.emoji}</span>
                         </div>
                         <div className="card-content">

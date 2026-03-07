@@ -8,6 +8,7 @@ export default function Profile({ user, signOut }) {
     const [error, setError] = useState(null);
     const [editing, setEditing] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [statusMessage, setStatusMessage] = useState(null);
 
     const [editName, setEditName] = useState('');
@@ -34,7 +35,8 @@ export default function Profile({ user, signOut }) {
     };
 
     const handleSave = async () => {
-        setLoading(true);
+        if (saving) return;
+        setSaving(true);
         try {
             const updated = await updateUserProfile({
                 name: editName,
@@ -42,11 +44,12 @@ export default function Profile({ user, signOut }) {
             });
             setProfile(updated);
             setEditing(false);
+            setStatusMessage({ type: 'success', text: 'Profile updated!' });
         } catch (err) {
             setStatusMessage({ type: 'error', text: 'Failed to update profile' });
             console.error('Failed to update profile', err);
         } finally {
-            setLoading(false);
+            setSaving(false);
         }
     };
 
@@ -163,7 +166,7 @@ export default function Profile({ user, signOut }) {
                                     setEditName(profile?.name || '');
                                     setEditPhone(profile?.phone_number || '');
                                 }}>Cancel</button>
-                                <button className="btn btn-primary" onClick={handleSave}>Save</button>
+                                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
                             </div>
                         </div>
                     )}
