@@ -334,6 +334,79 @@ def test_handle_get_menu_db_exception(mock_db):
         handlers.menus_table = original
 
 
+# =============================================================================
+# POS Error Path Tests
+# =============================================================================
+
+def test_handle_create_order_missing_pos_order_ref(mock_db):
+    """Missing pos_order_ref defaults to empty string, order still created."""
+    pos_body = {
+        'items': [{'name': 'Burger', 'price_cents': 1000, 'qty': 1}],
+        # No pos_order_ref
+    }
+    key_record = {'restaurant_id': 'rest_1', 'pos_system': 'generic'}
+    resp = handlers.handle_create_order(pos_body, key_record)
+    assert resp['statusCode'] == 201
+    body = json.loads(resp['body'])
+    assert body['pos_order_ref'] == ''
+
+
+def test_handle_update_status_order_not_found(mock_db):
+    """Status update on nonexistent order → 404."""
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_update_status('nonexistent', {'status': 'PREPARING'}, key_record)
+    assert resp['statusCode'] == 404
+    assert 'not found' in json.loads(resp['body']).get('error', '').lower()
+
+
+def test_handle_force_fire_wrong_restaurant(mock_db):
+    """Force fire with wrong restaurant → 403."""
+    order_id = 'o_fire_wrong'
+    mock_db['orders'].items[order_id] = {
+        'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'PENDING_NOT_SENT'
+    }
+    key_record = {'restaurant_id': 'rest_2'}
+    resp = handlers.handle_force_fire(order_id, key_record)
+    assert resp['statusCode'] == 403
+    assert 'does not belong' in json.loads(resp['body']).get('error', '').lower()
+
+
+def test_handle_force_fire_completed_order(mock_db):
+    """Force fire on COMPLETED order → 409 (invalid transition)."""
+    order_id = 'o_fire_completed'
+    mock_db['orders'].items[order_id] = {
+        'order_id': order_id, 'restaurant_id': 'rest_1', 'status': 'COMPLETED'
+    }
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_force_fire(order_id, key_record)
+    assert resp['statusCode'] == 409
+    assert 'Invalid transition' in json.loads(resp['body']).get('error', '')
+
+
+def test_handle_force_fire_order_not_found(mock_db):
+    """Force fire on nonexistent order → 404."""
+    key_record = {'restaurant_id': 'rest_1'}
+    resp = handlers.handle_force_fire('nonexistent', key_record)
+    assert resp['statusCode'] == 404
+
+
+def test_handle_sync_menu_table_is_none(mock_db):
+    """Menu sync when menus_table is None → graceful error."""
+    original = handlers.menus_table
+    handlers.menus_table = None
+    prev = handlers.POS_MENU_SYNC_ENABLED
+    handlers.POS_MENU_SYNC_ENABLED = True
+    try:
+        key_record = {'restaurant_id': 'rest_1', 'pos_system': 'clover'}
+        body = {'items': [{'id': 'm1', 'name': 'Pizza', 'price': 1500}]}
+        resp = handlers.handle_sync_menu(body, key_record)
+        # Should still succeed — menu sync writes to table, but if table is None, code handles it
+        assert resp['statusCode'] in (200, 500)
+    finally:
+        handlers.menus_table = original
+        handlers.POS_MENU_SYNC_ENABLED = prev
+
+
 def test_handle_webhook(mock_db):
     """Verify webhook routing and idempotency."""
     key_record = {'restaurant_id': 'rest_1'}

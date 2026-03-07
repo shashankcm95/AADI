@@ -675,6 +675,66 @@ def test_admin_can_reactivate_restaurant(mock_tables):
     assert item.get('active') is True
 
 
+def test_create_restaurant_happy_path(mock_tables, monkeypatch):
+    """Create restaurant with valid body → 201 with restaurant_id."""
+    import handlers.restaurants as h_rest
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(h_rest, 'geocode_address', lambda *_: {'lat': 30.0, 'lon': -97.0})
+    monkeypatch.setattr(h_rest, 'upsert_restaurant_geofences', MagicMock(return_value=True))
+    monkeypatch.setattr(h_rest, 'USER_POOL_ID', '')  # No Cognito in test
+
+    event = _admin_event(
+        'POST /v1/restaurants',
+        body={
+            'name': 'Test Burger Joint',
+            'street': '123 Main St',
+            'city': 'Austin',
+            'state': 'TX',
+            'zip': '78701',
+            'cuisine': 'American',
+            'price_tier': 2,
+        },
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 201
+    body = json.loads(response['body'])
+    assert 'restaurant_id' in body
+    assert body['user_status'] in ('CREATED', 'LINKED')
+
+    # Verify restaurant in DB
+    rid = body['restaurant_id']
+    item = mock_tables['restaurants'].items[rid]
+    assert item['name'] == 'Test Burger Joint'
+    assert item['cuisine'] == 'American'
+    assert item['location'] == {'lat': 30.0, 'lon': -97.0}
+
+    # Verify config also created
+    config = mock_tables['config'].items.get(rid)
+    assert config is not None
+    assert config['max_concurrent_orders'] == 10
+
+
+def test_create_restaurant_missing_name_returns_400(mock_tables, monkeypatch):
+    """Create restaurant without name → 400."""
+    event = _admin_event('POST /v1/restaurants', body={'street': '123 Main'})
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 400
+    body = json.loads(response['body'])
+    assert 'name' in body.get('error', '').lower()
+
+
+def test_create_restaurant_non_admin_denied(mock_tables):
+    """Non-admin role cannot create restaurants."""
+    event = _restaurant_admin_event(
+        'POST /v1/restaurants',
+        assigned_restaurant_id='r1',
+        body={'name': 'Hacker Restaurant'},
+    )
+    response = restaurants_app.lambda_handler(event, None)
+    assert response['statusCode'] == 403
+
+
 def test_create_restaurant_rejects_malformed_email(mock_tables, monkeypatch):
     """BL-006: Invalid email format in contact_email returns 400."""
     import handlers.restaurants as h_rest
