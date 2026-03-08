@@ -26,13 +26,13 @@ This glossary defines every domain term, status value, abbreviation, and technic
 
 **CloudFront** -- The AWS CDN used to host the customer-web and admin-portal frontend applications. CloudFront serves static assets from S3 and routes all SPA paths to index.html.
 
-**COMPLETED** -- The terminal success status for an order. The customer has received their food and the order is closed. In SOFT receipt mode, this can happen automatically on EXIT_VICINITY.
+**COMPLETED** -- The terminal success status for an order. The customer has been served their food at the table and the order is closed. In SOFT receipt mode, this can happen automatically on EXIT_VICINITY.
 
 **Correlation ID** -- A unique identifier for each API request, extracted from the API Gateway's `requestContext.requestId`. Used for distributed tracing across log entries.
 
 **CORS** -- Cross-Origin Resource Sharing. The platform dynamically matches the request's Origin header against a whitelist of allowed origins and returns the appropriate headers. Managed centrally in `services/shared/python/shared/cors.py`.
 
-**Customer** -- The default user role for people ordering food. Customers can browse restaurants, place orders, track arrivals, and manage favorites. The role is stored as `custom:role = customer` in the Cognito JWT.
+**Customer** -- The default user role for dine-in guests. Customers can browse restaurants, place dine-in orders from their table, track order status, and manage favorites. The role is stored as `custom:role = customer` in the Cognito JWT.
 
 **Cutover** -- The transition from shadow mode to live mode for geofence-based dispatching. Controlled by the `LocationGeofenceCutoverEnabled` parameter. When enabled, geofence ENTER events trigger real order status transitions.
 
@@ -48,7 +48,7 @@ This glossary defines every domain term, status value, abbreviation, and technic
 
 **EXIT_VICINITY** -- An arrival event indicating the customer has left the restaurant area. If the order is in FULFILLING status with SOFT receipt mode, this triggers auto-completion.
 
-**FULFILLING** -- An active order status indicating the customer is being served or picking up their order. This is the last status before COMPLETED.
+**FULFILLING** -- An active order status indicating the food is being served to the customer's table. This is the last status before COMPLETED.
 
 **Geofence** -- A virtual geographic boundary defined in Amazon Location Service. Each restaurant has three concentric geofence zones (vicinity, nearby, arrive) that map to arrival events.
 
@@ -96,7 +96,7 @@ This glossary defines every domain term, status value, abbreviation, and technic
 
 **POS** -- Point of Sale. An external system used by restaurants to manage transactions. The POS Integration service bridges these systems with Arrive.
 
-**READY** -- An active order status indicating the food is prepared and waiting for the customer. Set by the restaurant via the status update endpoint.
+**READY** -- An active order status indicating the food is prepared and ready to be served to the customer's table. Set by the restaurant via the status update endpoint.
 
 **Receipt Mode** -- Controls how an order reaches COMPLETED. SOFT allows auto-completion; HARD requires manual completion. See SOFT and HARD.
 

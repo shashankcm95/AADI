@@ -21,7 +21,7 @@ SENT_TO_DESTINATION
        v
      READY
        |
-       | (customer is being served / picking up)
+       | (food is being served to the table)
        v
    FULFILLING
        |
@@ -101,9 +101,9 @@ Here is the complete state diagram:
 
 **IN_PROGRESS** means the restaurant has started preparing the order. This transition is initiated by the restaurant through the status update endpoint.
 
-**READY** means the food is prepared and waiting for the customer. The restaurant sets this status when the order is ready for pickup or serving.
+**READY** means the food is prepared and ready to be served. The restaurant sets this status when the order is ready to be brought to the customer's table.
 
-**FULFILLING** means the customer is being served or is picking up the order. This is the last active status before completion.
+**FULFILLING** means the food is being served to the customer's table. This is the last active status before completion.
 
 **COMPLETED** is the terminal success state. The order has been fully served. In SOFT receipt mode, this can happen automatically when the customer exits the vicinity. In HARD mode, the restaurant must explicitly complete the order.
 
@@ -215,11 +215,11 @@ Three geofence zones per restaurant correspond to arrival events:
 
 Receipt modes control how an order is completed.
 
-**SOFT** (default) means the order can be auto-completed. When the customer exits the vicinity (EXIT_VICINITY event) while the order is in FULFILLING status, the system automatically transitions it to COMPLETED. This is the hands-free experience: the customer walks away, and the order closes itself.
+**SOFT** (default) means the order can be auto-completed. When the customer exits the vicinity (EXIT_VICINITY event) while the order is in FULFILLING status, the system automatically transitions it to COMPLETED. This is the hands-free experience: the customer finishes their meal and leaves, and the order closes itself.
 
 **HARD** means the order requires explicit completion. The restaurant must manually advance the order to COMPLETED. SOFT-to-HARD upgrade happens when the restaurant acknowledges the order via the `ack` endpoint. Once an order is in HARD mode, EXIT_VICINITY events do not trigger auto-completion.
 
-The default is SOFT because Arrive's core value proposition is frictionless, GPS-driven order management. HARD mode exists for restaurants that need explicit confirmation of handoff, such as those with complex payment flows at the counter.
+The default is SOFT because Arrive's core value proposition is frictionless, GPS-driven order management. HARD mode exists for restaurants that need explicit confirmation that the food has been served, such as those with complex table service flows.
 
 ## Idempotency
 

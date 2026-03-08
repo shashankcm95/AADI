@@ -96,7 +96,7 @@ The geofence system creates three concentric zones around each restaurant, corre
 
 ### Why Three Zones
 
-Three zones provide progressive arrival granularity. ZONE_1 (1500m) gives the restaurant roughly 5 minutes of advance notice. ZONE_2 (150m) indicates the customer is in the immediate vicinity, likely looking for parking. ZONE_3 (30m) means the customer is at the entrance. Each zone triggers a different arrival event in the orders service, allowing the restaurant to adjust preparation timing.
+Three zones provide progressive arrival granularity. ZONE_1 (1500m) gives the restaurant roughly 5 minutes of advance notice. ZONE_2 (150m) indicates the customer is in the immediate vicinity of the restaurant. ZONE_3 (30m) means the customer is at the entrance. Each zone triggers a different arrival event in the orders service, allowing the restaurant to adjust preparation timing.
 
 ### Polygon Construction
 

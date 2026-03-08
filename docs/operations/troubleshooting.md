@@ -161,7 +161,7 @@ If capacity appears stuck (showing full even when no orders are active), the `Ex
 
 ### Background Location Permissions on iOS
 
-The Arrive mobile app uses background location services for arrival detection. On iOS, the user must grant "Always Allow" location permission for geofence monitoring to work when the app is in the background. If the user selects "While Using the App" or "Never," geofence events will not fire.
+The Arrive mobile app uses location services to confirm the customer's presence at the restaurant. On iOS, the user must grant "Always Allow" location permission for geofence monitoring to work when the app is in the background. If the user selects "While Using the App" or "Never," geofence events will not fire.
 
 To diagnose, check the app's location permission status in iOS Settings. If the permission has been denied, the user must manually re-enable it. The app should prompt for permission with a clear explanation, but iOS limits the number of times an app can re-request permission after a denial.
 

@@ -2,7 +2,7 @@
 
 ## Current State: What Is Built Today
 
-The Arrive platform is a fully functional restaurant ordering and fulfillment system with location-aware dispatch. As of this writing, the platform has completed a comprehensive development phase that includes all core services, all frontends, a full test suite, and a rigorous security hardening process.
+The Arrive platform is a fully functional dine-in restaurant ordering system with location-aware dispatch. As of this writing, the platform has completed a comprehensive development phase that includes all core services, all frontends, a full test suite, and a rigorous security hardening process.
 
 ### Backend Services
 
@@ -10,7 +10,7 @@ Four backend services are implemented, tested, and deployable via AWS SAM and Cl
 
 ### Frontend Applications
 
-Three frontends are functional and communicating with the backend APIs. The Customer Web Application (React/Vite) supports restaurant browsing, menu viewing, cart management, order placement, order tracking, and profile management. The Admin Portal (React/TypeScript/Vite) provides a Kanban-style order management board with real-time polling, audio notifications for new orders, auto-promotion of stale incoming orders, menu ingestion, capacity configuration, image management, and POS settings. The Mobile iOS Application (React Native/Expo) delivers the customer experience with the addition of GPS-based location tracking that powers the dispatch engine.
+Three frontends are functional and communicating with the backend APIs. The Customer Web Application (React/Vite) supports restaurant browsing, menu viewing, cart management, dine-in order placement, order tracking, and profile management. The Admin Portal (React/TypeScript/Vite) provides a Kanban-style order management board with real-time polling, audio notifications for new orders, auto-promotion of stale incoming orders, menu ingestion, capacity configuration, image management, and POS settings. The Mobile iOS Application (React Native/Expo) delivers the customer experience with the addition of GPS-based location tracking that powers the dispatch engine.
 
 ### Quality and Security
 
@@ -73,9 +73,9 @@ The current architecture assumes each restaurant is an independent entity with i
 
 Arrive currently operates on a PAY_AT_RESTAURANT model, where the platform calculates the order total and an Arrive platform fee (2% split between restaurant and customer) but does not collect payment. The long-term plan is to integrate with a payment processor (such as Stripe Connect) to enable in-app payment, split the platform fee at checkout, support tipping, and handle refunds for canceled orders. This is a significant architectural addition that involves PCI compliance considerations, payment state management, and integration with the order lifecycle state machine.
 
-### Driver and Delivery Coordination
+### Takeout and Delivery Expansion
 
-The current platform focuses exclusively on customer pickup. The long-term vision extends to delivery by introducing a driver coordination layer. This would include driver assignment and dispatch (leveraging the same location-aware engine that tracks customer arrivals), real-time delivery tracking visible to the customer, driver-facing mobile interface for accepting and completing deliveries, and route optimization for multi-stop deliveries.
+The current platform focuses exclusively on dine-in table service. A future expansion could explore takeout ordering and delivery coordination by introducing a driver management layer, but this is not part of the current product vision. The existing dispatch engine and capacity system could be adapted to coordinate delivery timing, but significant new capabilities (driver assignment, route optimization, delivery tracking) would need to be built.
 
 ### Analytics Dashboard
 

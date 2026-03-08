@@ -1,11 +1,11 @@
 # Capacity Model
 
-The capacity model controls how many customer orders a restaurant can handle concurrently. It prevents a restaurant from being overwhelmed by a sudden surge of arrivals, ensures customers receive timely service, and provides advisory information to help customers decide when to leave for the restaurant.
+The capacity model controls how many customer orders a restaurant can handle concurrently. It prevents a restaurant from being overwhelmed by a sudden surge of dine-in orders, ensures customers receive timely table service, and provides advisory information about current kitchen capacity.
 
 
 ## Problem Statement
 
-Without capacity management, a restaurant that normally handles 8 orders at a time could receive 30 arrival signals in the same 5-minute window during a lunch rush. The kitchen would be overwhelmed, wait times would spike, and customer satisfaction would collapse. The capacity model solves this by gating dispatch: orders are only "sent" to the restaurant when a capacity slot is available.
+Without capacity management, a restaurant that normally handles 8 orders at a time could receive 30 dine-in orders in the same 5-minute window during a lunch rush. The kitchen would be overwhelmed, wait times would spike, and customer satisfaction would collapse. The capacity model solves this by gating dispatch: orders are only "sent" to the restaurant when a capacity slot is available.
 
 
 ## Fixed Time Windows
