@@ -15,7 +15,7 @@ from models import (
     PAYMENT_MODE_AT_RESTAURANT
 )
 
-from errors import ExpiredError, InvalidStateError, NotFoundError
+from errors import ExpiredError, InvalidStateError, NotFoundError, ValidationError
 
 # Module-level state machine: maps current status → allowed next statuses
 ALLOWED_TRANSITIONS = {
@@ -263,8 +263,6 @@ def decide_arrival_update(
 # =============================================================================
 # Validation Helpers
 # =============================================================================
-
-from errors import ValidationError
 
 
 MAX_ITEM_QTY = 99

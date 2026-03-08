@@ -9,9 +9,9 @@ from decimal import Decimal
 
 import boto3
 
-from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
+from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS  # noqa: F401 — re-exported
 from shared.auth import get_user_claims
-from shared.serialization import decimal_default, make_response
+from shared.serialization import decimal_default, make_response  # noqa: F401 — re-exported
 from shared.logger import get_logger
 
 log = get_logger("restaurants.utils", service="restaurants")

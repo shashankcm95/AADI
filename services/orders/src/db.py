@@ -8,9 +8,9 @@ import json
 import boto3
 from typing import Dict, Any
 
-from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS
-from shared.serialization import decimal_default
-from shared.auth import (
+from shared.cors import get_cors_origin, cors_headers, CORS_HEADERS  # noqa: F401 — re-exported
+from shared.serialization import decimal_default  # noqa: F401 — re-exported
+from shared.auth import (  # noqa: F401 — re-exported
     get_raw_claims as get_auth_claims,
     get_user_role,
     get_customer_id,

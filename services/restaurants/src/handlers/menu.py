@@ -74,7 +74,7 @@ def update_menu(event, restaurant_id):
                 item['price_cents'] = int(
                     (price * 100).to_integral_value(rounding=ROUND_HALF_UP)
                 )
-            except Exception as e:
+            except Exception:
                 invalid_items.append({'index': idx, 'item': item.get('name'), 'reason': f'invalid price: {item.get("price")}'})
                 continue
 

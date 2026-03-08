@@ -1,8 +1,8 @@
 import os
 import boto3
 
-from shared.auth import get_user_claims
-from shared.serialization import make_response
+from shared.auth import get_user_claims  # noqa: F401 — re-exported
+from shared.serialization import make_response  # noqa: F401 — re-exported
 
 # Initialize AWS resources
 dynamodb = boto3.resource('dynamodb')

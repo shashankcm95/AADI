@@ -9,7 +9,7 @@ from boto3.dynamodb.conditions import Key
 
 from shared.logger import get_logger
 from utils import (
-    CORS_HEADERS, decimal_default, get_user_claims, make_response,
+    CORS_HEADERS, decimal_default, get_user_claims, make_response,  # noqa: F401
     restaurants_table, config_table, cognito, USER_POOL_ID,
     geocode_address, _normalize_restaurant_image_keys, _decorate_restaurant_response,
     upsert_restaurant_geofences, delete_restaurant_geofences,
