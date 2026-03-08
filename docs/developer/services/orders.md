@@ -139,7 +139,7 @@ The location bridge includes two defensive coercion functions. `coerce_finite_fl
 
 ### Same-Location Bootstrap
 
-The most common dine-in scenario is when a customer creates an order while already seated inside the restaurant. In this case the geofence ENTER event will never fire because the customer never crossed the boundary from outside. The `_maybe_bootstrap_same_location_arrival()` function handles this core use case by computing the haversine distance between the customer's GPS position and the restaurant's coordinates. If the distance is within a configurable radius (default 35 meters), it synthesizes an AT_DOOR event to dispatch the order immediately. This bootstrap is essential for the dine-in ordering flow -- without it, orders placed at the table would remain stuck in PENDING until they expire.
+A subtle edge case occurs when a customer creates an order while already inside the restaurant (for example, they walked in before placing their order). The geofence ENTER event will never fire because the customer never crossed the boundary. The `_maybe_bootstrap_same_location_arrival()` function addresses this by computing the haversine distance between the customer's GPS position and the restaurant's coordinates. If the distance is within a configurable radius (default 35 meters), it synthesizes an AT_DOOR event to dispatch the order immediately. Without this bootstrap, orders placed on-site would remain stuck in PENDING until they expire.
 
 ### Vicinity Event Suppression
 

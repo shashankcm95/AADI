@@ -4,7 +4,7 @@ Welcome to the Arrive documentation. This is the single source of truth for unde
 
 ## What Is Arrive?
 
-Arrive is a dine-in restaurant ordering platform that enables customers to order directly from their table using a web or mobile app. The platform uses real-time location tracking to confirm the customer is at the restaurant and coordinates kitchen capacity so food is prepared fresh and served to the table.
+Arrive is a restaurant ordering platform that coordinates food preparation with customer arrival. Customers place orders ahead of time through a web or mobile app, and the platform uses real-time location tracking to dispatch the order to the kitchen as the customer approaches -- so food is freshly prepared and served to the table the moment they walk in and sit down.
 
 The platform consists of four backend services (Orders, Restaurants, Users, POS Integration), two web frontends (Customer Web, Admin Portal), and a React Native iOS mobile app, all deployed on AWS using SAM/CloudFormation.
 
@@ -23,7 +23,7 @@ The platform consists of four backend services (Orders, Restaurants, Users, POS 
 
 | Document | Description |
 |----------|-------------|
-| [Customer Guide](./guides/customer-guide.md) | How customers browse, order from their table, and track their dine-in order |
+| [Customer Guide](./guides/customer-guide.md) | How customers browse, order ahead, track their approach, and get served at the table |
 | [Restaurant Onboarding](./guides/restaurant-onboarding.md) | What restaurant partners need to know to get started on Arrive |
 | [Admin Portal Guide](./guides/admin-portal-guide.md) | Day-to-day restaurant management — menus, orders, capacity, POS settings |
 

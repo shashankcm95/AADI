@@ -1,6 +1,6 @@
 # Architecture
 
-Arrive is a GPS-powered dine-in ordering and just-in-time kitchen orchestration platform. Its architecture is serverless, event-driven, and designed for independent service deployment. This document explains how the system is structured, why it is structured that way, and how a request flows from the client to the database and back.
+Arrive is a GPS-powered just-in-time kitchen orchestration platform for dine-in service. Its architecture is serverless, event-driven, and designed for independent service deployment. This document explains how the system is structured, why it is structured that way, and how a request flows from the client to the database and back.
 
 ## System Overview
 

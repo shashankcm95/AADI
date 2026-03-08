@@ -44,11 +44,11 @@ Orders in this lane are being actively prepared by the kitchen. To move an order
 
 ### Ready Lane
 
-When the food is done, move the order to Ready. This signals that preparation is complete and the order is ready to be served to the customer's table.
+When the food is done, move the order to Ready. This signals that preparation is complete and the order is waiting for the customer to arrive and be served.
 
 ### Fulfilling Lane
 
-When you are serving the food to the customer's table, move it to Fulfilling. This status represents the table service moment -- the food is being delivered to the customer.
+When the customer has arrived and you are serving their food to the table, move it to Fulfilling. This status represents the handoff moment -- the customer is seated and receiving their meal.
 
 ### Completed Lane
 
@@ -209,7 +209,7 @@ When a new order arrives, you will hear an audio tone and see the page flash bri
 
 ### Completing an Order
 
-As the kitchen finishes each order, advance it through the statuses: In Progress to Ready when the food is done, Ready to Fulfilling when you serve the food to the customer's table, and Fulfilling to Completed when the handoff is finished. Alternatively, use the Complete button to jump through all remaining steps at once.
+As the kitchen finishes each order, advance it through the statuses: In Progress to Ready when the food is done, Ready to Fulfilling when the customer has arrived and you are serving them, and Fulfilling to Completed when the handoff is finished. Alternatively, use the Complete button to jump through all remaining steps at once.
 
 If the customer's mobile app detects that they have left the vicinity after their order was marked as Fulfilling, the platform automatically marks the order as Completed. This means you may not need to manually complete every order -- many will close themselves.
 

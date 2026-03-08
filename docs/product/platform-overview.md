@@ -1,25 +1,25 @@
 # Arrive Platform Overview
 
-## The Problem: Dine-In Ordering Is Broken
+## The Problem: Timing Is Everything
 
-Every day, millions of dine-in restaurant customers experience the same frustrating pattern. They sit down, wait to be noticed by a server, place their order verbally, and then wait again while the kitchen works through a backlog they cannot see. If the restaurant is busy, the server might not come for ten minutes. The kitchen might be overwhelmed with no mechanism to pace incoming orders. The customer sits, waits, and wonders.
+Every day, millions of restaurant orders suffer from the same fundamental problem: the kitchen has no idea when the customer will actually walk through the door. A customer places an order, and the restaurant starts cooking immediately -- but the customer might be five minutes away or thirty. The food sits. Fries get cold. Ice melts. Alternatively, the kitchen holds off, the customer walks in, and now they are waiting while their order is prepared from scratch.
 
-The root cause is simple: traditional dine-in ordering depends entirely on manual coordination. The server is the bottleneck -- taking orders, relaying them to the kitchen, managing timing across multiple tables. The kitchen has no real-time visibility into how many tables are about to order. The customer has no visibility into kitchen capacity or order progress. Everyone is operating on guesswork.
+The root cause is simple: traditional ordering systems treat the restaurant and the customer as two disconnected parties. There is no coordination between when the food will be ready and when the customer will actually arrive. The restaurant has no visibility into the customer's location. The customer has no visibility into kitchen capacity. Everyone is operating on guesswork.
 
-Arrive solves this problem by enabling dine-in customers to order directly from their table using their phone. The platform uses real-time location awareness to confirm the customer is at the restaurant, manages kitchen capacity to prevent overload, and dispatches orders at the optimal pace. The result is faster service, fresher food, and a kitchen that operates within its capacity -- not beyond it.
+Arrive solves this by introducing real-time location awareness into the ordering process. Customers place their order ahead of time -- from home, from work, from wherever they are. The platform holds the order while the customer goes about their day. When the customer starts heading to the restaurant, the Arrive app tracks their approach and dispatches the order to the kitchen at precisely the right moment. The customer walks in, identifies themselves, sits down, and their food is served fresh to the table. No waiting to order. No waiting for food. The customer's travel time becomes the kitchen's prep time.
 
 
 ## How Arrive Works
 
-Arrive is a three-sided coordination platform that connects dine-in customers, restaurants, and a location-aware dispatch engine into a unified workflow. The platform operates across web, mobile, and point-of-sale touchpoints, and it uses geofencing technology to confirm the customer is physically present at the restaurant before dispatching their order to the kitchen.
+Arrive is a three-sided coordination platform that connects customers, restaurants, and a location-aware dispatch engine into a unified workflow. The platform operates across web, mobile, and point-of-sale touchpoints, and it uses geofencing technology to bridge the gap between when food is ordered and when the customer arrives for their dine-in meal.
 
 ### The Customer Experience
 
-A customer arrives at a restaurant and sits down at their table. They open the Arrive app on their phone or visit the web application, browse the restaurant's menu, and add items to their cart. When they confirm their order, the platform verifies the customer's presence at the restaurant via geofence detection and dispatches the order to the kitchen, respecting the kitchen's current capacity limits.
+A customer opens the Arrive app on their phone or visits the web application. They browse nearby restaurants, explore menus, and add items to their cart. When they confirm their order, the platform does not immediately fire that order to the kitchen. Instead, it holds the order in a pending state while the customer goes about their day.
 
-The kitchen prepares the food, and it is brought to the customer's table. The customer can track the progress of their order on their phone -- from submitted to in preparation to ready to served.
+When the customer is ready to head to the restaurant, they start their journey. The Arrive mobile app tracks their location (with their explicit permission) and detects when they cross into the restaurant's geofence zones. As the customer approaches -- typically about five minutes away -- the platform dispatches the order to the restaurant. The kitchen begins preparation, calibrated to the customer's arrival.
 
-From the customer's perspective, the flow is seamless. They sit down, order from their phone, and their food arrives at the table freshly prepared. There is no flagging down a server, no waiting to place an order verbally, and no uncertainty about when the food will come.
+The customer walks in, lets the staff know who they are, and sits down at their table. Their food is freshly prepared and arrives at the table within moments. There is no waiting to place an order, no waiting for the kitchen -- the travel time was the prep time.
 
 ### The Restaurant Experience
 
@@ -31,13 +31,13 @@ Restaurant staff interact with Arrive through the Admin Portal, a web-based dash
 
 ### The Dispatch Engine
 
-The core of Arrive's value proposition is its dispatch engine, a purpose-built system that decides when to send orders to the kitchen based on real-time location data and kitchen capacity. The engine processes presence and proximity events from the mobile app -- specifically, three progressive signals:
+The core of Arrive's value proposition is its dispatch engine, a purpose-built system that decides when to send orders to the kitchen based on real-time location data. The engine processes arrival events from the mobile app -- specifically, three progressive proximity signals:
 
-The first signal, "5 Minutes Out," fires when the customer enters the outermost geofence zone, typically about 1,500 meters from the restaurant. For dine-in, this often serves as an early indicator that a customer is heading to the restaurant.
+The first signal, "5 Minutes Out," fires when the customer enters the outermost geofence zone, typically about 1,500 meters from the restaurant. This is the default dispatch trigger, and for most restaurants, it provides enough lead time for the kitchen to prepare a standard order.
 
-The second signal, "Parking," fires when the customer enters the middle zone, approximately 150 meters away. This confirms the customer is in the immediate vicinity.
+The second signal, "Parking," fires when the customer enters the middle zone, approximately 150 meters away. Some restaurants with faster preparation times may choose this as their dispatch trigger.
 
-The third signal, "At Door," fires when the customer is within about 30 meters of the restaurant. For the core dine-in use case -- where the customer is already seated inside -- this is the most common trigger, detected automatically when the customer places their order while inside the geofence.
+The third signal, "At Door," fires when the customer is within about 30 meters of the restaurant. This is used for restaurants with extremely fast preparation -- think coffee shops or quick-service counters.
 
 Restaurants can configure which zone triggers order dispatch through the Admin Portal's Capacity Settings. The engine also monitors for an "Exit Vicinity" signal, which automatically completes orders when the customer leaves the restaurant after their meal, reducing manual status management for the kitchen.
 
@@ -64,21 +64,21 @@ The **POS Integration Service** provides an API for third-party point-of-sale sy
 
 Arrive has three frontend applications, each tailored to a specific user persona.
 
-The **Customer Web Application** is a React single-page application built with Vite. It provides restaurant browsing, menu viewing, cart management, dine-in order placement, order tracking, profile management, and a favorites system. It authenticates via AWS Cognito and communicates with the backend through API Gateway HTTP APIs. The web app is deployed to S3 and served through CloudFront.
+The **Customer Web Application** is a React single-page application built with Vite. It provides restaurant browsing, menu viewing, cart management, order placement, order tracking, profile management, and a favorites system. It authenticates via AWS Cognito and communicates with the backend through API Gateway HTTP APIs. The web app is deployed to S3 and served through CloudFront.
 
 The **Admin Portal** is a React application built with TypeScript and Vite. It is the primary tool for restaurant managers and platform administrators. Restaurant admins see a dashboard focused on their assigned restaurant, with a Kanban board for order management, menu ingestion (CSV/Excel upload), capacity configuration, image management, and POS settings. Super admins see a broader dashboard with the ability to manage multiple restaurants and invite new restaurant administrators.
 
-The **Mobile iOS Application** is built with React Native and Expo. It provides the full customer experience -- restaurant browsing, menu viewing, cart management, dine-in order placement, and order tracking -- along with the critical location tracking capability that powers the dispatch engine. The app uses the device's GPS to detect when the customer is at the restaurant and sends presence events (5_MIN_OUT, PARKING, AT_DOOR, EXIT_VICINITY) to the backend to trigger order dispatch and auto-completion.
+The **Mobile iOS Application** is built with React Native and Expo. It provides the full customer experience -- restaurant browsing, menu viewing, cart management, order placement, and order tracking -- along with the critical location tracking capability that powers the dispatch engine. The app uses the device's GPS to detect when the customer enters geofence zones around restaurants, and it sends arrival events (5_MIN_OUT, PARKING, AT_DOOR, EXIT_VICINITY) to the backend to trigger order dispatch and auto-completion.
 
 ### Authentication and Authorization
 
-Arrive uses a dual-authentication model. Customer and admin users authenticate through AWS Cognito, receiving JWT tokens that are validated by API Gateway authorizers on every request. The platform supports three user roles: "customer" for dine-in guests placing orders from their table, "restaurant_admin" for managers of a specific restaurant, and "admin" for super administrators with platform-wide access. Role and restaurant assignment are stored as custom Cognito attributes and propagated through JWT claims.
+Arrive uses a dual-authentication model. Customer and admin users authenticate through AWS Cognito, receiving JWT tokens that are validated by API Gateway authorizers on every request. The platform supports three user roles: "customer" for end users placing orders, "restaurant_admin" for managers of a specific restaurant, and "admin" for super administrators with platform-wide access. Role and restaurant assignment are stored as custom Cognito attributes and propagated through JWT claims.
 
 POS systems use a separate authentication path. Each POS connection is issued an API key that is transmitted in the X-POS-API-Key request header. The key is hashed with SHA-256 before storage and lookup, ensuring that even a database breach does not expose usable credentials. Each key is scoped to a specific restaurant and carries an explicit list of permissions (such as "orders:write," "orders:read," "menu:read," "menu:write") following a fail-closed model where unset permissions default to denied.
 
 ### Geofencing Infrastructure
 
-Arrive uses AWS Location Service to manage geofence zones around each restaurant. Three concentric zones are defined per restaurant location, corresponding to the three proximity events. These zones are managed through a geofence collection, and entry events are delivered to the Orders Service via EventBridge.
+Arrive uses AWS Location Service to manage geofence zones around each restaurant. Three concentric zones are defined per restaurant location, corresponding to the three arrival events. These zones are managed through a geofence collection, and entry events are delivered to the Orders Service via EventBridge.
 
 The geofencing system currently operates in shadow mode by default. In shadow mode, geofence events are received, logged, and recorded against orders, but they do not trigger actual dispatch transitions. This allows the platform to validate geofence accuracy and tune zone radii before enabling live cutover. The cutover is controlled by environment variables (LOCATION_GEOFENCE_CUTOVER_ENABLED and LOCATION_GEOFENCE_FORCE_SHADOW), making it possible to enable or disable live geofencing per deployment without code changes.
 
@@ -98,7 +98,7 @@ Arrive is a functional, deployable platform with real capabilities. The followin
 
 ### What Is Real
 
-All four backend services are implemented, tested, and deployable via SAM/CloudFormation. The order lifecycle works end-to-end, from placement through dispatch, preparation, and completion. The capacity gating system correctly limits concurrent orders per restaurant per time window. The dispatch engine processes presence events and transitions order states accordingly. Menu management supports full CRUD with CSV/Excel import. The Admin Portal provides a functional Kanban board with real-time polling, audio notifications, and auto-promotion. POS integration supports order creation, status updates, menu sync, and webhook ingestion with proper authentication and idempotency. All three frontends are functional and communicate with the backend APIs.
+All four backend services are implemented, tested, and deployable via SAM/CloudFormation. The order lifecycle works end-to-end, from placement through dispatch, preparation, and completion. The capacity gating system correctly limits concurrent orders per restaurant per time window. The dispatch engine processes arrival events and transitions order states accordingly. Menu management supports full CRUD with CSV/Excel import. The Admin Portal provides a functional Kanban board with real-time polling, audio notifications, and auto-promotion. POS integration supports order creation, status updates, menu sync, and webhook ingestion with proper authentication and idempotency. All three frontends are functional and communicate with the backend APIs.
 
 ### What Is Partially Built
 
@@ -117,11 +117,11 @@ There is no analytics dashboard for restaurant insights, no multi-location chain
 
 ## Key Differentiator
 
-What sets Arrive apart from conventional restaurant technology is the location-aware dispatch engine. Most restaurant ordering systems require server interaction for order taking, and the kitchen has no real-time visibility into dine-in demand. Arrive introduces a fundamentally different model: customers order directly from their table via mobile, the platform confirms their presence at the restaurant, manages kitchen capacity in real time, and dispatches orders at the optimal moment.
+What sets Arrive apart from conventional ordering platforms is the location-aware dispatch engine. Most restaurant ordering systems follow a simple model: customer orders, restaurant cooks immediately, food sits and waits. The timing is left to chance. Arrive introduces a fundamentally different model: the platform holds the order, tracks the customer's approach in real time, and dispatches to the kitchen at the optimal moment so the food is ready exactly when the customer walks in.
 
-This is not a minor feature layered onto an existing ordering system. It is the architectural foundation of the entire platform. The order state machine, the capacity gating system, the geofence infrastructure, the mobile location tracking, the progressive proximity events -- all of these are purpose-built to solve the dine-in coordination problem. Every design decision in the system flows from the premise that the right time to dispatch an order is not when the order is placed blindly, but when the customer is confirmed at the restaurant and the kitchen has capacity.
+This is not a minor feature layered onto an existing ordering system. It is the architectural foundation of the entire platform. The order state machine, the capacity gating system, the geofence infrastructure, the mobile location tracking, the progressive arrival events -- all of these are purpose-built to solve the timing problem. Every design decision in the system flows from the premise that the right time to start cooking is not when the order is placed, but when the customer is approaching.
 
-For restaurants, this means less food waste, more consistent quality, better kitchen throughput, and reduced dependency on front-of-house staff for order taking. For customers, it means faster service, no waiting for a server, and a dine-in experience that feels effortless. For the platform, it means a genuine technical moat -- the coordination engine is complex to build, difficult to replicate, and gets better as geofence data improves over time.
+For restaurants, this means less food waste, more consistent quality, and better kitchen throughput. For customers, it means fresh food, no waiting, and a dine-in experience that feels effortless -- they walk in, sit down, and their meal arrives at the table. For the platform, it means a genuine technical moat -- the coordination engine is complex to build, difficult to replicate, and gets better as geofence data improves over time.
 
 
 ## Deployment Model
@@ -135,6 +135,6 @@ Infrastructure is defined as code, fully reproducible, and deployable to any AWS
 
 ## Summary
 
-Arrive is a dine-in restaurant ordering platform that enables customers to order directly from their table via mobile, using real-time geofencing to confirm their presence and coordinate food preparation with kitchen capacity. It runs on a production-grade AWS serverless stack with four backend services, three frontend applications, comprehensive test coverage, and security hardening born from a rigorous 14-phase code review. The platform's location-aware dispatch engine is its core innovation, transforming dine-in ordering from a server-dependent process into a precisely timed coordination between kitchen and customer.
+Arrive is a restaurant ordering platform that uses real-time geofencing to coordinate food preparation with customer arrival. Customers order ahead, and the platform tracks their approach to dispatch orders to the kitchen at exactly the right moment -- so when the customer walks in, sits down, and identifies themselves, their food is freshly prepared and served to the table. It runs on a production-grade AWS serverless stack with four backend services, three frontend applications, comprehensive test coverage, and security hardening born from a rigorous 14-phase code review. The platform's location-aware dispatch engine is its core innovation, transforming the dine-in experience by turning the customer's travel time into the kitchen's prep time.
 
 The system is built, tested, and deployable today. Geofencing operates in shadow mode pending production cutover. Payment is handled at the restaurant. The foundation is solid, the architecture is sound, and the platform is ready for its next phase of development and deployment.

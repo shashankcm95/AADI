@@ -10,7 +10,7 @@ Four backend services are implemented, tested, and deployable via AWS SAM and Cl
 
 ### Frontend Applications
 
-Three frontends are functional and communicating with the backend APIs. The Customer Web Application (React/Vite) supports restaurant browsing, menu viewing, cart management, dine-in order placement, order tracking, and profile management. The Admin Portal (React/TypeScript/Vite) provides a Kanban-style order management board with real-time polling, audio notifications for new orders, auto-promotion of stale incoming orders, menu ingestion, capacity configuration, image management, and POS settings. The Mobile iOS Application (React Native/Expo) delivers the customer experience with the addition of GPS-based location tracking that powers the dispatch engine.
+Three frontends are functional and communicating with the backend APIs. The Customer Web Application (React/Vite) supports restaurant browsing, menu viewing, cart management, order placement, order tracking, and profile management. The Admin Portal (React/TypeScript/Vite) provides a Kanban-style order management board with real-time polling, audio notifications for new orders, auto-promotion of stale incoming orders, menu ingestion, capacity configuration, image management, and POS settings. The Mobile iOS Application (React Native/Expo) delivers the customer experience with the addition of GPS-based location tracking that powers the dispatch engine.
 
 ### Quality and Security
 

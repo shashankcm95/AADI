@@ -101,9 +101,9 @@ Here is the complete state diagram:
 
 **IN_PROGRESS** means the restaurant has started preparing the order. This transition is initiated by the restaurant through the status update endpoint.
 
-**READY** means the food is prepared and ready to be served. The restaurant sets this status when the order is ready to be brought to the customer's table.
+**READY** means the food is prepared and waiting. The restaurant sets this status when the order is done and ready for the customer.
 
-**FULFILLING** means the food is being served to the customer's table. This is the last active status before completion.
+**FULFILLING** means the customer has arrived and is being served. This is the last active status before completion.
 
 **COMPLETED** is the terminal success state. The order has been fully served. In SOFT receipt mode, this can happen automatically when the customer exits the vicinity. In HARD mode, the restaurant must explicitly complete the order.
 

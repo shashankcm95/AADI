@@ -2,11 +2,11 @@
 
 ## Welcome to Arrive
 
-Arrive is a dine-in restaurant ordering app designed around one simple idea: you should be able to order from your table without waiting for a server. No flagging anyone down, no waiting to be noticed, no wondering when your food will come.
+Arrive is a restaurant app designed around one simple idea: your food should be ready exactly when you walk through the door. Not ten minutes before, sitting under a heat lamp getting cold. Not ten minutes after, leaving you standing around waiting. Exactly when you arrive.
 
-Here is how it works. You arrive at a restaurant, sit down at your table, and open the Arrive app or website on your phone. You browse the menu, pick what you want to eat, and place your order. The platform confirms you are at the restaurant, checks the kitchen's current capacity, and dispatches your order at the right time. Your food is prepared fresh and brought to your table.
+Here is how it works. You browse restaurants, pick what you want to eat, and place your order whenever you are ready -- from home, from work, from wherever. Then you go about your day. When you are ready to head to the restaurant, Arrive tracks your approach (with your permission) and tells the kitchen to start cooking at just the right moment. By the time you walk in, identify yourself to the staff, and sit down at your table, your food is freshly made and served to you. No waiting to order. No waiting for food.
 
-This guide walks you through everything you need to know as an Arrive customer, from creating your account to ordering your first meal.
+This guide walks you through everything you need to know as an Arrive customer, from creating your account to enjoying your first meal.
 
 
 ## Getting Started
@@ -17,7 +17,7 @@ To use Arrive, you need to create an account. You can do this on the web at the 
 
 When you sign up, you will be asked for your email address and a password. That is all you need to get started. Your email address becomes your login, and you will use it to sign in each time you open the app.
 
-After you create your account, you can optionally set up your profile with your name and a profile picture. Your name is what the restaurant will see on your order, so it helps them identify who to serve. If you do not set a name, your orders will show up as "Guest."
+After you create your account, you can optionally set up your profile with your name and a profile picture. Your name is what the restaurant will see on your order, so it helps them know who you are when you walk in. If you do not set a name, your orders will show up as "Guest."
 
 ### Signing In
 
@@ -49,7 +49,7 @@ When you are ready, tap the Place Order button to confirm. The button is designe
 
 ### Payment
 
-Arrive currently uses a pay-at-restaurant model. This means you do not enter a credit card or pay through the app. Instead, you pay for your meal at the restaurant, just as you would for any dine-in order. Your server will bring the check to your table when you are ready, and the restaurant handles payment using their existing payment system.
+Arrive currently uses a pay-at-restaurant model. This means you do not enter a credit card or pay through the app. Instead, you pay for your food at the restaurant, just as you would for any dine-in meal. The restaurant handles payment using their existing payment system.
 
 Your order in Arrive shows the total so you know what to expect, but the actual transaction happens at the restaurant.
 
@@ -60,64 +60,62 @@ After you place your order, you can track its progress in real time. Here is wha
 
 ### Pending
 
-Your order has been placed and confirmed. It is in the queue and will be dispatched to the kitchen based on the restaurant's current capacity. If the platform is still confirming your presence at the restaurant, your order will stay in this state briefly.
+Your order has been placed and confirmed. The restaurant has not started working on it yet. This is normal and expected -- Arrive holds your order until you are heading to the restaurant, so the food is cooked fresh when you arrive rather than sitting around getting cold.
 
 ### Waiting for Capacity
 
-The restaurant's kitchen is busy right now, and your order is in a short queue. This happens when a restaurant has reached its maximum number of concurrent orders for the current time window. Your order will be sent to the kitchen as soon as a slot opens up. This is usually a matter of minutes.
+The restaurant is busy right now, and your order is in a short queue. This happens when a restaurant has reached its maximum number of concurrent orders for the current time window. Your order will be sent to the kitchen as soon as a slot opens up. This is usually a matter of minutes.
 
 ### Sent to Restaurant
 
-Your order has been dispatched to the restaurant's kitchen. The kitchen has received your order and knows what to prepare. Your food is about to be made.
+Your order has been dispatched to the restaurant's kitchen. This typically happens when the app detects that you are approaching the restaurant -- about five minutes away. The kitchen has received your order and knows what to prepare.
 
 ### In Progress
 
-The kitchen is actively preparing your food. Sit tight -- your meal is on its way.
+The kitchen is actively preparing your food. This is the status you want to see when you are getting close to the restaurant.
 
 ### Ready
 
-Your food is prepared and will be brought to your table shortly. The restaurant staff can see your name on the order.
+Your food is done. Head inside, let the staff know your name, and take a seat. The restaurant staff can see your name on the order.
 
 ### Fulfilling
 
-The restaurant is serving your food to your table. This status means your order is being delivered to you.
+You have arrived and the restaurant is serving your food to your table. This status means you are at the restaurant and your meal is being brought to you.
 
 ### Completed
 
-All done. You have received your food at your table, and the order is closed. If you finish your meal and leave the restaurant, the app may automatically mark your order as completed for convenience.
+All done. You have your food, you are enjoying your meal, and the order is closed. If you are near the restaurant and you leave after your meal, the app may automatically mark your order as completed for convenience.
 
 ### Canceled
 
 You or the system canceled the order. Orders can be canceled while they are in the Pending or Waiting for Capacity state. Once the order has been sent to the kitchen, it can no longer be canceled through the app -- you would need to speak with the restaurant directly.
 
 
-## How Presence Detection Works
+## The Arrival Flow
 
-This is what makes Arrive different from other ordering apps. Here is how the platform confirms you are at the restaurant and coordinates the ordering flow.
+This is what makes Arrive different from other ordering apps. Here is what happens behind the scenes as you head to the restaurant for your meal.
 
-### Location Tracking
+### How Location Tracking Works
 
-When you use the Arrive mobile app, it asks for permission to access your location. This is entirely optional on the web, but on the mobile app, location tracking is what powers the core dine-in experience.
+When you use the Arrive mobile app, it asks for permission to access your location. This is entirely optional on the web, but on the mobile app, location tracking is what powers the core timing feature.
 
-The app does not track you all the time. It monitors your location only when you have an active dine-in order, to confirm you are at the restaurant. Once your order is completed or canceled, location tracking stops.
+The app does not track you all the time. It monitors your location only when you have an active order that is pending. Once your order is completed or canceled, location tracking stops.
 
-### Arriving at the Restaurant
+### Five Minutes Away
 
-As you approach or enter the restaurant, the app detects your proximity through geofence zones. When you are seated inside and place your order, the platform confirms your presence automatically. If you are already inside the restaurant (the typical dine-in scenario), the app detects this immediately and dispatches your order to the kitchen, subject to capacity availability.
+When the app detects that you are about five minutes from the restaurant (roughly 1,500 meters away, depending on the restaurant's configuration), it sends a signal to the platform. If the restaurant has capacity available, this is when your order gets dispatched to the kitchen. The kitchen starts cooking, timed to have your food ready right as you walk in.
 
-### Progressive Proximity Signals
+### Parking
 
-The platform uses three proximity zones around each restaurant:
+When you are very close to the restaurant -- within about 150 meters, which usually means you are pulling into the parking lot -- the app sends another signal. If your order had not already been dispatched (for example, if the restaurant was at capacity when you were five minutes away), this signal can trigger dispatch. The restaurant also sees an update that you are nearby.
 
-**Five Minutes Out** -- roughly 1,500 meters away. This is an early signal that you are heading toward the restaurant.
+### At the Door
 
-**Parking** -- about 150 meters away, meaning you are in the immediate vicinity. The restaurant sees an update that you are nearby.
-
-**At the Door** -- within about 30 meters. You are inside or right at the entrance. For dine-in orders placed from your table, this is the signal that triggers dispatch.
+When you are within about 30 meters of the restaurant, the app sends a final proximity signal. The restaurant knows you are right outside or walking in. For most orders, your food should be ready or nearly ready at this point.
 
 ### Leaving
 
-After you have finished your meal and leave the restaurant, the app detects your departure. If your order is in the Fulfilling state (meaning the restaurant has marked your food as served), the app automatically completes the order. This saves you and the restaurant the trouble of manually closing it out.
+After you have finished your meal and leave the restaurant, the app detects your departure. If your order is in the Fulfilling state (meaning the restaurant has marked it as being served to you), the app automatically completes the order. This saves you and the restaurant the trouble of manually closing it out.
 
 
 ## Managing Your Profile
@@ -133,15 +131,15 @@ If you make changes and decide you do not want to keep them, you can cancel befo
 
 ### Do I need the mobile app, or can I use the website?
 
-You can use either. The website lets you browse restaurants, place orders, track their status, and manage your profile. The mobile app does all of that plus automatic location detection, which is what enables seamless presence confirmation at the restaurant. If you use only the website, you can still place dine-in orders -- the restaurant will receive them, though the automatic presence confirmation will not be available.
+You can use either. The website lets you browse restaurants, place orders, track their status, and manage your profile. The mobile app does all of that plus location tracking, which is what enables the "food ready when you arrive" feature. If you use only the website, you can still place orders -- the restaurant will just receive them without the arrival timing optimization.
 
-### How does Arrive know I am at the restaurant?
+### How does Arrive know when I am near the restaurant?
 
-The mobile app uses your phone's GPS to detect when you are within the restaurant's geofence zones. There are three zones at different distances. You must grant location permission for this to work, and the app only uses your location when you have an active order.
+The mobile app uses your phone's GPS to detect when you cross into zones around the restaurant. There are three zones at different distances. You must grant location permission for this to work, and the app only uses your location when you have an active order.
 
 ### Can I cancel my order?
 
-Yes, as long as the order has not been sent to the kitchen yet. If your order is still in the Pending or Waiting for Capacity state, you can cancel it through the app. Once the order has been dispatched to the restaurant and they have started preparing it, cancellation is no longer available through the app. In that case, you would need to speak with your server or the restaurant staff directly.
+Yes, as long as the order has not been sent to the kitchen yet. If your order is still in the Pending or Waiting for Capacity state, you can cancel it through the app. Once the order has been dispatched to the restaurant and they have started preparing it, cancellation is no longer available through the app. In that case, you would need to contact the restaurant directly.
 
 ### Why is my order "Waiting for Capacity"?
 
@@ -149,11 +147,11 @@ The restaurant has a limit on how many orders they can handle at the same time. 
 
 ### Do I pay through the app?
 
-Not currently. Arrive uses a pay-at-restaurant model. You pay for your meal at the table when you are ready, using whatever payment method the restaurant accepts. The app shows you the order total so there are no surprises.
+Not currently. Arrive uses a pay-at-restaurant model. You pay for your food at the restaurant when you are ready, using whatever payment method the restaurant accepts. The app shows you the order total so there are no surprises.
 
-### What if the app is not detecting my location at the restaurant?
+### What if I placed an order but I am not heading to the restaurant yet?
 
-Make sure location services are enabled on your phone and that you have granted the Arrive app permission to access your location. GPS signal can sometimes be weak inside buildings. If automatic detection is not working, your order will still be received by the restaurant -- the platform handles this gracefully.
+That is perfectly fine. Your order stays in the Pending state until you start heading to the restaurant. The kitchen will not start cooking until the app detects that you are approaching. Orders do eventually expire if left in the Pending state for too long (typically one hour), so do not wait all day. But there is no rush -- the whole point of Arrive is that the timing is based on your arrival, not on when you placed the order.
 
 ### Can I reorder from a previous restaurant?
 
@@ -165,4 +163,4 @@ Look for the Sign Out button in the app, typically in the profile or settings ar
 
 ### Something went wrong with my order. What do I do?
 
-If your order is not showing the correct status, try refreshing the order list. If the issue persists, the best course of action is to speak with the restaurant staff directly. They can see your order on their dashboard and can update its status or help resolve any issues.
+If your order is not showing the correct status, try refreshing the order list. If the issue persists, the best course of action is to contact the restaurant directly. They can see your order on their dashboard and can update its status or help resolve any issues.

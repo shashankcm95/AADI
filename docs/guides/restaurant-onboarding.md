@@ -2,11 +2,11 @@
 
 ## What Arrive Offers Your Restaurant
 
-Arrive is a dine-in ordering platform built around a simple but powerful idea: customers should be able to order directly from their table using their phone. The platform uses real-time location tracking to confirm the customer is at your restaurant, manages kitchen capacity in real time, and dispatches orders to the kitchen at the right pace.
+Arrive is a restaurant ordering platform built around a simple but powerful idea: food should be ready exactly when the customer walks in. Not before, not after. This is accomplished through real-time location tracking that tells your kitchen when to start cooking based on when the customer is actually approaching your restaurant.
 
-For your restaurant, this means several concrete benefits. Food waste goes down because the capacity system prevents the kitchen from being overwhelmed, so food is prepared and served fresh to the table. Customer satisfaction goes up because diners do not wait for a server to take their order -- they order when they are ready. Kitchen throughput improves because the platform controls the flow of orders to match your actual capacity, preventing the rush-hour spikes that overwhelm your line. And staff stress decreases because front-of-house staff spend less time taking orders and more time delivering food and attending to guests.
+For your restaurant, this means several concrete benefits. Food waste goes down because you are not cooking orders that sit under a heat lamp while the customer is stuck in traffic. Customer satisfaction goes up because every order is fresh when it reaches the table. Kitchen throughput improves because the platform controls the flow of orders to match your actual capacity, preventing the rush-hour spikes that overwhelm your line. And staff stress decreases because the system handles the timing and sequencing that your team currently manages by feel and guesswork.
 
-Arrive is not a delivery or takeout platform. It focuses exclusively on dine-in table service, which means there are no delivery fees, no driver coordination, and no middleman between your food and your customer. The customer sits at their table, orders from their phone, and the food is brought to them. You handle payment as you do today.
+Arrive is not a delivery platform. It focuses exclusively on dine-in service -- customers order ahead, the kitchen prepares their food timed to their arrival, and the meal is served fresh to their table. There are no delivery fees to negotiate, no driver coordination headaches, and no middleman between your food and your customer. The customer walks in, identifies themselves, sits down, and their food is brought to them. You handle payment at the table, just as you do today.
 
 
 ## What You Need to Get Started
@@ -15,7 +15,7 @@ Getting your restaurant onto Arrive is straightforward. Here is what you will ne
 
 ### Restaurant Information
 
-You will need your restaurant's name, address, and a brief description. The address is important because it is used to set up the geofence zones that detect when customers are at the restaurant. A good description helps customers find and choose your restaurant when browsing the app.
+You will need your restaurant's name, address, and a brief description. The address is important because it is used to set up the geofence zones that detect when customers are approaching. A good description helps customers find and choose your restaurant when browsing the app.
 
 You can also upload images of your restaurant -- photos of the exterior, interior, or signature dishes. These appear on your restaurant listing in the customer app and help attract new orders. Images are uploaded through the Admin Portal and stored securely.
 
@@ -40,15 +40,17 @@ The manager signs in with an email address and password through the Admin Portal
 
 ### The Order Lifecycle
 
-When a dine-in customer at your restaurant places an order through the Arrive app, here is what happens from your perspective.
+When a customer places an order for your restaurant through the Arrive app, here is what happens from your perspective.
 
-First, the platform confirms the customer is at the restaurant using geofence detection. Once presence is confirmed and the kitchen has capacity, the order is dispatched to your dashboard. The order appears in the "Incoming" lane on your Kanban board, and your dashboard plays an audio notification so your team knows a new order has arrived.
+First, the order enters a Pending state. You do not see it yet because the customer has not started heading your way. The order is being held by the platform, waiting for the customer to approach. This is the key innovation -- the kitchen is not bothered with orders until the customer is close.
 
-From this point, the order moves through a clear sequence of statuses that your team controls. You move the order to "In Progress" when the kitchen starts working on it. You move it to "Ready" when the food is done. You move it to "Fulfilling" when you are serving the food to the customer's table. And you move it to "Completed" when the meal has been delivered. There is also a quick-complete option that advances the order through all remaining steps in a single action, which is handy during busy periods.
+When the customer starts heading toward your restaurant and enters the geofence zone (usually about five minutes away), the platform dispatches the order to your dashboard. The order appears in the "Incoming" lane on your Kanban board, and your dashboard plays an audio notification so your team knows a new order has arrived.
 
-### Presence Tracking
+From this point, the order moves through a clear sequence of statuses that your team controls. You move the order to "In Progress" when the kitchen starts working on it. You move it to "Ready" when the food is done. You move it to "Fulfilling" when the customer has arrived and you are serving them at their table. And you move it to "Completed" when the meal has been delivered. There is also a quick-complete option that advances the order through all remaining steps in a single action, which is handy during busy periods.
 
-The platform confirms that customers are physically at your restaurant using geofence zones. Your dashboard shows proximity indicators -- whether the customer is nearby, at the door, or inside. This gives your kitchen useful context about active orders.
+### Arrival Tracking
+
+As the customer approaches your restaurant, the platform provides progressive updates about their proximity. Your dashboard shows whether the customer is about five minutes away, parking, or at the door. This gives your kitchen a real-time sense of urgency -- if a customer is parking and their order is still in progress, the team knows to prioritize it. If a customer is five minutes out and the order has not been started, there is still plenty of time.
 
 When the customer leaves the restaurant after their meal, the platform can automatically complete the order if it is in the Fulfilling state. This reduces the manual bookkeeping your team needs to do at the end of each order.
 
@@ -59,9 +61,9 @@ One of the most important features of Arrive for restaurants is capacity managem
 
 Each restaurant has two configurable parameters. The first is the maximum number of concurrent orders, which defaults to 10. This is the number of orders that can be in active preparation within a single time window. The second is the time window duration, which defaults to 5 minutes (300 seconds). You can also choose 10, 15, or 30-minute windows depending on your kitchen's pace.
 
-Here is how it works in practice. If your maximum is set to 10 and a customer at your restaurant places an order, the system checks whether there are fewer than 10 active orders in the current window. If so, the order is dispatched immediately. If all 10 slots are taken, the order enters a "Waiting for Capacity" state and is queued. As soon as an order completes or a new time window opens, queued orders are dispatched automatically.
+Here is how it works in practice. If your maximum is set to 10 and a customer's arrival triggers order dispatch, the system checks whether there are fewer than 10 active orders in the current window. If so, the order is dispatched immediately. If all 10 slots are taken, the order enters a "Waiting for Capacity" state and is queued. As soon as an order completes or a new time window opens, queued orders are dispatched automatically.
 
-You can also configure which geofence zone triggers dispatch. The default is the "5 Minutes Out" zone (about 1,500 meters), but for dine-in where the customer is already seated, the "At Door" zone (about 30 meters) is typically most relevant -- it fires automatically when the customer is inside the restaurant. A coffee shop that can pull an espresso in two minutes might prefer "At Door" dispatch, while a full-service restaurant with complex entrees might use a wider zone for advance notice.
+You can also configure which geofence zone triggers dispatch. The default is the "5 Minutes Out" zone (about 1,500 meters), but if your kitchen is fast, you might prefer the "Parking" zone (about 150 meters) or even the "At Door" zone (about 30 meters). A coffee shop that can pull an espresso in two minutes might choose "At Door," while a full-service restaurant with complex entrees would stick with "5 Minutes Out."
 
 These settings are adjustable at any time through the Admin Portal's Capacity Settings panel. You can tune them as you learn how the platform works with your specific kitchen operations.
 
@@ -83,7 +85,7 @@ POS integration is entirely optional. If you do not use a POS system, or if you 
 
 The Admin Portal is your day-to-day tool for managing your restaurant on Arrive. It is a web application that you access through your browser -- no software to install.
 
-When you sign in, you will see your restaurant's dashboard with a Kanban-style board showing all active orders organized by status. The board has lanes for Incoming (orders just dispatched to your kitchen), In Progress (orders being prepared), Ready (food prepared, ready to serve), Fulfilling (food being served to the table), and Completed (finished orders). Orders flow from left to right as your team processes them.
+When you sign in, you will see your restaurant's dashboard with a Kanban-style board showing all active orders organized by status. The board has lanes for Incoming (orders just dispatched to your kitchen), In Progress (orders being prepared), Ready (food done, waiting to be served), Fulfilling (food being brought to the table), and Completed (finished orders). Orders flow from left to right as your team processes them.
 
 Beyond the order board, the Admin Portal gives you access to menu management (import menus from CSV/Excel, view current menu items, see categories and prices), capacity settings (adjust concurrent order limits and time windows), restaurant images (upload and manage photos of your restaurant), POS settings (configure POS connections if applicable), and archived orders (view completed orders that have rolled off the main board).
 
@@ -103,4 +105,4 @@ If you have questions during onboarding or after going live, the Arrive team is 
 
 As the platform evolves, new features will become available to restaurants, including analytics dashboards with insights into order volumes and preparation times, push notifications for new orders (complementing the current audio alerts), adaptive capacity that learns from your kitchen's historical patterns, and kitchen display system integration for in-kitchen order screens.
 
-Arrive is designed to make dine-in ordering better for everyone -- your kitchen staff, your customers, and your bottom line. Welcome aboard.
+Arrive is designed to make the dine-in experience better for everyone -- your kitchen staff, your customers, and your bottom line. Welcome aboard.
