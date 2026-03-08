@@ -67,7 +67,7 @@ jobs:
         run: |
           pip install detect-secrets
           detect-secrets scan --baseline .secrets.baseline
-          detect-secrets audit --report --baseline .secrets.baseline
+          detect-secrets audit --report .secrets.baseline
 
   frontend-check:
     if: false  # Disabled until frontend CI dependencies are configured
